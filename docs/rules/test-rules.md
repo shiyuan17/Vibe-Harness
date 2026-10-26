@@ -55,9 +55,9 @@
 
 ### 重任务锁与最终合并树
 
-- `deep` 或后端全量验证在同一仓库同时只允许一个，使用 Git common dir 下的本地租约锁；持有者退出或租约过期后才可回收，不因等待时间长而强删活跃租约。`land` 预检发现锁被持有时 blocked，避免候选 worktree 与主检出争用依赖和端口。
-- `worktree stage`、`worktree publish` 与兼容的 `worktree land` 默认复用已通过的逐检查证据（`reuse:true`），但 completion receipt 的审查结论必须按本次调用的目标分支和政策重新计算，不能继承旧收据。远端前进触发 publish 重建时必须重新验证最终组合树。合并候选内禁用表单/Git Hook（空 hooks path、`LEFTHOOK=0`、`HUSKY=0`、`--no-verify`），避免改写共享依赖。
-- `land` 的验证判据覆盖合并后的稳定最终候选树：请求层级实际选中的检查非空且均通过，输入与候选指纹一致；失败、空选择、未知范围或输入变化不可算通过。未选的高层检查列为 deferred，不阻止所请求层级，也不得宣称那些层级已完成。持久收据/provenance 写盘不是合并门禁。
+- 候选验证不进入交付 FIFO，也不持有仓库级互斥锁；验证在队列外持有带心跳续期的候选活动租约，被后续发布取代时由发布侧写入协作 CANCEL sidecar，下一次轮询在检查之间中止，进程树终止后租约被强制释放。持有者退出或心跳过期后才可回收，不因等待时间长而强删活跃租约。
+- `worktree stage` 与 `worktree publish` 默认复用已通过的逐检查证据（`reuse:true`），但 completion receipt 的审查结论必须按本次调用的目标分支和政策重新计算，不能继承旧收据。远端前进触发 publish 重建时，重建候选复制前候选收据并增量重验最终组合树，未受新输入影响的检查按 tree-content 复用命中，不得把复用结果当作新输入检查的实测证据。合并候选内禁用表单/Git Hook（空 hooks path、`LEFTHOOK=0`、`HUSKY=0`、`--no-verify`），避免改写共享依赖。
+- `stage`/`publish` 的验证判据覆盖合并后的稳定最终候选树：请求层级实际选中的检查非空且均通过，输入与候选指纹一致；失败、空选择、未知范围或输入变化不可算通过。未选的高层检查列为 deferred，不阻止所请求层级，也不得宣称那些层级已完成。持久收据/provenance 写盘不是合并门禁。
 
 ## REPL / Micro Verification
 

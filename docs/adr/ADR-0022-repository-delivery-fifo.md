@@ -1,7 +1,7 @@
 ---
 id: ADR-0022
 title: 仓库级 FIFO 串行化受管 Worktree 交付
-status: accepted
+status: superseded
 date: 2026-10-25
 review-date: 2027-04-25
 owner: vibe-harness-maintainers
@@ -9,7 +9,7 @@ decision-makers: [vibe-harness-maintainers]
 consulted: [vibe-harness-contributors]
 informed: [linear-workflow-users]
 supersedes: [ADR-0021]
-superseded-by: null
+superseded-by: ADR-0024
 ---
 
 # 仓库级 FIFO 串行化受管 Worktree 交付

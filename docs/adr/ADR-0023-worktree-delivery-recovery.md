@@ -1,7 +1,7 @@
 ---
 id: ADR-0023
 title: 受管 Worktree 交付的 supersede 与外部集成归档
-status: accepted
+status: superseded
 date: 2026-10-25
 review-date: 2027-04-25
 owner: vibe-harness-maintainers
@@ -9,7 +9,7 @@ decision-makers: [vibe-harness-maintainers]
 consulted: [vibe-harness-contributors]
 informed: [linear-workflow-users]
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0024
 ---
 
 # 受管 Worktree 交付的 supersede 与外部集成归档

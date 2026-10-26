@@ -92,6 +92,10 @@
     {
       "id": "ADR-0023",
       "path": "docs/adr/ADR-0023-worktree-delivery-recovery.md"
+    },
+    {
+      "id": "ADR-0024",
+      "path": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md"
     }
   ]
 }

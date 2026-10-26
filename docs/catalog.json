@@ -1506,16 +1506,29 @@
     {
       "path": "docs/adr/ADR-0022-repository-delivery-fifo.md",
       "kind": "architecture",
-      "status": "current",
+      "status": "superseded",
       "language": "zh-CN",
       "audiences": [
         "contributor",
         "maintainer",
         "auditor"
-      ]
+      ],
+      "supersededBy": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md"
     },
     {
       "path": "docs/adr/ADR-0023-worktree-delivery-recovery.md",
+      "kind": "architecture",
+      "status": "superseded",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ],
+      "supersededBy": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md"
+    },
+    {
+      "path": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md",
       "kind": "architecture",
       "status": "current",
       "language": "zh-CN",

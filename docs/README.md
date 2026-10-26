@@ -31,6 +31,7 @@
 - [本地暂存与远端发布两阶段 worktree 交付](adr/ADR-0021-staged-local-publish-delivery.md)
 - [仓库级 FIFO 串行化受管 Worktree 交付](adr/ADR-0022-repository-delivery-fifo.md)
 - [受管 Worktree 交付的 supersede 与外部集成归档](adr/ADR-0023-worktree-delivery-recovery.md)
+- [验证出队与秒级发布终锁的交付协议](adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md)
 - [ADR Schema](schemas/adr.schema.json)
 - [Execution Envelope v1 Schema](schemas/execution-envelope.schema.json)
 - [Execution Envelope v2 Schema](schemas/execution-envelope-v2.schema.json)

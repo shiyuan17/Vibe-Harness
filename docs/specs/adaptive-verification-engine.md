@@ -56,7 +56,7 @@ CLI 与安装运行时共用档位选择器，以命令和项目相对 `cwd` 去
 
 ### 重任务锁
 
-`deep` 或后端全量验证在同一仓库同时只允许一个。租约文件位于 Git common dir，记录 nonce、PID、host、startedAt、heartbeatAt 与 leaseMs；心跳持续续约，持有者退出或心跳过期后才可回收。`land` 预检发现租约被持有时 blocked，不创建候选；并发 deep 验证返回明确的锁原因而不是以测试失败掩盖资源争用。
+重型验证不再用仓库级互斥锁串行化。候选验证在交付 FIFO 外运行，持有 Git common dir 下的候选活动租约（nonce、PID、心跳与 TTL），心跳持续续约，持有者退出或心跳过期后才可回收，不因等待时间长而强删活跃租约；被后续发布取代的候选收到协作 CANCEL sidecar，下一次轮询在检查之间中止，进程树终止后租约被强制释放。并发验证的资源争用以明确的失败原因报告，不以测试失败掩盖。
 
 项目检查可在 stdout 或 stderr 输出一行 `[VIBE_HARNESS_CHECK] {"status":"not_applicable","reason":"..."}` 表示未执行适用验证，也可声明 `blocked` 或 `failed`；该协议不能把失败退出码提升为通过，后续跳过标记不能覆盖失败。所有检查均不适用时返回 unverified；部分检查跳过时记录覆盖缺口，不缓存整组通过。affected 范围确实没有变化时可无操作结束，但不产生通过收据。
 

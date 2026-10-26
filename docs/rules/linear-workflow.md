@@ -31,7 +31,7 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 
 Linear 写入遵循读取 → 校验 → 写入 → 重读确认，结果不明先按同一幂等键重读，部分创建保留已确认 ID，不盲目新建。尚未尝试写入且现有上下文足以核对任务与依赖时，可继续本地工作并标记 `unregistered / Linear 未同步`；已尝试但结果未知时停止受影响同步与节点，保留现场。
 
-write 节点优先使用宿主或当前会话已创建的 worktree，并以 `--task <ISSUE-ID>:<branch>` 精确归因；没有可用隔离树时用 `worktree bootstrap` 创建已登记工作区。提交 `Refs <ISSUE-ID>` 后，local-land 按 `git-rules.md` 的 stage/publish 合同执行：`worktree stage` 从本地 develop 快照 no-ff 合并并验证，持久化为 `local_staged`；`worktree publish --batch <id>` 再对齐最新 `origin/develop`，需要时重建验证，精确推送并重读远端 SHA。主检出或宿主会话不必为 stage 单独登记端口，stage 也不要求主检出一个干净；主检出脏或落后只影响发布后的本地同步，保留用户改动。`--target-mode primary` 仅为旧 `worktree land` 兼容参数；`--target-mode remote` 退役，不得绕过 stage/publish。
+write 节点优先使用宿主或当前会话已创建的 worktree，并以 `--task <ISSUE-ID>:<branch>` 精确归因；没有可用隔离树时用 `worktree bootstrap` 创建已登记工作区。提交 `Refs <ISSUE-ID>` 后，local-land 按 `git-rules.md` 的 stage/publish 合同执行：`worktree stage` 从本地 develop 快照 no-ff 合并并验证，持久化为 `local_staged`；`worktree publish --batch <id>` 先 fetch 自动对账——候选已含于远端则确认，远端前进时从新基线重建并复制收据增量重验——需要终锁才进入秒级 FIFO 段，精确推送并重读远端 SHA。主检出或宿主会话不必为 stage 单独登记端口，stage 也不要求主检出一个干净；主检出脏或落后只影响发布后的本地同步，保留用户改动。`--target-mode primary` 是 stage 专属的意图断言；`--target-mode remote` 退役，不得绕过 stage/publish。
 
 local-land 的候选验证与精确远端推送确认后，write 节点即可 Done / succeeded；`local_staged` 只证明本地候选，不能单独支撑 Done。清理失败单列 `integrated_cleanup_pending`，不阻塞依赖后继。残留路径、端口和 resourceLocks 继续占用，后继资源冲突时仍不得派发。read 以输出与 Verification 完成；aggregate Parent 须全部必需后代成功并通过最终组合行为的 fan-in 验证。普通 PR/MR 路径仍以 closing 合并证据完成。
 
