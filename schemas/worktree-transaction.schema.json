@@ -63,8 +63,6 @@
         "merged",
         "queued",
         "staged",
-        "verified",
-        "local_merged",
         "publishing",
         "push_uncertain",
         "push_confirmed",
@@ -73,43 +71,84 @@
         "archived_integrated"
       ]
     },
-    "supersedeHistory": {
+    "reconcileHistory": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "recordedAt",
+          "at",
+          "kind",
           "fromPhase",
-          "fromRemoteHead",
+          "remoteHead",
           "fromCandidateHead",
-          "resolution"
+          "toCandidateHead"
         ],
         "properties": {
-          "recordedAt": {
+          "at": {
             "type": "string",
             "format": "date-time"
           },
+          "kind": {
+            "type": "string",
+            "enum": ["integrated", "archived-integrated", "rebuilt"]
+          },
           "fromPhase": {
             "type": "string",
-            "enum": ["publishing", "push_uncertain"]
+            "enum": [
+              "merging",
+              "conflict",
+              "merged",
+              "queued",
+              "staged",
+              "publishing",
+              "push_uncertain",
+              "push_confirmed",
+              "cleanup_pending",
+              "recovery_required",
+              "archived_integrated"
+            ]
           },
-          "fromRemoteHead": {
+          "remoteHead": {
             "type": "string",
             "pattern": "^[0-9a-f]{40,64}$"
           },
           "fromCandidateHead": {
-            "type": "string",
+            "type": ["string", "null"],
             "pattern": "^[0-9a-f]{40,64}$"
           },
           "toCandidateHead": {
             "type": ["string", "null"],
             "pattern": "^[0-9a-f]{40,64}$"
-          },
-          "resolution": {
-            "type": "string",
-            "enum": ["candidate-contained", "rebuilt"]
           }
+        }
+      }
+    },
+    "verifyFailure": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["code", "failureType", "candidateFailed", "at", "status", "detail"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": ["LAND_VERIFY_FAILED", "LAND_VERIFY_ENVIRONMENT_FAILED"]
+        },
+        "failureType": {
+          "type": "string",
+          "enum": ["checks-failed", "snapshot-drift", "snapshot-unknown", "blocked", "stale", "not-run"]
+        },
+        "candidateFailed": {
+          "type": "boolean"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "type": ["string", "null"]
+        },
+        "detail": {
+          "type": ["string", "null"]
         }
       }
     },
