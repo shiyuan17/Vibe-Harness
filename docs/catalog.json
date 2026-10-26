@@ -1513,6 +1513,17 @@
         "maintainer",
         "auditor"
       ]
+    },
+    {
+      "path": "docs/adr/ADR-0023-worktree-delivery-recovery.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     }
   ]
 }

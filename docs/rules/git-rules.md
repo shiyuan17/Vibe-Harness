@@ -81,6 +81,21 @@ stage 基线前进时，从新基线重新合入同一组冻结源提交并重�
 `VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS` 收紧；旧
 `VIBE_HARNESS_LAND_LOCK_TIMEOUT_MS` 作为兼容别名。
 
+`push_uncertain` 或中断的 `publishing` 若在远端前进后无法继续普通
+publish，必须由显式 `--supersede` 恢复：
+
+```bash
+node .agents/runtime/commands/run.mjs worktree publish --project . \
+  --batch <batch-id> --supersede --delivery local-land --write --json
+```
+
+队首会重新读取精确远端：候选仍是远端祖先时只确认并收口；远端仍停在
+staged 基线时返回 `LAND_SUPERSEDE_NOT_REQUIRED` 并要求普通 publish；
+远端已包含全部冻结源 HEAD 但未包含旧候选时返回
+`LAND_SOURCE_ALREADY_INTEGRATED`，要求显式归档；其余情况只有源 HEAD
+未漂移且工作区干净时才在原批次内从最新远端重建、重验、推送和同步。
+旧候选与 staged ref 在失败时保留，supersede 历史写入事务。
+
 ### 残留锁处理
 
 当交付进程异常中止时，队列票、事务 lease 或旧格式锁可能残留。处理步骤：
@@ -96,7 +111,18 @@ stage 基线前进时，从新基线重新合入同一组冻结源提交并重�
    仅回收心跳过期票、死进程 lease、已结束事务的干净候选与私有 ref。
    活跃租约、脏候选和无法归属的内容继续报告并保留。
 
-3. **限域恢复候选 worktree**：若临时候选 worktree 残留在
+3. **显式归档已外部集成的历史事务**：
+   ```bash
+   node .agents/runtime/commands/run.mjs worktree recover --project . \
+     --batch <batch-id> --archive-integrated --write --json
+   ```
+   命令在仓库 FIFO 和批次 lease 内重新 fetch 精确目标 ref，并证明事务中
+   所有冻结源 HEAD 都是远端目标的祖先后才写入 `archived_integrated`。
+   证明失败时不改状态；干净候选和匹配的 staged ref 可回收，脏候选、
+   不匹配 ref、源分支和用户 worktree 继续保留。归档事务保留审计记录，
+   不由普通 `recover --all --write` 删除。
+
+4. **限域恢复候选 worktree**：若临时候选 worktree 残留在
    `.vibe-harness-land-{taskId}-{uuid}`，先检查目标任务、活动租约和工作区状态：
    ```bash
    node .agents/runtime/commands/run.mjs worktree recover --project . --task <taskId> --write --json
@@ -113,6 +139,10 @@ stage 基线前进时，从新基线重新合入同一组冻结源提交并重�
 - 自定义重型检查通过 `validationCommands.checks[].resourceClass:
   "repo-heavy"` 声明；`deep` 与显式重型检查进入同一队列，`mvn/gradle`
   命令行识别只作为兼容回退。
+- 自定义 `verify:changed` 一类重检查必须改用
+  `node .agents/runtime/commands/run.mjs verify --project . --tier quick
+  --paths <paths...>`，不能只在干净候选树中直接执行底层脚本；`--paths`
+  显式提供变更范围，避免空 diff 回退到不受管的检验路径。
 
 ### 版本词汇
 
@@ -176,7 +206,19 @@ managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送�
 
 `--target-mode primary` 仅保留在兼容的旧 `land` 路径；`remote` 已退役，任何写入前必须明确拒绝并提示迁移。`--base-ref develop` 是目标断言，不是分支切换。`land --push` 复用同一 FIFO 和最终发布器，脏主检出只使本地同步 `deferred`，不阻塞远端发布。旧 `land` 不带 `--push` 的本地 checkout merge 仍进入队列，并继续要求主检出干净。新流程的 `stage` 只产生 `local_staged`，必须经 `publish` 回读远端 SHA 才算完整交付。
 
-恢复记录按 v3 保存在 Git common dir，增加 `queue`、`publishing` 与 `recovery_required` 等阶段字段，并继续读取 v1/v2 后在下次安全写入升级。记录绑定源 HEAD、冻结基线、候选 SHA、精确目标及阶段，不依赖 Linear Receipt。冲突、验证失败和 `push_uncertain` 先记录后释放队列；stage 后源提交漂移必须重新 stage，publish 不得静默换成新提交。推送结果不明先查询精确远端，确认候选已在远端时只继续清理，远端仍停在基线时可有界重推原候选。远端分叉不 reset、rebase、force push 或删除源。仍有交付事务的源工作区只能经对应 `stage`/`publish`/`status`/`discard` 或旧 `land --resume` 恢复；通用 cleanup 不得绕过事务直接清理。
+恢复记录按 v4 保存在 Git common dir，增加 `queue`、`publishing`、
+`recovery_required`、`supersedeHistory`、`archive` 与
+`archived_integrated` 等阶段字段，并继续读取 v1/v2/v3 后在下次安全
+写入升级。记录绑定源 HEAD、冻结基线、候选 SHA、精确目标及阶段，不依赖
+Linear Receipt。冲突、验证失败和 `push_uncertain` 先记录后释放队列；
+stage 后源提交漂移必须重新 stage，publish 不得静默换成新提交。推送结果
+不明先查询精确远端，确认候选已在远端时只继续清理，远端仍停在基线时可
+有界重推原候选。远端前进且不含旧候选时必须显式 `--supersede`；冻结源
+已全部集成时必须显式 `--archive-integrated`。远端分叉不 reset、rebase、
+force push 或删除源。仍有交付事务的源工作区只能经对应
+`stage`/`publish`/`status`/`discard`、显式归档或旧 `land --resume`
+恢复；通用 cleanup 不得绕过事务直接清理。旧版运行时不能读取 v4 事务，
+升级前必须结束旧版交付进程。
 
 交付状态分层报告：`commandStatus` 表示本次命令结论，`integrationStatus` 表示本地暂存或远端集成，`remoteValidation` 表示远端检查，`localRefSync` 表示主检出同步。只有远端 SHA 回读确认候选已到达远端才可写 `integrated`；候选已被后续远端提交覆盖但仍是祖先时按实际远端 HEAD 同步。本地暂存只能写 `local_staged`；推送结果不明时 `discard` 必须拒绝。
 

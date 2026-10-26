@@ -30,6 +30,7 @@
 - [轻量交付边界、三档阻塞与验证执行时限](adr/ADR-0020-lightweight-delivery-blocking-and-verification-limits.md)
 - [本地暂存与远端发布两阶段 worktree 交付](adr/ADR-0021-staged-local-publish-delivery.md)
 - [仓库级 FIFO 串行化受管 Worktree 交付](adr/ADR-0022-repository-delivery-fifo.md)
+- [受管 Worktree 交付的 supersede 与外部集成归档](adr/ADR-0023-worktree-delivery-recovery.md)
 - [ADR Schema](schemas/adr.schema.json)
 - [Execution Envelope v1 Schema](schemas/execution-envelope.schema.json)
 - [Execution Envelope v2 Schema](schemas/execution-envelope-v2.schema.json)

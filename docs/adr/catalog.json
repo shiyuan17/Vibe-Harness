@@ -88,6 +88,10 @@
     {
       "id": "ADR-0022",
       "path": "docs/adr/ADR-0022-repository-delivery-fifo.md"
+    },
+    {
+      "id": "ADR-0023",
+      "path": "docs/adr/ADR-0023-worktree-delivery-recovery.md"
     }
   ]
 }

@@ -86,7 +86,7 @@ const LAND_PHASE2_LEASE_MS = 60_000;
 const LAND_LOCK_RETRY_MS = 50;
 const LAND_MAX_ATTEMPTS = 3;
 const DEFAULT_LAND_CLEANUP_TIMEOUT_MS = 30_000;
-const LAND_TRANSACTION_SCHEMA_VERSION = 3;
+const LAND_TRANSACTION_SCHEMA_VERSION = 4;
 const LEGACY_WORKTREE_LAND_LOCK_NAME = 'vibe-harness-worktree-land.lock';
 const STAGED_REF_PREFIX = 'refs/vibe-harness/staged';
 const REMOTE_SNAPSHOT_REF_PREFIX = 'refs/vibe-harness/remote';
@@ -1685,10 +1685,16 @@ async function resolveStoredPushTarget(projectDir, state, target) {
   if (endpoint.error) return endpoint;
   const stored = persistedPushTarget(state.pushTarget);
   if (stored?.fingerprint && (stored.ref !== endpoint.ref || stored.fingerprint !== endpoint.fingerprint)) {
-    return { error: 'The effective push endpoint changed since this transaction was staged' };
+    return {
+      code: 'LAND_PUSH_TARGET_CHANGED',
+      error: 'The effective push endpoint changed since this transaction was staged',
+    };
   }
   if (stored?.ref && stored.ref !== endpoint.ref) {
-    return { error: 'The target ref changed since this transaction was staged' };
+    return {
+      code: 'LAND_PUSH_TARGET_CHANGED',
+      error: 'The target ref changed since this transaction was staged',
+    };
   }
   state.pushTarget = endpoint;
   return endpoint;
@@ -2307,15 +2313,20 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
       file = batchStatePath(commonDir, args.resume);
       state = JSON.parse(readFileSync(file, 'utf8'));
     } catch { return batchFailure('LAND_BATCH_NOT_FOUND', 'Batch state is missing or unreadable'); }
-    if (![1, 2, LAND_TRANSACTION_SCHEMA_VERSION].includes(state.schemaVersion) || state.id !== args.resume || !Array.isArray(state.sources)
+    if (![1, 2, 3, LAND_TRANSACTION_SCHEMA_VERSION].includes(state.schemaVersion) || state.id !== args.resume || !Array.isArray(state.sources)
       || state.sources.length === 0 || state.sources.length > 32
       || !Number.isInteger(state.next) || state.next < 0 || state.next > state.sources.length
-      || !['queued', 'staged', 'verified', 'local_merged', 'publishing', 'push_uncertain', 'push_confirmed', 'cleanup_pending', 'recovery_required'].includes(state.phase) && state.sources.some((source) => !entries.some((entry) => !entry.primary && !entry.detached
+      || !['queued', 'staged', 'verified', 'local_merged', 'publishing', 'push_uncertain', 'push_confirmed', 'cleanup_pending', 'recovery_required', 'archived_integrated'].includes(state.phase) && state.sources.some((source) => !entries.some((entry) => !entry.primary && !entry.detached
         && entry.branch === source.branch && pathKey(entry.path) === pathKey(source.path)))
       || state.target !== target || !/^\.vibe-harness-land-batch-[0-9a-f-]+$/iu.test(path.basename(state.candidate))
       || pathKey(path.dirname(state.candidate)) !== pathKey(path.dirname(settings.root))
-      || !['queued', 'conflict', 'merged', 'merging', 'staged', 'verified', 'local_merged', 'publishing', 'push_uncertain', 'push_confirmed', 'cleanup_pending', 'recovery_required'].includes(state.phase)) {
+      || !['queued', 'conflict', 'merged', 'merging', 'staged', 'verified', 'local_merged', 'publishing', 'push_uncertain', 'push_confirmed', 'cleanup_pending', 'recovery_required', 'archived_integrated'].includes(state.phase)) {
       return batchFailure('LAND_BATCH_STATE_INVALID', 'Batch candidate or target changed; inspect the retained state');
+    }
+    if (state.phase === 'archived_integrated') {
+      return batchFailure('LAND_BATCH_ARCHIVED',
+        'This transaction was archived after its frozen sources were proven integrated',
+        { batchId: state.id, archive: state.archive ?? null });
     }
     if (stageOnly && state.phase === 'staged') {
       const reference = await runGit(['rev-parse', stagedRef(state.id)], projectDir);
@@ -2721,7 +2732,7 @@ async function readLandTransaction(projectDir, batchId) {
       && typeof source.branch === 'string' && source.branch !== ''
       && typeof source.path === 'string' && source.path !== ''
       && typeof source.head === 'string' && shaPattern.test(source.head));
-  if (state.id !== batchId || ![1, 2, LAND_TRANSACTION_SCHEMA_VERSION].includes(state.schemaVersion)
+  if (state.id !== batchId || ![1, 2, 3, LAND_TRANSACTION_SCHEMA_VERSION].includes(state.schemaVersion)
     || state.target !== 'develop' || typeof state.baseHead !== 'string' || !shaPattern.test(state.baseHead)
     || !validSources || typeof state.candidate !== 'string'
     || !/^\.vibe-harness-land-batch-[0-9a-f-]+$/iu.test(path.basename(state.candidate))
@@ -2803,6 +2814,49 @@ async function remoteContainsCandidate(projectDir, state, endpoint, remoteHead) 
     ? { contained: true, remoteHead: fetched.sha }
     : { contained: false, remoteHead: fetched.sha };
 }
+async function inspectRemoteIntegration(projectDir, state, endpoint, remoteHead) {
+  const fetched = await fetchRemoteBaseline(projectDir, state, endpoint);
+  if (fetched.error) return fetched;
+  if (fetched.sha !== remoteHead) {
+    return { error: 'The exact remote target changed while integration ancestry was checked' };
+  }
+  const candidateContained = typeof state.candidateHead === 'string'
+    && (await runGit(['merge-base', '--is-ancestor', state.candidateHead, fetched.sha], projectDir)).ok;
+  const integratedSourceHeads = [];
+  const missingSourceHeads = [];
+  for (const source of state.sources) {
+    const contained = await runGit(['merge-base', '--is-ancestor', source.head, fetched.sha], projectDir);
+    const item = { id: source.id, branch: source.branch, head: source.head };
+    (contained.ok ? integratedSourceHeads : missingSourceHeads).push(item);
+  }
+  return {
+    ok: true,
+    remoteHead: fetched.sha,
+    candidateContained,
+    sourcesIntegrated: missingSourceHeads.length === 0,
+    integratedSourceHeads,
+    missingSourceHeads,
+  };
+}
+function recordSupersede(state, { resolution, remoteHead, toCandidateHead = null }) {
+  const entry = {
+    recordedAt: new Date().toISOString(),
+    fromPhase: state.phase,
+    fromRemoteHead: remoteHead,
+    fromCandidateHead: state.candidateHead,
+    toCandidateHead,
+    resolution,
+  };
+  state.supersedeHistory = [...(state.supersedeHistory ?? []), entry];
+  return entry;
+}
+function supersedeReceipt(state, { applied = false, resolution = null } = {}) {
+  return {
+    applied,
+    resolution,
+    historyEntries: state.supersedeHistory?.length ?? 0,
+  };
+}
 async function rebuildPublishedCandidate(projectDir, state, file, settings, delivery, remoteHead, args) {
   if (!await batchSourcesStillValid(projectDir, state)) {
     return transactionFailure('publish', 'LAND_BATCH_SOURCE_CHANGED',
@@ -2870,6 +2924,9 @@ async function rebuildPublishedCandidate(projectDir, state, file, settings, deli
     return transactionFailure('publish', 'LAND_STAGE_REF_FAILED',
       'Cannot update the verified staged candidate reference', { batchId: state.id });
   }
+  const pendingSupersede = state.supersedeHistory?.findLast((entry) => entry.resolution === 'rebuilt'
+    && entry.toCandidateHead === null);
+  if (pendingSupersede) pendingSupersede.toCandidateHead = state.candidateHead;
   saveBatchState(file, state);
   return { state };
 }
@@ -2952,6 +3009,13 @@ async function cleanupConfirmedPublish(projectDir, primary, settings, state, fil
     pushed: true,
     pushConfirmed: true,
     localSync: localRefSync,
+    supersede: supersedeReceipt(state, {
+      applied: Boolean(args.supersede),
+      resolution: args.supersede
+        ? state.supersedeHistory?.findLast((entry) => entry.resolution !== undefined)?.resolution ?? null
+        : null,
+    }),
+    supersedeHistory: state.supersedeHistory ?? [],
     queue: args?._deliveryGate?.report('completed') ?? state.queue ?? null,
   };
 }
@@ -2960,7 +3024,8 @@ async function worktreePublishReport(projectDir, args) {
   if (!args.batch) return transactionFailure('publish', 'LAND_BATCH_ID_REQUIRED', 'publish requires --batch <batch-id>');
   const loaded = await readLandTransaction(projectDir, args.batch);
   if (loaded.error) return { ...loaded.error, subcommand: 'publish' };
-  const { file, state } = loaded;
+  const { file } = loaded;
+  let { state } = loaded;
   const config = await readProjectConfig(projectDir);
   const delivery = resolveDelivery(config, args.delivery ?? 'local-land');
   if (delivery.merge !== 'no-ff') {
@@ -2987,6 +3052,14 @@ async function worktreePublishReport(projectDir, args) {
         batchId: state.id,
       });
   }
+  if (args.supersede && !['publishing', 'push_uncertain'].includes(state.phase)) {
+    return transactionFailure('publish', 'LAND_SUPERSEDE_NOT_APPLICABLE',
+      '--supersede only recovers a publishing or push_uncertain transaction', {
+        batchId: state.id,
+        phase: state.phase,
+        supersede: supersedeReceipt(state),
+      });
+  }
   const lockFile = `${file}.lock`;
   const batchLease = await acquireLeaseWithRetry(lockFile, {
     timeoutMs: landLockTimeoutMs(),
@@ -2996,20 +3069,65 @@ async function worktreePublishReport(projectDir, args) {
   if (!batchLease.ok) return transactionFailure('publish', 'LAND_BATCH_LOCK', 'Another operation owns this batch');
   const batchHeartbeat = startLeaseHeartbeats([lockFile], DEFAULT_LEASE_MS)[0];
   try {
+    // The repository FIFO may have waited behind another delivery. Re-read the
+    // transaction only after both the FIFO turn and batch lease are held so
+    // recovery decisions always use the latest persisted phase and remote
+    // evidence fields.
+    const current = await readLandTransaction(projectDir, args.batch);
+    if (current.error) return { ...current.error, subcommand: 'publish' };
+    state = current.state;
+    state.queue = deliveryQueueTransaction(args._deliveryQueue) ?? state.queue ?? null;
+    if (!(state.pushConfirmed === true || ['staged', 'publishing', 'push_uncertain'].includes(state.phase))
+      || state.stageOnly !== true) {
+      return transactionFailure('publish', 'LAND_STAGE_REQUIRED',
+        'This transaction is not a staged local candidate; create it with worktree stage', {
+          batchId: state.id,
+        });
+    }
+    if (args.supersede && !['publishing', 'push_uncertain'].includes(state.phase)) {
+      return transactionFailure('publish', 'LAND_SUPERSEDE_NOT_APPLICABLE',
+        '--supersede only recovers a publishing or push_uncertain transaction', {
+          batchId: state.id,
+          phase: state.phase,
+          supersede: supersedeReceipt(state),
+        });
+    }
+    if (!transactionCandidateMatchesSettings(state, settings)) {
+      return transactionFailure('publish', 'LAND_BATCH_STATE_INVALID',
+        'The transaction candidate path is outside the configured worktree root', { batchId: state.id });
+    }
     if (state.pushConfirmed) {
       return cleanupConfirmedPublish(projectDir, primary, settings, state, file, args);
     }
     let endpoint = await resolveStoredPushTarget(projectDir, state, state.target);
     if (endpoint.error) {
-      return transactionFailure('publish', 'LAND_PUSH_TARGET_INVALID', endpoint.error, { batchId: state.id });
+      return transactionFailure('publish', endpoint.code ?? 'LAND_PUSH_TARGET_INVALID', endpoint.error, {
+        batchId: state.id,
+      });
     }
     if (['publishing', 'push_uncertain'].includes(state.phase)) {
       const remote = await exactRemoteHead(projectDir, endpoint);
       if (!remote.ok) {
         return transactionFailure('publish', 'LAND_PUSH_UNCONFIRMED',
-          'The prior push result is still unknown; inspect the exact remote', { batchId: state.id });
+          'The prior push result is still unknown; inspect the exact remote', {
+            batchId: state.id,
+            supersede: supersedeReceipt(state),
+          });
+      }
+      if (args.supersede && remote.sha === state.baseHead) {
+        return transactionFailure('publish', 'LAND_SUPERSEDE_NOT_REQUIRED',
+          'The remote still matches the staged baseline; retry publish without --supersede', {
+            batchId: state.id,
+            remoteHead: remote.sha,
+            supersede: supersedeReceipt(state, { resolution: 'not-required' }),
+          });
       }
       if (remote.sha === state.candidateHead) {
+        if (args.supersede) recordSupersede(state, {
+          resolution: 'candidate-contained',
+          remoteHead: remote.sha,
+          toCandidateHead: state.candidateHead,
+        });
         state.phase = 'push_confirmed';
         state.pushConfirmed = true;
         state.integrationStatus = 'integrated';
@@ -3018,11 +3136,72 @@ async function worktreePublishReport(projectDir, args) {
         return cleanupConfirmedPublish(projectDir, primary, settings, state, file, args);
       }
       if (remote.sha !== state.baseHead) {
-        return transactionFailure('publish', 'LAND_REMOTE_DIVERGED',
-          'Remote advanced independently after an uncertain push; preserve the staged candidate', {
-            batchId: state.id,
+        const integration = await inspectRemoteIntegration(projectDir, state, endpoint, remote.sha);
+        if (integration.error) {
+          return transactionFailure('publish', 'LAND_PUSH_UNCONFIRMED',
+            'Cannot prove whether the remote contains the uncertain candidate or its sources', {
+              batchId: state.id,
+              remoteHead: remote.sha,
+              supersede: supersedeReceipt(state),
+            });
+        }
+        if (integration.candidateContained) {
+          if (args.supersede) recordSupersede(state, {
+            resolution: 'candidate-contained',
             remoteHead: remote.sha,
+            toCandidateHead: state.candidateHead,
           });
+          state.phase = 'push_confirmed';
+          state.pushConfirmed = true;
+          state.integrationStatus = 'integrated';
+          state.remoteValidation = 'not_required';
+          state.remoteConfirmedHead = remote.sha;
+          saveBatchState(file, state);
+          return cleanupConfirmedPublish(projectDir, primary, settings, state, file, args);
+        }
+        if (!args.supersede) {
+          return transactionFailure('publish', 'LAND_REMOTE_DIVERGED',
+            'Remote advanced independently after an uncertain push; preserve the staged candidate', {
+              batchId: state.id,
+              remoteHead: remote.sha,
+              supersede: supersedeReceipt(state),
+            });
+        }
+        if (integration.sourcesIntegrated) {
+          return transactionFailure('publish', 'LAND_SOURCE_ALREADY_INTEGRATED',
+            'Every frozen source head is already contained in the remote target; archive the transaction explicitly', {
+              batchId: state.id,
+              remoteHead: remote.sha,
+              integratedSourceHeads: integration.integratedSourceHeads,
+              supersede: supersedeReceipt(state, { resolution: 'source-integrated' }),
+            });
+        }
+        if (!await batchSourcesStillValid(projectDir, state)) {
+          return transactionFailure('publish', 'LAND_BATCH_SOURCE_CHANGED',
+            'A source branch or worktree changed after the uncertain push; preserve the transaction and restage explicitly', {
+              batchId: state.id,
+              remoteHead: remote.sha,
+              supersede: supersedeReceipt(state),
+            });
+        }
+        recordSupersede(state, {
+          resolution: 'rebuilt',
+          remoteHead: remote.sha,
+        });
+        state.phase = 'staged';
+        state.push = false;
+        state.pushConfirmed = false;
+        state.integrationStatus = 'local_staged';
+        state.remoteConfirmedHead = null;
+        saveBatchState(file, state);
+        args.onProgress?.({
+          kind: 'vibe-harness.progress',
+          command: 'worktree publish',
+          phase: 'supersede-requested',
+          at: new Date().toISOString(),
+          batchId: state.id,
+          remoteHead: remote.sha,
+        });
       }
       state.phase = 'staged';
       state.push = false;
@@ -3205,7 +3384,8 @@ async function worktreeStageStatusReport(projectDir, args) {
     subcommand: 'status',
     status: 'passed',
     commandStatus: state.commandStatus ?? 'passed',
-    integrationStatus: state.phase === 'cleanup_pending' ? 'integrated_cleanup_pending'
+    integrationStatus: state.phase === 'archived_integrated' ? 'integrated'
+      : state.phase === 'cleanup_pending' ? 'integrated_cleanup_pending'
       : state.pushConfirmed ? 'integrated'
       : state.phase === 'staged' ? 'local_staged' : state.integrationStatus ?? 'not_integrated',
     remoteValidation: state.remoteValidation ?? 'not_required',
@@ -3229,6 +3409,8 @@ async function worktreeStageStatusReport(projectDir, args) {
     sources: sourceStates,
     integration: state.integration,
     queue: state.queue ?? null,
+    supersedeHistory: state.supersedeHistory ?? [],
+    archive: state.archive ?? null,
   };
 }
 async function worktreeDiscardReport(projectDir, args) {
@@ -3237,7 +3419,8 @@ async function worktreeDiscardReport(projectDir, args) {
   const loaded = await readLandTransaction(projectDir, args.batch);
   if (loaded.error) return { ...loaded.error, subcommand: 'discard' };
   const { file, state } = loaded;
-  if (state.pushConfirmed || state.phase === 'push_confirmed' || state.phase === 'cleanup_pending') {
+  if (state.pushConfirmed || state.phase === 'push_confirmed' || state.phase === 'cleanup_pending'
+    || state.phase === 'archived_integrated') {
     return transactionFailure('discard', 'LAND_ALREADY_INTEGRATED',
       'The candidate is already published; use status or cleanup recovery instead', {
         batchId: state.id,
@@ -3955,7 +4138,280 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
  * ever deleted after being proven to sit at the base ref with a clean tree,
  * so no work can be lost.
  */
+async function worktreeArchiveIntegratedReport(projectDir, args) {
+  if (!args.write) {
+    return transactionFailure('recover', 'LAND_WRITE_REQUIRED',
+      'recover --archive-integrated requires --write');
+  }
+  if (!args.batch || args.batch === true) {
+    return transactionFailure('recover', 'LAND_BATCH_ID_REQUIRED',
+      'recover --archive-integrated requires --batch <batch-id>');
+  }
+  if (args.all || args.task.length > 0 || args.resume !== undefined) {
+    return transactionFailure('recover', 'WORKTREE_RECOVER_SCOPE_INVALID',
+      'recover --archive-integrated accepts one --batch and cannot be combined with --task, --resume, or --all');
+  }
+  const loaded = await readLandTransaction(projectDir, args.batch);
+  if (loaded.error) return { ...loaded.error, subcommand: 'recover' };
+  const { file, commonDir } = loaded;
+  let { state } = loaded;
+  const config = await readProjectConfig(projectDir);
+  const settings = resolveWorktreeSettings(projectDir, config, args);
+  if (settings.error) return transactionFailure('recover', 'LAND_SETTINGS', settings.error, { batchId: state.id });
+  if (!transactionCandidateMatchesSettings(state, settings)) {
+    return transactionFailure('recover', 'LAND_BATCH_STATE_INVALID',
+      'The transaction candidate path is outside the configured worktree root', { batchId: state.id });
+  }
+  const deliveryTurn = await args._deliveryGate?.ensure();
+  if (deliveryTurn && !deliveryTurn.ok) return queueBlockedFailure('recover', deliveryTurn);
+  if (deliveryTurn) args._deliveryQueue = deliveryTurn;
+  state.queue = deliveryQueueTransaction(args._deliveryQueue) ?? state.queue ?? null;
+  const lockFile = `${file}.lock`;
+  const lease = await acquireLeaseWithRetry(lockFile, {
+    timeoutMs: landLockTimeoutMs(),
+    retryMs: LAND_LOCK_RETRY_MS,
+    leaseMs: DEFAULT_LEASE_MS,
+  });
+  if (!lease.ok) {
+    return transactionFailure('recover', 'LAND_BATCH_LOCK',
+      'Another operation owns this batch', { batchId: state.id });
+  }
+  const heartbeat = startLeaseHeartbeats([lockFile], DEFAULT_LEASE_MS)[0];
+  try {
+    const current = await readLandTransaction(projectDir, args.batch);
+    if (current.error) return { ...current.error, subcommand: 'recover' };
+    state = current.state;
+    state.queue = deliveryQueueTransaction(args._deliveryQueue) ?? state.queue ?? null;
+    if (!transactionCandidateMatchesSettings(state, settings)) {
+      return transactionFailure('recover', 'LAND_BATCH_STATE_INVALID',
+        'The transaction candidate path is outside the configured worktree root', { batchId: state.id });
+    }
+    if (state.phase === 'archived_integrated' && state.archive) {
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        command: 'worktree',
+        subcommand: 'recover',
+        status: 'passed',
+        commandStatus: 'passed',
+        integrationStatus: 'integrated',
+        remoteValidation: 'passed',
+        localRefSync: state.localRefSync ?? 'not_attempted',
+        batchId: state.id,
+        phase: state.phase,
+        archive: state.archive,
+        queue: deliveryQueueReport(args._deliveryQueue, 'running'),
+      };
+    }
+    const endpoint = await resolveStoredPushTarget(projectDir, state, state.target);
+    if (endpoint.error) {
+      return transactionFailure('recover', 'LAND_PUSH_TARGET_CHANGED', endpoint.error, {
+        batchId: state.id,
+      });
+    }
+    const remote = await exactRemoteHead(projectDir, endpoint);
+    if (!remote.ok) {
+      return transactionFailure('recover', 'LAND_REMOTE_BASELINE_UNAVAILABLE',
+        'Cannot read the exact remote target for integration proof', { batchId: state.id });
+    }
+    const fetched = await fetchRemoteBaseline(projectDir, state, endpoint);
+    if (fetched.error || fetched.sha !== remote.sha) {
+      return transactionFailure('recover', 'LAND_REMOTE_BASELINE_UNAVAILABLE',
+        fetched.error ?? 'The remote target changed while integration ancestry was checked', {
+          batchId: state.id,
+          remoteHead: remote.sha,
+          fetchedHead: fetched.sha ?? null,
+        });
+    }
+    const integratedSourceHeads = [];
+    const missingSourceHeads = [];
+    for (const source of state.sources) {
+      const contained = await runGit(['merge-base', '--is-ancestor', source.head, fetched.sha], projectDir);
+      const item = { id: source.id, branch: source.branch, head: source.head };
+      (contained.ok ? integratedSourceHeads : missingSourceHeads).push(item);
+    }
+    if (missingSourceHeads.length > 0) {
+      return transactionFailure('recover', 'LAND_RECOVER_SOURCE_NOT_INTEGRATED',
+        'Not every frozen source head is contained in the exact remote target', {
+          batchId: state.id,
+          remoteHead: fetched.sha,
+          integratedSourceHeads,
+          missingSourceHeads,
+        });
+    }
+
+    const inventory = await worktreeEntries(projectDir);
+    if (inventory.reason) {
+      return transactionFailure('recover', 'LAND_BATCH_WORKTREES',
+        'Cannot prove which candidate worktrees belong to this repository', {
+          batchId: state.id,
+          detail: inventory.reason,
+        });
+    }
+    const ownedCandidates = new Set(inventory.entries
+      .filter((entry) => !entry.primary && entry.detached && entry.path)
+      .map((entry) => pathKey(entry.path)));
+    const candidateCleanup = [];
+    const cleanupTargets = [];
+    const preserved = [];
+    let currentCandidatePreserved = false;
+    let candidateActivityPreserved = false;
+    for (const candidate of [state.candidate, ...(state.previousCandidates ?? [])]) {
+      if (typeof candidate !== 'string' || !existsSync(candidate)) continue;
+      const sameAsCurrent = pathKey(candidate) === pathKey(state.candidate);
+      const owned = pathKey(path.dirname(candidate)) === pathKey(path.dirname(settings.root))
+        && /^\.vibe-harness-land-batch-[0-9a-f-]+$/iu.test(path.basename(candidate))
+        && ownedCandidates.has(pathKey(candidate));
+      if (!owned) {
+        if (sameAsCurrent) currentCandidatePreserved = true;
+        preserved.push({
+          path: normalizeSlashes(candidate),
+          reason: 'candidate is not a registered detached worktree owned by this repository',
+        });
+        continue;
+      }
+      const candidateId = /^\.vibe-harness-land-batch-([0-9a-f-]{36})$/iu.exec(path.basename(candidate))?.[1];
+      const activityLease = candidateId
+        ? readLease(landCandidateActivityLockPath(commonDir, candidateId))
+        : null;
+      if (candidateId && activityLease && !activityLease.stale) {
+        if (sameAsCurrent) currentCandidatePreserved = true;
+        candidateActivityPreserved = true;
+        preserved.push({
+          path: normalizeSlashes(candidate),
+          reason: 'candidate has an active repository activity lease',
+        });
+        continue;
+      }
+      const clean = await runGit(['status', '--porcelain=v1', '--untracked-files=all'], candidate);
+      if (!clean.ok || clean.stdout.trim() !== '') {
+        if (sameAsCurrent) currentCandidatePreserved = true;
+        preserved.push({ path: normalizeSlashes(candidate), reason: 'candidate is dirty or unreadable' });
+        continue;
+      }
+      cleanupTargets.push(candidate);
+    }
+    if (candidateActivityPreserved) {
+      for (const candidate of cleanupTargets) {
+        preserved.push({
+          path: normalizeSlashes(candidate),
+          reason: 'candidate cleanup is deferred while another candidate activity lease is active',
+        });
+      }
+      cleanupTargets.length = 0;
+      currentCandidatePreserved = true;
+    }
+    let stagedRefPlan = { delete: false, reason: 'candidate evidence is preserved' };
+    if (!currentCandidatePreserved && typeof state.candidateHead !== 'string') {
+      stagedRefPlan = {
+        delete: false,
+        preserveCandidates: true,
+        reason: 'transaction has no candidate head; candidate evidence is preserved',
+      };
+    } else if (!currentCandidatePreserved) {
+      const reference = await runGit(['rev-parse', '--verify', '--quiet', stagedRef(state.id)], projectDir);
+      if (!reference.ok) {
+        stagedRefPlan = {
+          delete: false,
+          absent: true,
+          preserveCandidates: true,
+          reason: 'staged ref is absent; candidate evidence is preserved',
+        };
+      } else if (reference.stdout.trim() !== state.candidateHead) {
+        preserved.push({ ref: stagedRef(state.id), reason: 'staged ref no longer matches the transaction candidate' });
+        stagedRefPlan = {
+          delete: false,
+          preserveCandidates: true,
+          reason: 'staged ref does not match the transaction candidate; candidate evidence is preserved',
+        };
+      } else {
+        stagedRefPlan = { delete: true, reason: 'candidate is clean and the archived source heads are integrated' };
+      }
+    }
+    if (stagedRefPlan.preserveCandidates) {
+      for (const candidate of cleanupTargets) {
+        preserved.push({ path: normalizeSlashes(candidate), reason: stagedRefPlan.reason });
+      }
+      if (cleanupTargets.length > 0) currentCandidatePreserved = true;
+      cleanupTargets.length = 0;
+    }
+    const archivedAt = new Date().toISOString();
+    const archive = {
+      schemaVersion: 1,
+      archivedAt,
+      status: 'completed',
+      remoteHead: fetched.sha,
+      integratedSourceHeads,
+      candidateCleanup,
+      stagedRefCleanup: { deleted: false, reason: 'cleanup has not completed' },
+      preserved,
+    };
+    state.phase = 'archived_integrated';
+    state.commandStatus = 'passed';
+    state.integrationStatus = 'integrated';
+    state.remoteValidation = 'passed';
+    state.remoteConfirmedHead = fetched.sha;
+    state.archive = archive;
+    state.candidateCleanup = [...(state.candidateCleanup ?? []), ...candidateCleanup];
+    // Persist the proof and terminal audit record before removing any evidence.
+    // A process death after this write can leave residue, but cannot erase a
+    // candidate/ref whose cleanup was never durably associated with an archive.
+    saveBatchState(file, state);
+    for (const candidate of cleanupTargets) {
+      const cleaned = await cleanupLandCandidate(projectDir, candidate, { settings });
+      candidateCleanup.push(cleaned);
+      if (pathKey(candidate) === pathKey(state.candidate) && !cleaned.removed) {
+        currentCandidatePreserved = true;
+        preserved.push({ path: normalizeSlashes(candidate), reason: cleaned.reason ?? 'candidate cleanup did not complete' });
+      }
+    }
+    let stagedRefCleanup;
+    if (currentCandidatePreserved) {
+      stagedRefCleanup = { deleted: false, reason: 'candidate evidence is preserved' };
+    } else if (stagedRefPlan.absent) {
+      stagedRefCleanup = { deleted: true, reason: stagedRefPlan.reason };
+    } else if (stagedRefPlan.delete) {
+      const deleted = await runGit(['update-ref', '-d', stagedRef(state.id), state.candidateHead], projectDir);
+      stagedRefCleanup = deleted.ok
+        ? { deleted: true, reason: stagedRefPlan.reason }
+        : { deleted: false, reason: 'staged ref deletion failed' };
+    } else {
+      stagedRefCleanup = { deleted: false, reason: stagedRefPlan.reason };
+    }
+    if (stagedRefCleanup.deleted) {
+      await runGit(['update-ref', '-d', remoteSnapshotRef(state.id)], projectDir);
+    }
+    archive.candidateCleanup = candidateCleanup;
+    archive.stagedRefCleanup = stagedRefCleanup;
+    archive.preserved = preserved;
+    state.candidateCleanup = [...(state.candidateCleanup ?? []), ...candidateCleanup];
+    saveBatchState(file, state);
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      command: 'worktree',
+      subcommand: 'recover',
+      status: 'passed',
+      commandStatus: 'passed',
+      integrationStatus: 'integrated',
+      remoteValidation: 'passed',
+      localRefSync: state.localRefSync ?? 'not_attempted',
+      batchId: state.id,
+      phase: state.phase,
+      archive,
+      queue: deliveryQueueReport(args._deliveryQueue, 'running'),
+    };
+  } finally {
+    heartbeat.stop();
+    releaseLease(lockFile);
+  }
+}
 async function worktreeRecoverReport(projectDir, args) {
+  if (args.archiveIntegrated || args.batch !== undefined) {
+    if (!args.archiveIntegrated) {
+      return transactionFailure('recover', 'WORKTREE_RECOVER_OPTIONS',
+        'recover --batch is only valid with --archive-integrated');
+    }
+    return worktreeArchiveIntegratedReport(projectDir, args);
+  }
   if (args.task.length > 1) {
     return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'recover', status: 'failed',
       code: 'WORKTREE_RECOVER_SCOPE_INVALID', error: 'recover accepts at most one --task; use --all for an explicit global write' };
@@ -4116,6 +4572,7 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
     if (taskId !== null && !sourceIds.includes(taskId) && state.id !== taskId) continue;
     const batchLease = readLease(`${file}.lock`);
     const activeQueue = activeQueueBatchIds.has(state.id);
+    const terminalArchived = state.phase === 'archived_integrated';
     const protectedPhase = ['staged', 'verified', 'local_merged', 'publishing', 'push_uncertain', 'push_confirmed', 'cleanup_pending']
       .includes(state.phase);
     const collectablePhase = ['queued', 'merging', 'merged', 'conflict', 'recovery_required'].includes(state.phase);
@@ -4139,10 +4596,16 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
       candidatePaths: candidatePaths.map(normalizeSlashes),
       active,
       protected: protectedPhase,
+      archived: terminalArchived,
+      archive: state.archive ?? null,
       status: 'planned',
     };
     if (active) {
       transactions.push({ ...item, status: 'blocked', reason: 'transaction has an active lease or FIFO ticket' });
+      continue;
+    }
+    if (terminalArchived) {
+      transactions.push({ ...item, status: 'passed', reason: 'frozen sources are integrated; archive retained for audit' });
       continue;
     }
     if (protectedPhase) {
@@ -4470,15 +4933,27 @@ async function dispatchWorktreeReport(projectDir, subcommand, args) {
 export async function worktreeReport(projectDir, args) {
   const subcommand = args._[1] ?? 'check';
   if ((args.batch || args.resume !== undefined)
-    && !['land', 'stage', 'publish', 'status', 'discard'].includes(subcommand)) {
+    && !['land', 'stage', 'publish', 'status', 'discard', 'recover'].includes(subcommand)) {
     return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand, status: 'failed',
-      code: 'WORKTREE_BATCH_INVALID', error: '--batch and --resume are only supported by staged delivery commands' };
+      code: 'WORKTREE_BATCH_INVALID', error: '--batch and --resume are only supported by delivery recovery commands' };
+  }
+  if (subcommand === 'recover' && args.resume !== undefined) {
+    return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand, status: 'failed',
+      code: 'WORKTREE_BATCH_INVALID', error: 'recover does not accept --resume; use --batch <id> --archive-integrated' };
+  }
+  if (args.supersede && subcommand !== 'publish') {
+    return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand, status: 'failed',
+      code: 'WORKTREE_SUPERSEDE_INVALID', error: '--supersede is only supported by worktree publish' };
+  }
+  if (args.archiveIntegrated && subcommand !== 'recover') {
+    return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand, status: 'failed',
+      code: 'WORKTREE_ARCHIVE_INVALID', error: '--archive-integrated is only supported by worktree recover' };
   }
   if (args.targetMode !== undefined && !['land', 'stage'].includes(subcommand)) {
     return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand, status: 'failed',
       code: 'WORKTREE_TARGET_MODE_INVALID', error: '--target-mode is only supported by worktree land or stage' };
   }
-  const serializedWrite = args.write && ['stage', 'publish', 'land', 'discard'].includes(subcommand);
+  const serializedWrite = args.write && (['stage', 'publish', 'land', 'discard', 'recover'].includes(subcommand));
   if (!serializedWrite) {
     const report = await dispatchWorktreeReport(projectDir, subcommand, args);
     if (subcommand === 'recover') {

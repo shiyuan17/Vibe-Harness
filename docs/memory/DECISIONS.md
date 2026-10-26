@@ -30,6 +30,7 @@
 - **ADR-0020** 轻量交付边界、三档阻塞与验证执行时限 - superseded - 安全/交付/执行三档阻塞继续有效；交付时序由 ADR-0021 收敛 - [ADR](../adr/ADR-0020-lightweight-delivery-blocking-and-verification-limits.md)
 - **ADR-0021** 本地暂存与远端发布两阶段 worktree 交付 - superseded - stage/publish 分离继续有效；候选并行与短 Per-Ref 锁假设由 ADR-0022 替代 - [ADR](../adr/ADR-0021-staged-local-publish-delivery.md)
 - **ADR-0022** 仓库级 FIFO 串行化受管 Worktree 交付 - accepted - 所有受管 merge、候选验证、共享 ref 更新、push 与本地同步按仓库级 FIFO 执行；重型独立 verify 共用队列 - [ADR](../adr/ADR-0022-repository-delivery-fifo.md)
+- **ADR-0023** 受管 Worktree 交付的 supersede 与外部集成归档 - accepted - 受管 Worktree 交付的 supersede 与外部集成归档 - [ADR](../adr/ADR-0023-worktree-delivery-recovery.md)
 
 ## 纪律
 
