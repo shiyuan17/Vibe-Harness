@@ -1,15 +1,17 @@
-// Worktree inspection, provisioning, landing and recovery.
+// Worktree inspection, provisioning, staging, publishing and recovery.
 //
-// The lifecycle commands share one model: workspace topology discovery, dependency
-// mirrors, port blocks, the shared land lock and the land/candidate steps that
-// verify a merge before the primary checkout moves.
+// The lifecycle commands share one model: workspace topology discovery,
+// dependency mirrors, port blocks and the stage/publish steps that verify a
+// merge outside the delivery queue before a seconds-scale finalize pushes it.
 //
 // Extracted verbatim from `runtime/commands/run.mjs` so that file keeps only
 // argument parsing, dispatch and output selection. Behaviour, field names and
 // exit codes are unchanged; only the module boundary moved.
+import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -23,8 +25,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { gitFingerprint } from './git-fingerprint.mjs';
-import { attestCompletionProvenance, recordFinalVerification } from './verification-receipt.mjs';
-import { completionReceipt, resolveDelivery, validateCompletion } from './delivery.mjs';
+import { attestCompletionProvenance } from './verification-receipt.mjs';
+import { resolveDelivery, validateCompletion } from './delivery.mjs';
 import { readMergeEvidence, validateMergeEvidence } from './merge-evidence.mjs';
 import { releaseServiceTeardown, teardownServices } from './services.mjs';
 import {
@@ -79,15 +81,15 @@ import {
   releaseDeliveryTurn,
 } from './worktree-delivery-queue.mjs';
 
-// Per-transaction locks fence retries of one batch. Cross-transaction delivery
-// is serialized by the repository FIFO before any managed merge starts.
+// Per-transaction locks fence retries of one batch. Cross-transaction
+// publishing is serialized by the repository FIFO, but only for the
+// seconds-scale finalize section (re-check, push, readback, confirm);
+// staging and verification run outside the queue.
 const LAND_LOCK_TIMEOUT_MS = 180_000;
-const LAND_PHASE2_LEASE_MS = 60_000;
 const LAND_LOCK_RETRY_MS = 50;
 const LAND_MAX_ATTEMPTS = 3;
 const DEFAULT_LAND_CLEANUP_TIMEOUT_MS = 30_000;
 const LAND_TRANSACTION_SCHEMA_VERSION = 4;
-const LEGACY_WORKTREE_LAND_LOCK_NAME = 'vibe-harness-worktree-land.lock';
 const STAGED_REF_PREFIX = 'refs/vibe-harness/staged';
 const REMOTE_SNAPSHOT_REF_PREFIX = 'refs/vibe-harness/remote';
 // --- worktree / slice / patch (P0) -----------------------------------------
@@ -1120,24 +1122,21 @@ async function worktreeBootstrapReport(projectDir, args) {
 }
 async function retainedLandSource(projectDir, entry) {
   const common = await gitCommonDir(projectDir);
-  if (!common.ok) return { error: 'Cannot read land transaction ownership' };
+  if (!common.ok) return { error: 'Cannot read delivery transaction ownership' };
   try {
     const files = readdirSync(common.path).filter((name) => /^vibe-harness-land-batch-.*\.json$/u.test(name));
     for (const name of files) {
       const state = JSON.parse(readFileSync(path.join(common.path, name), 'utf8'));
       if (!Array.isArray(state.sources) || typeof state.id !== 'string' || !state.id) {
-        return { error: 'Land transaction sources are unreadable' };
+        return { error: 'Delivery transaction sources are unreadable' };
       }
       if (state.sources.some((source) => source.branch === entry.branch
         || typeof source.path === 'string' && pathKey(source.path) === pathKey(entry.path))) return { batchId: state.id };
     }
     return {};
-  } catch { return { error: 'Cannot confirm retained land transaction ownership' }; }
+  } catch { return { error: 'Cannot confirm retained delivery transaction ownership' }; }
 }
 async function worktreeCleanupReport(projectDir, args) {
-  if (args.write && !args.cleanupLocked) {
-    return withWorktreeLandLock(projectDir, () => worktreeCleanupReport(projectDir, { ...args, cleanupLocked: true }));
-  }
   const config = await readProjectConfig(projectDir);
   const delivery = resolveDelivery(config, args.delivery);
   const settings = resolveWorktreeSettings(projectDir, config, args);
@@ -1162,7 +1161,7 @@ async function worktreeCleanupReport(projectDir, args) {
     if (transaction.error || transaction.batchId) {
       results.push({ id: task.id, status: 'blocked', code: 'WORKTREE_CLEANUP_LAND_RESUME_REQUIRED',
         ...(transaction.batchId ? { batchId: transaction.batchId } : {}),
-        blockers: [transaction.error ?? 'Retained land owns this source; use land --resume <batchId> --write to reconcile push and cleanup'] });
+        blockers: [transaction.error ?? 'A staged delivery owns this source; run publish --batch <batchId> --write to finalize it, or recover --batch <batchId> --write to reconcile and close it'] });
       continue;
     }
     if (entry.detached || typeof entry.branch !== 'string' || entry.branch === '') {
@@ -1372,20 +1371,6 @@ export function landLockTimeoutMs(environment = process.env) {
   return Math.min(LAND_LOCK_TIMEOUT_MS, Math.floor(override));
 }
 
-function targetRefLockPath(gitCommonDirPath, targetRef) {
-  const refHash = createHash('sha256').update(targetRef).digest('hex').slice(0, 24);
-  return path.join(gitCommonDirPath, `vibe-harness-land-${refHash}.lock`);
-}
-
-function targetRefLockPaths(gitCommonDirPath, targetRef) {
-  const legacyHash = createHash('sha1').update(targetRef).digest('hex').slice(0, 12);
-  const legacyPath = path.join(gitCommonDirPath, `vibe-harness-land-${legacyHash}.lock`);
-  const currentPath = targetRefLockPath(gitCommonDirPath, targetRef);
-  // Keep the old path as a compatibility fence so an already-running runtime
-  // using the SHA-1 name still coordinates with this process.
-  return [...new Set([legacyPath, currentPath])];
-}
-
 function landCandidateActivityLockPath(gitCommonDirPath, candidateId) {
   return path.join(gitCommonDirPath, `vibe-harness-land-candidate-${candidateId}.lock`);
 }
@@ -1423,82 +1408,6 @@ async function acquireLandCandidateActivityLease(projectDir, candidateId) {
   };
 }
 
-async function acquirePhase2Lock(projectDir, targetRef) {
-  const common = await gitCommonDir(projectDir);
-  if (!common.ok) {
-    return {
-      schemaVersion: SCHEMA_VERSION,
-      command: 'worktree',
-      subcommand: 'land',
-      status: 'blocked',
-      code: 'LAND_LOCK_UNAVAILABLE',
-      blockers: [common.error],
-    };
-  }
-  const lockPaths = targetRefLockPaths(common.path, targetRef);
-  const timeoutMs = landLockTimeoutMs();
-  const deadline = Date.now() + timeoutMs;
-  const heldPaths = [];
-  for (const lockPath of lockPaths) {
-    const result = await acquireLeaseWithRetry(lockPath, {
-      timeoutMs: Math.max(0, deadline - Date.now()),
-      retryMs: LAND_LOCK_RETRY_MS,
-      leaseMs: LAND_PHASE2_LEASE_MS,
-    });
-    if (!result.ok) {
-      for (const heldPath of heldPaths) releaseLease(heldPath);
-      return {
-        schemaVersion: SCHEMA_VERSION,
-        command: 'worktree',
-        subcommand: 'land',
-        status: 'blocked',
-        code: result.code === 'LEASE_UNAVAILABLE' ? 'LAND_LOCK_UNAVAILABLE' : 'LAND_LOCK_TIMEOUT',
-        blockers: [`${normalizeSlashes(lockPath)} could not be acquired${result.code === 'LEASE_UNAVAILABLE' ? `: ${result.error}` : ` after ${timeoutMs}ms`}`],
-      };
-    }
-    heldPaths.push(lockPath);
-  }
-  return { held: true, lockPaths, leaseMs: LAND_PHASE2_LEASE_MS };
-}
-async function withWorktreeLandLock(projectDir, action) {
-  const common = await gitCommonDir(projectDir);
-  if (!common.ok) {
-    return {
-      schemaVersion: SCHEMA_VERSION,
-      command: 'worktree',
-      subcommand: 'land',
-      status: 'blocked',
-      code: 'LAND_LOCK_UNAVAILABLE',
-      blockers: [common.error],
-    };
-  }
-  const lockPath = path.join(common.path, LEGACY_WORKTREE_LAND_LOCK_NAME);
-  const timeoutMs = landLockTimeoutMs();
-  const result = await acquireLeaseWithRetry(lockPath, {
-    timeoutMs,
-    retryMs: LAND_LOCK_RETRY_MS,
-    leaseMs: DEFAULT_LEASE_MS,
-  });
-  if (!result.ok) {
-    return {
-      schemaVersion: SCHEMA_VERSION,
-      command: 'worktree',
-      subcommand: 'land',
-      status: 'blocked',
-      code: result.code === 'LEASE_UNAVAILABLE' ? 'LAND_LOCK_UNAVAILABLE' : 'LAND_LOCK_TIMEOUT',
-      blockers: [result.code === 'LEASE_UNAVAILABLE'
-        ? `cannot create shared land lock: ${result.error}`
-        : `${normalizeSlashes(lockPath)} is held by another land operation after ${timeoutMs}ms; inspect the owner before removing the lock`],
-    };
-  }
-  const heartbeat = startLeaseHeartbeats([lockPath], DEFAULT_LEASE_MS)[0];
-  try {
-    return await action();
-  } finally {
-    heartbeat.stop();
-    releaseLease(lockPath);
-  }
-}
 async function cleanupLandCandidate(projectDir, candidatePath, {
   abort = false,
   settings = null,
@@ -1608,14 +1517,15 @@ function createDeliveryGate(projectDir, args, operation, batchId = null) {
     },
     async release(status = 'completed') {
       if (!handle) return false;
-      const released = await releaseDeliveryTurn(handle, status);
-      if (released) {
-        finished = handle;
-        handle = null;
-      }
+      const turn = handle;
+      const released = await releaseDeliveryTurn(turn, status);
+      // Drop the turn even when release reports a lost ticket so a stale
+      // handle is never reused; ensure() acquires a fresh turn instead.
+      handle = null;
+      if (released) finished = turn;
       return released;
     },
-    report(state = 'completed') {
+    report(state = null) {
       if (handle) return deliveryQueueReport(handle, state);
       if (finished) return deliveryQueueReport(finished, state);
       return null;
@@ -1659,7 +1569,7 @@ function saveBatchState(file, state) {
   renameSync(temporary, file);
 }
 function batchFailure(code, error, extra = {}) {
-  return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'land',
+  return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'stage',
     status: 'blocked', code, error, ...extra };
 }
 // Freeze the effective push endpoint, never Git's default refspec/upstream.
@@ -1748,154 +1658,6 @@ function landCleanupTimeoutMs() {
   return Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_LAND_CLEANUP_TIMEOUT_MS;
 }
 
-// Used by both single-task and batch land. The caller owns the target lease and
-// must release it immediately after this function confirms the push.
-async function finalizeLand(projectDir, primary, state, file, leaseHealthy) {
-  const fail = (code, error, extra = {}) => batchFailure(code, error,
-    { batchId: state.id, candidatePath: normalizeSlashes(state.candidate), resumable: true, ...extra });
-  const primaryCheckout = await inspectPrimaryCheckout(primary);
-  const retainedFinalizedPhase = ['local_merged', 'push_uncertain', 'push_confirmed', 'cleanup_pending']
-    .includes(state.phase);
-  const localMergeRequired = !state.push;
-  if (!leaseHealthy() || primaryCheckout.head === null
-    || (localMergeRequired && (primaryCheckout.branch !== state.target
-      || (!retainedFinalizedPhase && primaryCheckout.dirty)))) {
-    return fail('LAND_BASELINE_CHANGED', 'Primary checkout or target lease changed', {
-      preflight: { primaryCheckout },
-    });
-  }
-  const local = primaryCheckout.head;
-  if (!['verified', 'publishing', 'local_merged', 'push_uncertain', 'push_confirmed', 'cleanup_pending'].includes(state.phase)
-    || !state.integration || state.integration.head !== state.candidateHead) return fail('LAND_STATE_INVALID', 'Missing verified candidate state');
-  const confirmedBefore = state.pushConfirmed === true;
-  if (state.phase === 'verified') {
-    const candidate = await runGit(['rev-parse', 'HEAD'], state.candidate);
-    const fingerprint = await gitFingerprint(state.candidate);
-    if (!candidate.ok || candidate.stdout.trim() !== state.candidateHead
-      || fingerprint.fingerprint !== state.verifiedFingerprint
-      || fingerprint.writeFingerprint !== state.verifiedWriteFingerprint) {
-      return fail('LAND_CANDIDATE_CHANGED', 'Verified candidate changed; verification must be repeated');
-    }
-  }
-  if (!confirmedBefore && !await batchSourcesStillValid(projectDir, state)) return fail('LAND_BATCH_SOURCE_CHANGED', 'Frozen sources changed');
-  let endpoint = null;
-  if (state.push) {
-    endpoint = await resolveStoredPushTarget(projectDir, state, state.target);
-    if (endpoint.error) {
-      return fail('LAND_PUSH_TARGET_CHANGED', 'The effective push endpoint changed; preserve the local merge and sources');
-    }
-    const remote = await exactRemoteHead(projectDir, endpoint);
-    if (!remote.ok) return fail('LAND_PUSH_UNCONFIRMED', 'Cannot confirm the exact remote; preserve the merge and sources');
-    if (confirmedBefore) {
-      // A later normal fast-forward is fine; cleanup never republishes history.
-      if (remote.sha !== state.candidateHead) {
-        const fetched = await runGit(['fetch', '--no-tags', '--', endpoint.url, endpoint.ref], primary.path);
-        if (!fetched.ok || !(await runGit(['merge-base', '--is-ancestor', state.candidateHead, remote.sha], primary.path)).ok) {
-          return fail('LAND_REMOTE_DIVERGED', 'Confirmed remote no longer contains the integrated candidate');
-        }
-      }
-    } else if (remote.sha !== state.baseHead && remote.sha !== state.candidateHead) {
-      return fail(local === state.baseHead ? 'LAND_BATCH_BASELINE_CHANGED' : 'LAND_REMOTE_DIVERGED',
-        'Remote advanced; preserve the scene and reintegrate explicitly');
-    }
-  }
-  if (!state.push && confirmedBefore && local !== state.candidateHead) {
-    if (!(await runGit(['merge-base', '--is-ancestor', state.candidateHead, local], primary.path)).ok) {
-      return fail('LAND_LOCAL_TARGET_CHANGED', 'Local develop no longer contains the confirmed candidate');
-    }
-  } else if (!state.push && local !== state.candidateHead) {
-    if (local !== state.baseHead || confirmedBefore) return fail('LAND_LOCAL_TARGET_CHANGED', 'Local target differs from the frozen baseline/candidate');
-    const candidate = await runGit(['rev-parse', 'HEAD'], state.candidate);
-    const fingerprint = await gitFingerprint(state.candidate);
-    if (!candidate.ok || candidate.stdout.trim() !== state.candidateHead
-      || fingerprint.fingerprint !== state.verifiedFingerprint
-      || fingerprint.writeFingerprint !== state.verifiedWriteFingerprint) {
-      return fail('LAND_CANDIDATE_CHANGED', 'Verified candidate changed; verification must be repeated');
-    }
-    if (!leaseHealthy()) return fail('LAND_LOCK_LOST', 'Target lease lost before local merge');
-    const finalized = await runIsolatedGit(projectDir, ['merge', '--ff-only', state.candidateHead], primary.path);
-    const localAfter = await runGit(['rev-parse', 'HEAD'], primary.path);
-    if (!finalized.ok || !localAfter.ok || localAfter.stdout.trim() !== state.candidateHead) {
-      return fail('LAND_FINALIZE_FAILED', 'Cannot fast-forward the verified candidate into the primary checkout');
-    }
-  }
-  let localRefSync = null;
-  if (!confirmedBefore) {
-    if (state.push) {
-      if (!leaseHealthy()) return fail('LAND_LOCK_LOST', 'Target lease lost before push');
-      endpoint = await resolveStoredPushTarget(projectDir, state, state.target);
-      const sourceValid = await batchSourcesStillValid(projectDir, state);
-      if (endpoint.error || !sourceValid) return fail('LAND_BASELINE_CHANGED', 'Push endpoint or source changed');
-      const remote = await exactRemoteHead(projectDir, endpoint);
-      if (!remote.ok) return fail('LAND_PUSH_UNCONFIRMED', 'Query the exact remote before retrying');
-      if (remote.sha !== state.candidateHead) {
-        if (remote.sha !== state.baseHead) return fail('LAND_REMOTE_DIVERGED', 'Remote diverged after local merge; no automatic reset/rebase/force push');
-        // Preserve the established clean-checkout ordering: advance the local
-        // target before crossing the network boundary when that is safe. A
-        // dirty or otherwise non-fast-forwardable primary is deferred without
-        // blocking the exact remote push.
-        localRefSync = await syncLocalTargetAfterPublish(
-          projectDir, primary, state, state.candidateHead,
-        );
-        state.localRefSync = localRefSync.status;
-        saveBatchState(file, state);
-        // Persist the network boundary before it is crossed. A process death
-        // after this write is reconciled by inspecting the exact remote.
-        state.phase = 'publishing';
-        saveBatchState(file, state);
-        const pushed = await runGit(['push', '--no-force', '--no-mirror', '--no-follow-tags',
-          '--recurse-submodules=no', '--', endpoint.url,
-          `${state.candidateHead}:${endpoint.ref}`], primary.path);
-        const after = await exactRemoteHead(projectDir, endpoint);
-        if (!after.ok || after.sha !== state.candidateHead) {
-          state.phase = 'push_uncertain';
-          saveBatchState(file, state);
-          return fail(
-            !after.ok ? 'LAND_PUSH_UNCONFIRMED' : after.sha !== state.baseHead ? 'LAND_REMOTE_DIVERGED'
-              : pushed.ok ? 'LAND_PUSH_UNCONFIRMED' : 'LAND_PUSH_FAILED',
-            'Push not confirmed; local merge and source worktrees are retained',
-            { status: !pushed.ok && after.ok && after.sha === state.baseHead ? 'failed' : 'blocked', remoteHead: after.sha });
-        }
-      }
-      state.phase = 'push_confirmed';
-      state.pushConfirmed = true;
-      state.remoteConfirmedHead = state.candidateHead;
-      state.integrationStatus = 'integrated';
-      saveBatchState(file, state);
-    } else {
-      state.phase = 'local_merged';
-      saveBatchState(file, state);
-    }
-  }
-  if (state.push) {
-    const publishedHead = state.remoteConfirmedHead ?? state.candidateHead;
-    localRefSync = await syncLocalTargetAfterPublish(projectDir, primary, state, publishedHead)
-      ?? localRefSync;
-    state.localRefSync = localRefSync.status;
-    saveBatchState(file, state);
-  }
-  return {
-    schemaVersion: SCHEMA_VERSION,
-    command: 'worktree',
-    subcommand: 'land',
-    status: 'passed',
-    integrationStatus: state.push ? 'integrated' : 'local_merged',
-    phase: state.phase,
-    batch: !state.single,
-    batchId: state.id,
-    targetBranch: state.target,
-    targetMode: 'primary',
-    localMerged: state.push ? localRefSync?.status === 'updated' : true,
-    pushed: state.push,
-    pushConfirmed: state.push,
-    localRefSync: state.push ? localRefSync?.status ?? state.localRefSync ?? 'not_attempted' : 'updated',
-    ...(localRefSync ? { localSync: localRefSync } : {}),
-    targetAfter: state.push ? state.remoteConfirmedHead ?? state.candidateHead : state.candidateHead,
-    integration: state.integration,
-    candidatePath: existsSync(state.candidate) ? normalizeSlashes(state.candidate) : null,
-    timingsMs: {},
-  };
-}
 
 async function cleanupLand(projectDir, primary, settings, state, file) {
   const cleanupStartedAt = Date.now();
@@ -1975,16 +1737,13 @@ async function cleanupLand(projectDir, primary, settings, state, file) {
       : { removed: false, residual: normalizeSlashes(candidate), reason: 'candidate dirty' });
   }
   const pending = cleanup.some((item) => item.status !== 'passed') || candidateCleanup.some((item) => !item.removed);
-  state.phase = pending ? 'cleanup_pending' : state.push ? 'push_confirmed' : 'local_merged';
-  state.integrationStatus = state.push
-    ? pending ? 'integrated_cleanup_pending' : 'integrated'
-    : 'local_merged';
+  state.phase = pending ? 'cleanup_pending' : 'push_confirmed';
+  state.integrationStatus = pending ? 'integrated_cleanup_pending' : 'integrated';
   state.cleanup = cleanup;
   saveBatchState(file, state);
-  // Keep local-only state too: a later --push must use the original verified SHA.
-  if (state.push && !pending) rmSync(file);
+  if (!pending) rmSync(file);
   return {
-    integrationStatus: state.push ? pending ? 'integrated_cleanup_pending' : 'integrated' : 'local_merged',
+    integrationStatus: pending ? 'integrated_cleanup_pending' : 'integrated',
     ...(pending ? { code: 'LAND_BATCH_CLEANUP_INCOMPLETE', warnings: [{ code: 'LAND_CLEANUP_PENDING', message: '已集成、待清理；重试只清理，残留资源保持占用。' }] } : {}),
     cleanup,
     candidateCleanup,
@@ -2018,7 +1777,7 @@ async function batchMergeNext(projectDir, state, file) {
         state.phase = 'conflict';
         state.conflicts.push({ task: source.id, files: unresolved.stdout.trim().split(/\r?\n/u), at: new Date().toISOString() });
         saveBatchState(file, state);
-        return batchFailure('LAND_BATCH_CONFLICT', 'Resolve the conflict in the candidate, stage the resolution, then rerun worktree stage (or legacy land) with --resume <batchId> --write. No target ref moved.',
+        return batchFailure('LAND_BATCH_CONFLICT', 'Resolve the conflict in the candidate, stage the resolution, then rerun worktree stage with --resume <batchId> --write. No target ref moved.',
           { batchId: state.id, candidatePath: normalizeSlashes(state.candidate), task: source.id, files: state.conflicts.at(-1).files, resumable: true });
       }
     }
@@ -2200,6 +1959,50 @@ async function stageBatchCandidate(projectDir, state, file, settings, verificati
     } : {}),
   });
 }
+// Only a run that produced failing evidence indicts the candidate. Any other
+// non-pass status (blocked, stale, snapshot drift, nothing executed) means the
+// environment never delivered evidence, so the same candidate can be resumed
+// without rebuilding it.
+function verifyFailureClassification(verification) {
+  const candidateFailed = verification.status === 'failed';
+  const comparison = verification.verification?.snapshotComparison ?? null;
+  const failureType = candidateFailed ? 'checks-failed'
+    : comparison === 'changed' ? 'snapshot-drift'
+    : comparison === 'unknown' ? 'snapshot-unknown'
+    : verification.status === 'blocked' ? 'blocked'
+    : verification.status === 'stale' ? 'stale'
+    : 'not-run';
+  return {
+    code: candidateFailed ? 'LAND_VERIFY_FAILED' : 'LAND_VERIFY_ENVIRONMENT_FAILED',
+    failureType,
+    candidateFailed,
+    at: new Date().toISOString(),
+    status: verification.status ?? null,
+    detail: verification.code ?? null,
+  };
+}
+// Verification runs outside the repository FIFO, so a superseded candidate
+// must stay discoverable while its checks are still running: the activity
+// lease records the live run, and a completed publish force-releases it and
+// marks the CANCEL sidecar so the next poll aborts between checks.
+async function runCandidateVerification(projectDir, state, args, verifyArgs) {
+  const lease = await acquireLandCandidateActivityLease(projectDir, state.id);
+  if (!lease.held) {
+    return {
+      status: 'blocked',
+      code: lease.code ?? 'LAND_CANDIDATE_LOCK_UNAVAILABLE',
+      error: `candidate activity lease unavailable: ${lease.blockers?.[0] ?? 'lock is held'}`,
+      checks: {},
+      selectedChecks: [],
+    };
+  }
+  try {
+    return await verifyProject(state.candidate, { ...verifyArgs, onProgress: args.onProgress });
+  } finally {
+    lease.stopHeartbeat();
+    releaseLease(lease.lockPath);
+  }
+}
 async function worktreeBatchLandReport(projectDir, args) {
   if (!args.write) return worktreeBatchLandReportLocked(projectDir, args);
   const common = await gitCommonDir(projectDir);
@@ -2219,38 +2022,29 @@ async function worktreeBatchLandReport(projectDir, args) {
       locks.push(file);
       heartbeats.push(...startLeaseHeartbeats([file], DEFAULT_LEASE_MS));
     }
-    const sourceHealthy = () => heartbeats.every((heartbeat) => !heartbeat.lost);
-    let result;
-    let retryArgs = args;
-    for (let attempt = 1; attempt <= LAND_MAX_ATTEMPTS; attempt += 1) {
-      result = await worktreeBatchLandReportLocked(projectDir, retryArgs, sourceHealthy);
-      if (!['LAND_BATCH_BASELINE_CHANGED', 'LAND_BATCH_BASELINE_REPLAY', 'LAND_REMOTE_DIVERGED'].includes(result.code)
-        || result.code === 'LAND_REMOTE_DIVERGED' && !retryArgs.push
-        || !result.batchId || attempt === LAND_MAX_ATTEMPTS) return result;
-      retryArgs = { ...args, task: [], resume: result.batchId, rebuild: true };
-      args.onProgress?.({ kind: 'vibe-harness.progress', command: args.progressCommand ?? 'worktree land',
-        phase: 'baseline-changed', at: new Date().toISOString(), attempt });
-    }
-    return result;
+    // Stage owns no baseline-changed retry here: a resumed batch re-reads its
+    // baseline inside the engine and rebuilds the candidate inline when the
+    // local target advanced, so one pass through the engine is enough.
+    return await worktreeBatchLandReportLocked(projectDir, args);
   } finally {
     for (const heartbeat of heartbeats) heartbeat.stop();
     for (const file of locks) releaseLease(file);
   }
 }
-async function worktreeBatchLandReportLocked(projectDir, args, sourceHealthy = () => true) {
+async function worktreeBatchLandReportLocked(projectDir, args) {
   if (!args.batch || args.verify === false || args.targetMode === 'remote' || args.delivery && args.delivery !== 'local-land') {
-    return batchFailure('LAND_BATCH_OPTIONS', 'Batch land requires --batch, verification and local-land in primary target mode');
+    return batchFailure('LAND_BATCH_OPTIONS', 'Batch stage requires --batch, verification and local-land in primary target mode');
   }
   if (args.resume !== undefined && (!args.write || args.task.length > 0)) {
     return batchFailure('LAND_BATCH_RESUME_OPTIONS', '--resume requires --write and no --task');
   }
   if (args.resume === undefined && (!args.task.length || args.task.length > 32
     || new Set(args.task.map((item) => parseWorktreeTask(item).id)).size !== args.task.length)) {
-    return batchFailure('LAND_BATCH_TASKS', 'Batch land needs 1–32 distinct --task values');
+    return batchFailure('LAND_BATCH_TASKS', 'Batch stage needs 1–32 distinct --task values');
   }
   const common = await gitCommonDir(projectDir);
   if (!common.ok) return batchFailure('LAND_BATCH_COMMON_DIR', common.error);
-  if (!args.write) return worktreeBatchLandUnlocked(projectDir, args, common.path, sourceHealthy);
+  if (!args.write) return worktreeBatchLandUnlocked(projectDir, args, common.path);
   if (args.resume === undefined) {
     const ids = args.task.map((item) => parseWorktreeTask(item).id).sort().join('\0');
     const retained = readdirSync(common.path).filter((name) => /^vibe-harness-land-batch-.*\.json$/u.test(name))
@@ -2258,11 +2052,12 @@ async function worktreeBatchLandReportLocked(projectDir, args, sourceHealthy = (
       .filter((state) => state?.sources?.map((source) => source.id).sort().join('\0') === ids);
     if (retained.length > 1) return batchFailure('LAND_STATE_AMBIGUOUS', 'Multiple retained transactions match; select --resume explicitly');
     if (retained.length === 1) args = { ...args, resume: retained[0].id, task: [] };
-    else return worktreeBatchLandUnlocked(projectDir, args, common.path, sourceHealthy);
+    else return worktreeBatchLandUnlocked(projectDir, args, common.path);
   }
   // A resumed batch has a stable identity, so only another attempt to resume
-  // that same batch is serialized. Different candidates build and verify
-  // concurrently; the short phase-2 target-ref lease fences finalization.
+  // that same batch is serialized. Different candidates build, verify and stage
+  // concurrently; publish serializes only its seconds-scale finalize in the
+  // repository FIFO.
   const lockPath = `${batchStatePath(common.path, args.resume)}.lock`;
   const lease = await acquireLeaseWithRetry(lockPath, {
     timeoutMs: landLockTimeoutMs(), retryMs: LAND_LOCK_RETRY_MS, leaseMs: DEFAULT_LEASE_MS,
@@ -2271,14 +2066,13 @@ async function worktreeBatchLandReportLocked(projectDir, args, sourceHealthy = (
     { batchId: args.resume });
   const heartbeat = startLeaseHeartbeats([lockPath], DEFAULT_LEASE_MS)[0];
   try {
-    return await worktreeBatchLandUnlocked(projectDir, args, common.path,
-      () => sourceHealthy() && !heartbeat.lost);
+    return await worktreeBatchLandUnlocked(projectDir, args, common.path);
   } finally {
     heartbeat.stop();
     releaseLease(lockPath);
   }
 }
-async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHealthy = () => true) {
+async function worktreeBatchLandUnlocked(projectDir, args, commonDir) {
   const setupStartedAt = Date.now();
   const config = await readProjectConfig(projectDir);
   const delivery = resolveDelivery(config, args.delivery);
@@ -2289,19 +2083,15 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
   if (reason) return batchFailure('LAND_BATCH_WORKTREES', reason);
   const primary = entries.find((item) => item.primary);
   const stageOnly = Boolean(args.stageOnly);
-  const target = args.baseRef ?? (stageOnly ? 'develop' : primary?.branch);
-  if (!primary?.path || target !== 'develop' || isLandProtectedBranch(target)
-    || !stageOnly && primary.branch !== target) {
-    return batchFailure('LAND_BATCH_TARGET', stageOnly
-      ? 'Stage requires the develop integration target'
-      : 'Local-land requires the primary checkout on develop');
+  const target = args.baseRef ?? 'develop';
+  if (!primary?.path || target !== 'develop' || isLandProtectedBranch(target)) {
+    return batchFailure('LAND_BATCH_TARGET', 'Stage requires the develop integration target');
   }
   let pushTarget = null;
-  if (args.resume === undefined && (stageOnly || args.push)) {
+  if (args.resume === undefined) {
+    // Local config only, no network: stage anchors the push endpoint so publish
+    // can detect that the effective remote changed before finalize.
     pushTarget = await landPushTarget(projectDir, target);
-    if (pushTarget.error && args.push) {
-      return batchFailure('LAND_PUSH_TARGET_INVALID', pushTarget.error);
-    }
     if (pushTarget.error) {
       pushTarget = { remote: 'origin', ref: 'refs/heads/develop', unavailable: true };
     }
@@ -2313,22 +2103,23 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
       file = batchStatePath(commonDir, args.resume);
       state = JSON.parse(readFileSync(file, 'utf8'));
     } catch { return batchFailure('LAND_BATCH_NOT_FOUND', 'Batch state is missing or unreadable'); }
-    if (![1, 2, 3, LAND_TRANSACTION_SCHEMA_VERSION].includes(state.schemaVersion) || state.id !== args.resume || !Array.isArray(state.sources)
+    if (state.schemaVersion !== LAND_TRANSACTION_SCHEMA_VERSION || state.id !== args.resume || !Array.isArray(state.sources)
       || state.sources.length === 0 || state.sources.length > 32
       || !Number.isInteger(state.next) || state.next < 0 || state.next > state.sources.length
-      || !['queued', 'staged', 'verified', 'local_merged', 'publishing', 'push_uncertain', 'push_confirmed', 'cleanup_pending', 'recovery_required', 'archived_integrated'].includes(state.phase) && state.sources.some((source) => !entries.some((entry) => !entry.primary && !entry.detached
-        && entry.branch === source.branch && pathKey(entry.path) === pathKey(source.path)))
       || state.target !== target || !/^\.vibe-harness-land-batch-[0-9a-f-]+$/iu.test(path.basename(state.candidate))
-      || pathKey(path.dirname(state.candidate)) !== pathKey(path.dirname(settings.root))
-      || !['queued', 'conflict', 'merged', 'merging', 'staged', 'verified', 'local_merged', 'publishing', 'push_uncertain', 'push_confirmed', 'cleanup_pending', 'recovery_required', 'archived_integrated'].includes(state.phase)) {
+      || pathKey(path.dirname(state.candidate)) !== pathKey(path.dirname(settings.root))) {
       return batchFailure('LAND_BATCH_STATE_INVALID', 'Batch candidate or target changed; inspect the retained state');
     }
-    if (state.phase === 'archived_integrated') {
-      return batchFailure('LAND_BATCH_ARCHIVED',
-        'This transaction was archived after its frozen sources were proven integrated',
+    if (!['queued', 'conflict', 'merging', 'merged', 'staged'].includes(state.phase)) {
+      return batchFailure('LAND_STAGE_PHASE_INVALID',
+        state.phase === 'archived_integrated'
+          ? 'This transaction was archived after its frozen sources were proven integrated'
+          : state.phase === 'recovery_required'
+            ? 'A failed verification needs fixed sources and a new stage run'
+            : `Phase ${String(state.phase)} belongs to the publish lifecycle; rerun worktree publish`,
         { batchId: state.id, archive: state.archive ?? null });
     }
-    if (stageOnly && state.phase === 'staged') {
+    if (state.phase === 'staged') {
       const reference = await runGit(['rev-parse', stagedRef(state.id)], projectDir);
       if (!reference.ok || reference.stdout.trim() !== state.candidateHead) {
         return batchFailure('LAND_STAGE_REF_INVALID',
@@ -2339,75 +2130,22 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
       }
       return stagedStateReport(state);
     }
-    const deliveryTurn = await args._deliveryGate?.ensure();
-    if (deliveryTurn && !deliveryTurn.ok) return queueBlockedFailure(args.stageOnly ? 'stage' : 'land', deliveryTurn);
-    if (deliveryTurn) args._deliveryQueue = deliveryTurn;
-    state.queue = deliveryQueueTransaction(args._deliveryQueue) ?? state.queue ?? null;
-    if (args.rebuild && state.phase === 'verified') {
-      const local = await runGit(['rev-parse', 'HEAD'], primary.path);
-      const locallyFinalized = local.ok && local.stdout.trim() === state.candidateHead
-        && state.pushConfirmed === true;
-      if (!local.ok || locallyFinalized || !await batchSourcesStillValid(projectDir, state)) {
-        return batchFailure('LAND_REMOTE_DIVERGED', 'Already finalized or changed source; preserve the original transaction');
-      }
-      const endpoint = await resolveStoredPushTarget(projectDir, state, target);
-      if (endpoint.error) return batchFailure('LAND_PUSH_TARGET_CHANGED', 'Push target changed');
-      const remote = await exactRemoteHead(projectDir, endpoint);
-      if (!remote.ok) return batchFailure('LAND_REMOTE_BASELINE_UNAVAILABLE',
-        'Cannot confirm the exact remote baseline');
-      state.pushTarget = { ...endpoint, baseHead: remote.sha };
-      const rebuilt = await rebaseBatchCandidate(projectDir, state, file, settings,
-        { ok: true, stdout: remote.sha });
-      if (rebuilt) return rebuilt;
-    }
-    if (['verified', 'local_merged', 'push_uncertain', 'push_confirmed', 'cleanup_pending'].includes(state.phase)) {
-      if (args.push && !state.push) {
-        const endpoint = await resolveStoredPushTarget(projectDir, state, target);
-        if (endpoint.error) {
-          return batchFailure('LAND_PUSH_TARGET_CHANGED', 'The original local-only transaction endpoint changed');
-        }
-        state.push = true;
-        saveBatchState(file, state);
-      }
-      const lock = await acquirePhase2Lock(projectDir, target);
-      if (!lock.held) return batchFailure('LAND_BATCH_LOCK', 'Cannot acquire target ref lease');
-      const heartbeats = startLeaseHeartbeats(lock.lockPaths, lock.leaseMs);
-      let finalized;
-      try {
-        finalized = await finalizeLand(projectDir, primary, state, file,
-          () => sourceHealthy() && heartbeats.every((heartbeat) => !heartbeat.lost));
-      }
-      finally { for (const heartbeat of heartbeats) heartbeat.stop(); for (const file of lock.lockPaths) releaseLease(file); }
-      if (finalized.status !== 'passed') return finalized;
-      await releaseDeliveryGate(args, state, file, 'completed');
-      const cleaned = await cleanupLand(projectDir, primary, settings, state, file);
-      return {
-        ...finalized,
-        ...cleaned,
-        queue: args._deliveryGate?.report('completed') ?? finalized.queue ?? null,
-        timingsMs: { ...finalized.timingsMs, ...cleaned.timingsMs },
-      };
+    if (state.sources.some((source) => !entries.some((entry) => !entry.primary && !entry.detached
+      && entry.branch === source.branch && pathKey(entry.path) === pathKey(source.path)))) {
+      return batchFailure('LAND_BATCH_STATE_INVALID', 'A source worktree disappeared; inspect the retained state');
     }
     if (!await batchSourcesStillValid(projectDir, state)) {
       return batchFailure('LAND_BATCH_SOURCE_CHANGED', 'A source branch or worktree changed; inspect and restart the batch',
         { batchId: state.id, candidatePath: normalizeSlashes(state.candidate) });
     }
-    let endpoint = null;
-    let sync;
-    if (state.push) {
-      endpoint = await resolveStoredPushTarget(projectDir, state, target);
-      if (endpoint.error) return batchFailure('LAND_PUSH_TARGET_CHANGED', endpoint.error);
-      sync = await exactRemoteHead(projectDir, endpoint);
-      if (!sync.ok) return batchFailure('LAND_REMOTE_BASELINE_UNAVAILABLE',
-        'Cannot confirm the exact remote baseline');
-      state.pushTarget = { ...endpoint, baseHead: sync.sha };
-    } else {
-      sync = await localLandBaseline(projectDir, target);
-      if (sync.error) return batchFailure('LAND_LOCAL_TARGET_UNAVAILABLE', sync.error);
-      state.pushTarget = null;
-    }
+    // Stage tracks only the local integration target; publish owns the remote
+    // baseline, so a resume never reads the network here.
+    const sync = await localLandBaseline(projectDir, target);
+    if (sync.error) return batchFailure('LAND_LOCAL_TARGET_UNAVAILABLE', sync.error);
+    const anchor = await landPushTarget(projectDir, target);
+    state.pushTarget = anchor.error ? { remote: 'origin', ref: 'refs/heads/develop', unavailable: true } : anchor;
     const currentTarget = { ok: true, stdout: sync.sha };
-    if (!currentTarget.ok || currentTarget.stdout.trim() !== state.baseHead) {
+    if (currentTarget.stdout.trim() !== state.baseHead) {
       const rebased = await rebaseBatchCandidate(projectDir, state, file, settings, currentTarget);
       if (rebased) return rebased;
     }
@@ -2434,7 +2172,7 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
         readTaskAnchor(projectDir, task.id),
       ]);
       if (!head.ok || !dirty.ok || dirty.stdout.trim()) blockers.push(`task ${task.id} does not have a clean committed source`);
-      if (!stageOnly && dependencyRootBlockers(projectDir, entry.path, settings).length) {
+      if (dependencyRootBlockers(projectDir, entry.path, settings).length) {
         blockers.push(`task ${task.id} has missing dependency roots`);
       }
       if (anchorInfo.exists && (anchorInfo.anchor?.blockers?.length
@@ -2464,32 +2202,25 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
     // CI obligation, not grounds to silently promote quick to deep.
     const id = randomUUID();
     const candidate = path.join(path.dirname(settings.root), `.vibe-harness-land-batch-${id}`);
-    if (!args.write) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'land',
+    if (!args.write) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'stage',
       status: 'planned', batch: true, targetBranch: target, tier, sources, selectedChecks: selected.selectedNames,
       warnings: reviewed.warnings.map((message) => ({ code: 'LAND_REVIEW_METADATA_IGNORED', message })),
       deferredCount: selected.deferredCount, write: false };
-    const deliveryTurn = await args._deliveryGate?.ensure();
-    if (deliveryTurn && !deliveryTurn.ok) return queueBlockedFailure('land', deliveryTurn);
-    if (deliveryTurn) args._deliveryQueue = deliveryTurn;
-    // Preflight may run while another delivery owns the FIFO. The candidate
-    // baseline and first managed merge are created only after this turn starts.
-    const sync = args.push
-      ? await exactRemoteHead(projectDir, pushTarget)
-      : await localLandBaseline(projectDir, target);
-    if (sync.error || (args.push && !sync.ok)) {
-      return batchFailure(args.push ? 'LAND_REMOTE_BASELINE_UNAVAILABLE' : 'LAND_LOCAL_TARGET_UNAVAILABLE',
-        sync.error ?? 'Cannot confirm the exact delivery baseline');
+    // Stage never holds the repository FIFO: the baseline is a local snapshot
+    // and verification runs outside any queue turn.
+    const sync = await localLandBaseline(projectDir, target);
+    if (sync.error) {
+      return batchFailure('LAND_LOCAL_TARGET_UNAVAILABLE', sync.error);
     }
     if (pushTarget) pushTarget.baseHead = sync.sha;
     state = { schemaVersion: LAND_TRANSACTION_SCHEMA_VERSION, id, target, baseHead: sync.sha, sources, tier,
       selectedChecks: selected.selectedNames, reviewed: reviewed.ids, reviewWarnings: reviewed.warnings,
       candidate, next: 0, resolved: 0, conflicts: [], phase: 'merging',
-      startedAt: new Date().toISOString(), single: Boolean(args.single), push: Boolean(args.push),
+      startedAt: new Date().toISOString(), single: Boolean(args.single), push: false,
       stageOnly: Boolean(args.stageOnly), pushTarget,
-      queue: deliveryQueueTransaction(args._deliveryQueue),
+      queue: null,
       commandStatus: 'planned', integrationStatus: 'not_integrated',
       remoteValidation: 'not_required', localRefSync: 'not_attempted' };
-    state.queue = deliveryQueueTransaction(args._deliveryQueue) ?? state.queue ?? null;
     file = batchStatePath(commonDir, id);
     const candidateError = await prepareBatchCandidate(projectDir, state, settings);
     if (candidateError) return batchFailure('LAND_BATCH_CANDIDATE_SETUP', candidateError, { batchId: id, candidatePath: normalizeSlashes(candidate) });
@@ -2498,24 +2229,13 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
   const mergeStartedAt = Date.now();
   const mergeResult = await batchMergeNext(projectDir, state, file);
   if (mergeResult) return mergeResult;
-  if (!state.push) {
-    const targetNow = await runGit(['rev-parse', `refs/heads/${target}`], primary.path);
-    if (!targetNow.ok || targetNow.stdout.trim() !== state.baseHead) {
-      const rebased = await rebaseBatchCandidate(projectDir, state, file, settings, targetNow);
-      if (rebased) return rebased;
-      const replay = await batchMergeNext(projectDir, state, file);
-      return replay ?? batchFailure('LAND_BATCH_BASELINE_REPLAY',
-        'Target advanced; candidate was rebuilt. Resume to verify the new final tree.',
-        { batchId: state.id, candidatePath: normalizeSlashes(state.candidate), resumable: true });
-    }
-  }
   const clean = await runGit(['status', '--porcelain=v1', '--untracked-files=all'], state.candidate);
   if (!clean.ok || clean.stdout.trim()) return batchFailure('LAND_BATCH_CANDIDATE_DIRTY',
     'Candidate contains uncommitted changes; inspect before verification', { batchId: state.id, candidatePath: normalizeSlashes(state.candidate) });
   const candidateHead = await runGit(['rev-parse', 'HEAD'], state.candidate);
   const mergeMs = Date.now() - mergeStartedAt;
   const verifyStartedAt = Date.now();
-  const verification = await verifyProject(state.candidate, {
+  const verification = await runCandidateVerification(projectDir, state, args, {
     tier: state.tier,
     task: [],
     only: null,
@@ -2524,8 +2244,7 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
     reviewed: state.reviewed,
     reviewPolicy: delivery.reviewPolicy,
     targetBranch: target,
-    onProgress: args.onProgress,
-  }, { deliveryQueue: args._deliveryQueue });
+  });
   const timingsMs = { setupMs: mergeStartedAt - setupStartedAt, mergeMs, verifyMs: Date.now() - verifyStartedAt,
     checks: Object.entries(verification.checks ?? {}).map(([id, check]) => ({
       id, status: check?.status ?? null, durationMs: check?.durationMs ?? null,
@@ -2536,17 +2255,23 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
     totalMs: Date.now() - Date.parse(state.startedAt) };
   if (!PASS_STATUSES.includes(verification.status) || verification.selectedChecks?.length === 0
     || verification.verification?.snapshotComparison !== 'match') {
-    state.phase = 'recovery_required';
+    const failure = verifyFailureClassification(verification);
+    state.phase = failure.candidateFailed ? 'recovery_required' : state.phase;
     state.commandStatus = 'failed';
+    state.verifyFailure = failure;
     state.verification = {
       status: verification.status ?? null,
       code: verification.code ?? null,
       verificationId: verification.verification?.id ?? null,
-      failedAt: new Date().toISOString(),
+      failedAt: failure.at,
     };
     saveBatchState(file, state);
-    return batchFailure('LAND_BATCH_VERIFY_FAILED', 'Final candidate verification did not pass; source worktrees and target remain intact',
-      { batchId: state.id, candidatePath: normalizeSlashes(state.candidate), verification, timingsMs });
+    return batchFailure(failure.code,
+      failure.candidateFailed
+        ? 'Final candidate verification failed; fix the sources and start a new stage run'
+        : 'Verification produced no evidence (blocked, stale or not run); rerun worktree stage --resume to verify the same candidate',
+      { batchId: state.id, candidatePath: normalizeSlashes(state.candidate), verification, timingsMs,
+        failureType: failure.failureType });
   }
   const verifiedHead = await runGit(['rev-parse', 'HEAD'], state.candidate);
   if (!verifiedHead.ok) {
@@ -2575,125 +2300,7 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir, sourceHeal
   state.integration = receipt;
   state.verifiedFingerprint = verification.verification.fingerprint;
   state.verifiedWriteFingerprint = verification.verification.writeFingerprint;
-  if (stageOnly) {
-    return stageBatchCandidate(projectDir, state, file, settings, verification, args);
-  }
-  const lock = await acquirePhase2Lock(projectDir, target);
-  if (!lock.held) return batchFailure(lock.code ?? 'LAND_BATCH_LOCK', 'Cannot acquire target ref lease',
-    { batchId: state.id, candidatePath: normalizeSlashes(state.candidate) });
-  const heartbeats = startLeaseHeartbeats(lock.lockPaths, lock.leaseMs);
-  let finalized = null;
-  try {
-    const [freshTarget, freshCandidate, freshFingerprint] = await Promise.all([
-      runGit(['rev-parse', `refs/heads/${target}`], primary.path),
-      runGit(['rev-parse', 'HEAD'], state.candidate),
-      gitFingerprint(state.candidate),
-    ]);
-    if (!sourceHealthy() || heartbeats.some((heartbeat) => heartbeat.lost) || !freshTarget.ok
-      || !freshCandidate.ok || freshCandidate.stdout.trim() !== candidateHead.stdout.trim()
-      || freshFingerprint.fingerprint !== verification.verification.fingerprint
-      || freshFingerprint.writeFingerprint !== verification.verification.writeFingerprint
-      || !await batchSourcesStillValid(projectDir, state)) {
-      return batchFailure('LAND_BATCH_SNAPSHOT_CHANGED', 'Source, candidate, primary checkout or lease changed before finalization',
-        { batchId: state.id, candidatePath: normalizeSlashes(state.candidate) });
-    }
-    // Persist authenticated provenance before either ref is advanced. This
-    // attests the checks actually run, not a fabricated complete acceptance.
-    // The final candidate result is the gate; persistence is best-effort
-    // diagnostics and must not hold the target ref hostage.
-    await recordFinalVerification(projectDir, verification.verification, {
-      checks: Object.entries(verification.checks ?? {}).map(([id, check]) => ({ id, command: check?.command })),
-    }).catch(() => false);
-    state.candidateHead = candidateHead.stdout.trim();
-    state.phase = 'verified';
-    saveBatchState(file, state);
-    if (!state.push && freshTarget.stdout.trim() !== state.baseHead) return batchFailure('LAND_BATCH_BASELINE_CHANGED',
-      'Target advanced; release the lease before rebuilding', { batchId: state.id });
-    finalized = await finalizeLand(projectDir, primary, state, file,
-      () => sourceHealthy() && heartbeats.every((heartbeat) => !heartbeat.lost));
-  } finally {
-    for (const heartbeat of heartbeats) heartbeat.stop();
-    for (const lockPath of lock.lockPaths) releaseLease(lockPath);
-  }
-  if (finalized.status !== 'passed') {
-    return { ...finalized, timingsMs: { ...timingsMs, ...finalized.timingsMs, totalMs: Date.now() - Date.parse(state.startedAt) } };
-  }
-  // The target lock ends at the confirmed ref transition and any safe local
-  // ff-only synchronization. Cleanup is a separate residual task.
-  await releaseDeliveryGate(args, state, file, 'completed');
-  const cleaned = await cleanupLand(projectDir, primary, settings, state, file);
-  return {
-    ...finalized,
-    ...cleaned,
-    queue: args._deliveryGate?.report('completed') ?? finalized.queue ?? null,
-    warnings: [...(state.reviewWarnings ?? []).map((message) => ({
-      code: 'LAND_REVIEW_METADATA_IGNORED',
-      message,
-    })), ...(cleaned.warnings ?? finalized.warnings ?? [])],
-    timingsMs: {
-      ...timingsMs,
-      ...finalized.timingsMs,
-      ...cleaned.timingsMs,
-      totalMs: Date.now() - Date.parse(state.startedAt),
-    },
-  };
-}
-async function worktreeLandReport(projectDir, args) {
-  if (args.targetMode === 'remote') return batchFailure('LAND_REMOTE_MODE_RETIRED',
-    '--target-mode remote is retired; use --target-mode primary with a clean primary develop checkout', { status: 'failed' });
-  if (args.targetMode && args.targetMode !== 'primary') return batchFailure('LAND_TARGET_MODE_INVALID',
-    `unknown --target-mode ${args.targetMode}`, { status: 'failed' });
-  if (args.push && !args.write) return batchFailure('LAND_WRITE_REQUIRED', '--push requires --write', { status: 'failed' });
-  if (args.batch || args.resume !== undefined) return worktreeBatchLandReport(projectDir, args);
-  const delivery = resolveDelivery(await readProjectConfig(projectDir), args.delivery);
-  if (args.write && args.task[0]) {
-    const taskId = parseWorktreeTask(args.task[0]).id;
-    const anchor = await readTaskAnchor(projectDir, taskId);
-    if (anchor.exists) await taskCheckpointReport(projectDir, { ...args, _: ['task', 'checkpoint', taskId], reason: 'pre-delivery' });
-  }
-  if (delivery.merge === 'squash') {
-    const result = await worktreeCleanupReport(projectDir, args);
-    return { ...result, subcommand: 'land', delivery: { profile: delivery.profile, stage: 'cleanup' },
-      guidance: 'Managed MR landing reads merge evidence only; it never creates a local no-ff merge or pushes.' };
-  }
-  if (args.write && args.verify === false) {
-    return {
-      schemaVersion: SCHEMA_VERSION,
-      command: 'worktree',
-      subcommand: 'land',
-      status: 'failed',
-      code: 'LAND_VERIFY_REQUIRED',
-      error: 'worktree land --write requires verification; use dry-run to inspect a no-verify plan',
-    };
-  }
-  if (delivery.merge === 'no-ff' || args.push) {
-    let tasks = args.task;
-    if (!tasks.length) {
-      const config = await readProjectConfig(projectDir);
-      const settings = resolveWorktreeSettings(projectDir, config, args);
-      if (settings.error) return batchFailure('LAND_SETTINGS', settings.error);
-      const { entries } = await worktreeEntries(projectDir);
-      const registry = readPortRegistry(projectDir).registry;
-      tasks = entries.filter((entry) => !entry.primary && !entry.detached && !entry.prunable
-        && (registry?.entries ?? []).some((record) => record.path && pathKey(record.path) === pathKey(entry.path)))
-        .map((entry) => path.basename(entry.path));
-    }
-    if (tasks.length !== 1) return batchFailure('LAND_TASK_REQUIRED', 'Single land needs exactly one attributed --task');
-    const result = await worktreeBatchLandReport(projectDir,
-      { ...args, task: tasks, batch: true, single: true, delivery: args.delivery ?? 'local-land' });
-    const cleanup = result.cleanup?.find((item) => item.id === parseWorktreeTask(tasks[0]).id);
-    const steps = result.status === 'passed' ? [
-      { id: 'merge', status: 'passed' }, { id: 'verify', status: 'passed' },
-      { id: 'push', status: result.pushed ? 'passed' : 'skipped' },
-      { id: 'cleanup', status: cleanup?.status ?? 'skipped' },
-      { id: 'delete-branch', status: cleanup?.branchDeleted ? 'passed' : 'skipped' },
-    ] : [{ id: /PUSH|REMOTE_DIVERGED/u.test(result.code ?? '') ? 'push' : 'merge', status: result.status, code: result.code }];
-    return { ...result, batch: false, results: [{ id: parseWorktreeTask(tasks[0]).id,
-      status: result.status, pushed: result.pushed ?? false, branchDeleted: cleanup?.branchDeleted ?? false,
-      portBlockReleased: cleanup?.portBlockReleased ?? false, steps }] };
-  }
-  if (!args.write) return worktreeLandReportUnlocked(projectDir, args);
-  return worktreeLandReportTwoPhase(projectDir, args);
+  return stageBatchCandidate(projectDir, state, file, settings, verification, args);
 }
 
 function transactionFailure(subcommand, code, error, extra = {}) {
@@ -2838,24 +2445,30 @@ async function inspectRemoteIntegration(projectDir, state, endpoint, remoteHead)
     missingSourceHeads,
   };
 }
-function recordSupersede(state, { resolution, remoteHead, toCandidateHead = null }) {
+function recordReconcile(state, { kind, remoteHead, toCandidateHead = null }) {
   const entry = {
-    recordedAt: new Date().toISOString(),
+    at: new Date().toISOString(),
+    kind,
     fromPhase: state.phase,
-    fromRemoteHead: remoteHead,
-    fromCandidateHead: state.candidateHead,
+    remoteHead,
+    fromCandidateHead: state.candidateHead ?? null,
     toCandidateHead,
-    resolution,
   };
-  state.supersedeHistory = [...(state.supersedeHistory ?? []), entry];
+  state.reconcileHistory = [...(state.reconcileHistory ?? []), entry];
   return entry;
 }
-function supersedeReceipt(state, { applied = false, resolution = null } = {}) {
-  return {
-    applied,
-    resolution,
-    historyEntries: state.supersedeHistory?.length ?? 0,
-  };
+function copyVerificationReceipts(fromCandidate, toCandidate) {
+  try {
+    const source = path.join(fromCandidate, '.vibe-harness', 'verification', 'receipts');
+    if (!existsSync(source)) return false;
+    cpSync(source, path.join(toCandidate, '.vibe-harness', 'verification', 'receipts'), {
+      recursive: true,
+    });
+    return true;
+  } catch {
+    // A missing or unreadable receipt store only costs cache reuse.
+    return false;
+  }
 }
 async function rebuildPublishedCandidate(projectDir, state, file, settings, delivery, remoteHead, args) {
   if (!await batchSourcesStillValid(projectDir, state)) {
@@ -2884,11 +2497,15 @@ async function rebuildPublishedCandidate(projectDir, state, file, settings, deli
       candidatePath: normalizeSlashes(candidate),
     });
   }
+  // The per-check receipt store is content-keyed: carrying it from the old
+  // candidate lets delta verification reuse every check whose inputs did not
+  // change, instead of re-running the full tier after a baseline rebuild.
+  if (oldCandidate) copyVerificationReceipts(oldCandidate, candidate);
   Object.assign(state, next);
   saveBatchState(file, state);
   const merged = await batchMergeNext(projectDir, state, file);
   if (merged) return merged;
-  const verification = await verifyProject(state.candidate, {
+  const verification = await runCandidateVerification(projectDir, state, args, {
     tier: state.tier,
     task: [],
     only: null,
@@ -2897,16 +2514,30 @@ async function rebuildPublishedCandidate(projectDir, state, file, settings, deli
     reviewed: state.reviewed,
     reviewPolicy: delivery.reviewPolicy,
     targetBranch: state.target,
-    onProgress: args.onProgress,
-  }, { deliveryQueue: args._deliveryQueue });
+  });
   const head = await runGit(['rev-parse', 'HEAD'], state.candidate);
   if (!PASS_STATUSES.includes(verification.status) || verification.selectedChecks?.length === 0
     || verification.verification?.snapshotComparison !== 'match' || !head.ok) {
-    return transactionFailure('publish', 'LAND_BATCH_VERIFY_FAILED',
-      'The rebuilt candidate did not pass verification; the stage remains unpublished', {
+    const failure = verifyFailureClassification(verification);
+    state.phase = failure.candidateFailed ? 'recovery_required' : state.phase;
+    state.commandStatus = 'failed';
+    state.verifyFailure = failure;
+    state.verification = {
+      status: verification.status ?? null,
+      code: verification.code ?? null,
+      verificationId: verification.verification?.id ?? null,
+      failedAt: failure.at,
+    };
+    saveBatchState(file, state);
+    return transactionFailure('publish', failure.code,
+      failure.candidateFailed
+        ? 'The rebuilt candidate failed verification; fix the sources and start a new stage run'
+        : 'The rebuild verification produced no evidence (blocked, stale or not run); rerun worktree publish',
+      {
         batchId: state.id,
         candidatePath: normalizeSlashes(state.candidate),
         verification,
+        failureType: failure.failureType,
       });
   }
   state.candidateHead = head.stdout.trim();
@@ -2924,9 +2555,9 @@ async function rebuildPublishedCandidate(projectDir, state, file, settings, deli
     return transactionFailure('publish', 'LAND_STAGE_REF_FAILED',
       'Cannot update the verified staged candidate reference', { batchId: state.id });
   }
-  const pendingSupersede = state.supersedeHistory?.findLast((entry) => entry.resolution === 'rebuilt'
+  const pendingRebuild = state.reconcileHistory?.findLast((entry) => entry.kind === 'rebuilt'
     && entry.toCandidateHead === null);
-  if (pendingSupersede) pendingSupersede.toCandidateHead = state.candidateHead;
+  if (pendingRebuild) pendingRebuild.toCandidateHead = state.candidateHead;
   saveBatchState(file, state);
   return { state };
 }
@@ -2990,6 +2621,13 @@ async function cleanupConfirmedPublish(projectDir, primary, settings, state, fil
   // Keep the staged candidate discoverable until the transaction is fully
   // closed. A cleanup-pending transaction still needs status/recovery evidence.
   if (cleaned.integrationStatus === 'integrated') await deleteTransactionRefs(projectDir, state);
+  // Other transactions whose baseline is now contained in the published head
+  // are superseded: their in-flight verification is wasted work, so it is
+  // cancelled and their heavy-verify leases are force-released.
+  const supersededCandidates = await cancelSupersededCandidates(projectDir, {
+    publishedHead,
+    batchId: state.id,
+  });
   return {
     ...cleaned,
     schemaVersion: SCHEMA_VERSION,
@@ -3009,15 +2647,198 @@ async function cleanupConfirmedPublish(projectDir, primary, settings, state, fil
     pushed: true,
     pushConfirmed: true,
     localSync: localRefSync,
-    supersede: supersedeReceipt(state, {
-      applied: Boolean(args.supersede),
-      resolution: args.supersede
-        ? state.supersedeHistory?.findLast((entry) => entry.resolution !== undefined)?.resolution ?? null
-        : null,
-    }),
-    supersedeHistory: state.supersedeHistory ?? [],
+    reconcileHistory: state.reconcileHistory ?? [],
+    supersededCandidates,
     queue: args?._deliveryGate?.report('completed') ?? state.queue ?? null,
   };
+}
+// A confirmed publish (or a proven sources-integrated archive) makes every
+// other transaction whose baseline it contains obsolete. Verification still
+// running for such a transaction is wasted work: ask it to stop through the
+// cooperative CANCEL sidecar, tree-kill the process tree as a backstop, and
+// force-release the heavy-verify lease so nothing waits on a dead holder.
+async function cancelSupersededCandidates(projectDir, { publishedHead, batchId }) {
+  const common = await gitCommonDir(projectDir);
+  if (!common.ok) return [];
+  const results = [];
+  for (const name of readdirSync(common.path)) {
+    const match = /^vibe-harness-land-candidate-([0-9a-f]{8}-[0-9a-f-]{27,})\.lock$/iu.exec(name);
+    if (!match || match[1] === batchId) continue;
+    const lockPath = path.join(common.path, name);
+    const lease = readLease(lockPath);
+    if (!lease.record) continue;
+    let state = null;
+    try {
+      state = JSON.parse(readFileSync(
+        path.join(common.path, `vibe-harness-land-batch-${match[1]}.json`), 'utf8'));
+    } catch {
+      state = null;
+    }
+    const superseded = state?.id === match[1] && typeof state.baseHead === 'string'
+      && (await runGit(['merge-base', '--is-ancestor', state.baseHead, publishedHead], projectDir)).ok;
+    if (!superseded) continue;
+    if (lease.alive && state.candidate) {
+      try {
+        const cancelDir = path.join(state.candidate, '.vibe-harness', 'verification');
+        mkdirSync(cancelDir, { recursive: true });
+        writeFileSync(path.join(cancelDir, 'CANCEL'), `${JSON.stringify({
+          reason: 'superseded',
+          publishedHead,
+          publishedBy: batchId,
+          at: new Date().toISOString(),
+        })}\n`);
+      } catch {
+        // The sidecar is cooperative; the tree-kill below still stops the run.
+      }
+      if (process.platform === 'win32') {
+        spawnSync('taskkill.exe', ['/pid', String(lease.pid), '/t', '/f'],
+          { stdio: 'ignore', windowsHide: true, timeout: 4000 });
+      } else {
+        try {
+          process.kill(lease.pid, 'SIGTERM');
+        } catch {
+          // The process is already gone; the lease release below is enough.
+        }
+      }
+      results.push({ batchId: match[1], pid: lease.pid, action: 'cancelled' });
+    } else {
+      results.push({ batchId: match[1], pid: lease.pid ?? null, action: 'lease-released' });
+    }
+    releaseLease(lockPath);
+  }
+  return results;
+}
+// Every frozen source head already lives in the remote target, so the
+// transaction is done without this candidate ever publishing: archive it for
+// audit, reclaim the candidate residue, and cancel superseded verification.
+async function archiveIntegratedTransaction(projectDir, state, file, settings, {
+  reason,
+  remoteHead,
+  integratedSourceHeads,
+}) {
+  recordReconcile(state, { kind: 'archived-integrated', remoteHead, toCandidateHead: null });
+  state.phase = 'archived_integrated';
+  state.push = true;
+  state.pushConfirmed = true;
+  state.integrationStatus = 'integrated';
+  state.remoteValidation = 'not_required';
+  state.remoteConfirmedHead = remoteHead;
+  state.commandStatus = 'passed';
+  state.archive = {
+    at: new Date().toISOString(),
+    reason,
+    remoteHead,
+    integratedSourceHeads: integratedSourceHeads ?? state.sources.map((source) => source.head),
+  };
+  saveBatchState(file, state);
+  const candidateCleanup = [];
+  for (const candidate of [state.candidate, ...(state.previousCandidates ?? [])]) {
+    if (!existsSync(candidate)) continue;
+    candidateCleanup.push(await cleanupLandCandidate(projectDir, candidate, { settings }));
+  }
+  state.candidateCleanup = candidateCleanup;
+  saveBatchState(file, state);
+  await deleteTransactionRefs(projectDir, state);
+  const supersededCandidates = await cancelSupersededCandidates(projectDir, {
+    publishedHead: remoteHead,
+    batchId: state.id,
+  });
+  // The state file is intentionally retained: an archived transaction is the
+  // audit record that its frozen sources were proven integrated.
+  return {
+    status: 'archived',
+    report: {
+      schemaVersion: SCHEMA_VERSION,
+      command: 'worktree',
+      subcommand: 'publish',
+      status: 'passed',
+      commandStatus: 'passed',
+      integrationStatus: 'integrated',
+      remoteValidation: 'not_required',
+      localRefSync: state.localRefSync ?? 'not_attempted',
+      batchId: state.id,
+      archived: true,
+      archive: state.archive,
+      reconcileHistory: state.reconcileHistory ?? [],
+      candidateCleanup,
+      supersededCandidates,
+      queue: state.queue ?? null,
+    },
+  };
+}
+// Auto-reconciliation, outside the repository FIFO: prove what the exact
+// remote target already contains before spending a finalize turn on it. A
+// candidate already on the remote, a baseline that moved, sources integrated
+// by someone else — every divergence is classified and resolved here.
+async function reconcilePublishedBaseline(projectDir, settings, delivery, state, file, endpoint, args) {
+  const staged = await runGit(['rev-parse', stagedRef(state.id)], projectDir);
+  if (!staged.ok || staged.stdout.trim() !== state.candidateHead) {
+    return transactionFailure('publish', 'LAND_STAGE_REQUIRED',
+      'This transaction has no verified staged candidate; complete worktree stage first', { batchId: state.id });
+  }
+  const remote = await exactRemoteHead(projectDir, endpoint);
+  if (!remote.ok) {
+    return transactionFailure('publish', 'LAND_PUSH_UNCONFIRMED',
+      'Cannot confirm the exact remote target; the next publish run reconciles it', { batchId: state.id });
+  }
+  if (remote.sha === state.candidateHead) {
+    recordReconcile(state, { kind: 'integrated', remoteHead: remote.sha, toCandidateHead: state.candidateHead });
+    state.phase = 'push_confirmed';
+    state.push = true;
+    state.pushConfirmed = true;
+    state.integrationStatus = 'integrated';
+    state.remoteValidation = 'not_required';
+    state.remoteConfirmedHead = state.candidateHead;
+    saveBatchState(file, state);
+    return { status: 'confirmed' };
+  }
+  // A rebuild that crashed mid-way (phase 'merging' with a live staged ref)
+  // skips the shortcuts: its recorded baseline is stale by definition.
+  if (state.phase !== 'merging') {
+    if (remote.sha === state.baseHead) return { status: 'current' };
+    const integration = await inspectRemoteIntegration(projectDir, state, endpoint, remote.sha);
+    if (integration.error) {
+      return transactionFailure('publish', 'LAND_PUSH_UNCONFIRMED',
+        'Cannot prove whether the remote contains the candidate or its sources; retry publish',
+        { batchId: state.id, remoteHead: remote.sha });
+    }
+    if (integration.candidateContained) {
+      recordReconcile(state, { kind: 'integrated', remoteHead: remote.sha, toCandidateHead: state.candidateHead });
+      state.phase = 'push_confirmed';
+      state.push = true;
+      state.pushConfirmed = true;
+      state.integrationStatus = 'integrated';
+      state.remoteValidation = 'not_required';
+      state.remoteConfirmedHead = remote.sha;
+      saveBatchState(file, state);
+      return { status: 'confirmed' };
+    }
+    if (integration.sourcesIntegrated) {
+      return await archiveIntegratedTransaction(projectDir, state, file, settings, {
+        reason: 'sources-integrated',
+        remoteHead: remote.sha,
+        integratedSourceHeads: integration.integratedSourceHeads,
+      });
+    }
+    if (!await batchSourcesStillValid(projectDir, state)) {
+      return transactionFailure('publish', 'LAND_BATCH_SOURCE_CHANGED',
+        'A source branch or worktree changed after stage; discard or restage explicitly', { batchId: state.id });
+    }
+    recordReconcile(state, { kind: 'rebuilt', remoteHead: remote.sha });
+    state.phase = 'merging';
+    state.push = false;
+    state.pushConfirmed = false;
+    state.integrationStatus = 'local_staged';
+    state.remoteConfirmedHead = null;
+    saveBatchState(file, state);
+  }
+  const fetched = await fetchRemoteBaseline(projectDir, state, endpoint);
+  if (fetched.error) {
+    return transactionFailure('publish', 'LAND_REMOTE_FETCH_FAILED', fetched.error, { batchId: state.id });
+  }
+  const rebuilt = await rebuildPublishedCandidate(projectDir, state, file, settings, delivery, fetched.sha, args);
+  if (rebuilt.error) return rebuilt;
+  return { status: 'rebuilt', remoteHead: fetched.sha };
 }
 async function worktreePublishReport(projectDir, args) {
   if (!args.write) return transactionFailure('publish', 'LAND_WRITE_REQUIRED', 'publish requires --write');
@@ -3037,27 +2858,15 @@ async function worktreePublishReport(projectDir, args) {
     return transactionFailure('publish', 'LAND_BATCH_STATE_INVALID',
       'The transaction candidate path is outside the configured worktree root', { batchId: state.id });
   }
-  const deliveryTurn = await args._deliveryGate?.ensure();
-  if (deliveryTurn && !deliveryTurn.ok) return queueBlockedFailure('publish', deliveryTurn);
-  if (deliveryTurn) args._deliveryQueue = deliveryTurn;
-  state.queue = deliveryQueueTransaction(args._deliveryQueue) ?? state.queue ?? null;
   const { entries, reason } = await worktreeEntries(projectDir);
   if (reason) return transactionFailure('publish', 'LAND_BATCH_WORKTREES', reason);
   const primary = entries.find((entry) => entry.primary);
   if (!primary?.path) return transactionFailure('publish', 'LAND_BATCH_TARGET', 'No primary checkout found');
-  if (!(state.pushConfirmed === true || ['staged', 'publishing', 'push_uncertain'].includes(state.phase))
+  if (!(state.pushConfirmed === true || ['staged', 'publishing', 'push_uncertain', 'merging'].includes(state.phase))
     || state.stageOnly !== true) {
     return transactionFailure('publish', 'LAND_STAGE_REQUIRED',
       'This transaction is not a staged local candidate; create it with worktree stage', {
         batchId: state.id,
-      });
-  }
-  if (args.supersede && !['publishing', 'push_uncertain'].includes(state.phase)) {
-    return transactionFailure('publish', 'LAND_SUPERSEDE_NOT_APPLICABLE',
-      '--supersede only recovers a publishing or push_uncertain transaction', {
-        batchId: state.id,
-        phase: state.phase,
-        supersede: supersedeReceipt(state),
       });
   }
   const lockFile = `${file}.lock`;
@@ -3069,27 +2878,18 @@ async function worktreePublishReport(projectDir, args) {
   if (!batchLease.ok) return transactionFailure('publish', 'LAND_BATCH_LOCK', 'Another operation owns this batch');
   const batchHeartbeat = startLeaseHeartbeats([lockFile], DEFAULT_LEASE_MS)[0];
   try {
-    // The repository FIFO may have waited behind another delivery. Re-read the
-    // transaction only after both the FIFO turn and batch lease are held so
-    // recovery decisions always use the latest persisted phase and remote
-    // evidence fields.
+    // Re-read the transaction only after the batch lease is held so recovery
+    // decisions always use the latest persisted phase and remote evidence
+    // fields. The repository FIFO turn is taken later, for the finalize
+    // section only, so no queue time is paid before this point.
     const current = await readLandTransaction(projectDir, args.batch);
     if (current.error) return { ...current.error, subcommand: 'publish' };
     state = current.state;
-    state.queue = deliveryQueueTransaction(args._deliveryQueue) ?? state.queue ?? null;
-    if (!(state.pushConfirmed === true || ['staged', 'publishing', 'push_uncertain'].includes(state.phase))
+    if (!(state.pushConfirmed === true || ['staged', 'publishing', 'push_uncertain', 'merging'].includes(state.phase))
       || state.stageOnly !== true) {
       return transactionFailure('publish', 'LAND_STAGE_REQUIRED',
         'This transaction is not a staged local candidate; create it with worktree stage', {
           batchId: state.id,
-        });
-    }
-    if (args.supersede && !['publishing', 'push_uncertain'].includes(state.phase)) {
-      return transactionFailure('publish', 'LAND_SUPERSEDE_NOT_APPLICABLE',
-        '--supersede only recovers a publishing or push_uncertain transaction', {
-          batchId: state.id,
-          phase: state.phase,
-          supersede: supersedeReceipt(state),
         });
     }
     if (!transactionCandidateMatchesSettings(state, settings)) {
@@ -3105,146 +2905,49 @@ async function worktreePublishReport(projectDir, args) {
         batchId: state.id,
       });
     }
-    if (['publishing', 'push_uncertain'].includes(state.phase)) {
-      const remote = await exactRemoteHead(projectDir, endpoint);
-      if (!remote.ok) {
-        return transactionFailure('publish', 'LAND_PUSH_UNCONFIRMED',
-          'The prior push result is still unknown; inspect the exact remote', {
-            batchId: state.id,
-            supersede: supersedeReceipt(state),
-          });
-      }
-      if (args.supersede && remote.sha === state.baseHead) {
-        return transactionFailure('publish', 'LAND_SUPERSEDE_NOT_REQUIRED',
-          'The remote still matches the staged baseline; retry publish without --supersede', {
-            batchId: state.id,
-            remoteHead: remote.sha,
-            supersede: supersedeReceipt(state, { resolution: 'not-required' }),
-          });
-      }
-      if (remote.sha === state.candidateHead) {
-        if (args.supersede) recordSupersede(state, {
-          resolution: 'candidate-contained',
-          remoteHead: remote.sha,
-          toCandidateHead: state.candidateHead,
-        });
-        state.phase = 'push_confirmed';
-        state.pushConfirmed = true;
-        state.integrationStatus = 'integrated';
-        state.remoteConfirmedHead = state.candidateHead;
-        saveBatchState(file, state);
+    let attempts = 0;
+    for (;;) {
+      // Auto-reconciliation runs before any FIFO turn is taken: confirming a
+      // completed push, archiving an integrated transaction or rebuilding
+      // onto a moved baseline all pay zero queue time. Only the seconds-scale
+      // finalize section below holds the repository FIFO turn.
+      const reconciled = await reconcilePublishedBaseline(projectDir, settings, delivery, state, file, endpoint, args);
+      if (reconciled.error) return reconciled;
+      if (reconciled.status === 'confirmed') {
         return cleanupConfirmedPublish(projectDir, primary, settings, state, file, args);
       }
-      if (remote.sha !== state.baseHead) {
-        const integration = await inspectRemoteIntegration(projectDir, state, endpoint, remote.sha);
-        if (integration.error) {
-          return transactionFailure('publish', 'LAND_PUSH_UNCONFIRMED',
-            'Cannot prove whether the remote contains the uncertain candidate or its sources', {
+      if (reconciled.status === 'archived') {
+        return reconciled.report;
+      }
+      if (reconciled.status === 'rebuilt') {
+        attempts += 1;
+        if (attempts >= LAND_MAX_ATTEMPTS) {
+          return transactionFailure('publish', 'LAND_BATCH_BASELINE_CHANGED',
+            'Remote target kept advancing; the staged candidate was preserved', {
               batchId: state.id,
-              remoteHead: remote.sha,
-              supersede: supersedeReceipt(state),
+              remoteHead: reconciled.remoteHead ?? null,
             });
         }
-        if (integration.candidateContained) {
-          if (args.supersede) recordSupersede(state, {
-            resolution: 'candidate-contained',
-            remoteHead: remote.sha,
-            toCandidateHead: state.candidateHead,
-          });
-          state.phase = 'push_confirmed';
-          state.pushConfirmed = true;
-          state.integrationStatus = 'integrated';
-          state.remoteValidation = 'not_required';
-          state.remoteConfirmedHead = remote.sha;
-          saveBatchState(file, state);
-          return cleanupConfirmedPublish(projectDir, primary, settings, state, file, args);
-        }
-        if (!args.supersede) {
-          return transactionFailure('publish', 'LAND_REMOTE_DIVERGED',
-            'Remote advanced independently after an uncertain push; preserve the staged candidate', {
-              batchId: state.id,
-              remoteHead: remote.sha,
-              supersede: supersedeReceipt(state),
-            });
-        }
-        if (integration.sourcesIntegrated) {
-          return transactionFailure('publish', 'LAND_SOURCE_ALREADY_INTEGRATED',
-            'Every frozen source head is already contained in the remote target; archive the transaction explicitly', {
-              batchId: state.id,
-              remoteHead: remote.sha,
-              integratedSourceHeads: integration.integratedSourceHeads,
-              supersede: supersedeReceipt(state, { resolution: 'source-integrated' }),
-            });
-        }
-        if (!await batchSourcesStillValid(projectDir, state)) {
-          return transactionFailure('publish', 'LAND_BATCH_SOURCE_CHANGED',
-            'A source branch or worktree changed after the uncertain push; preserve the transaction and restage explicitly', {
-              batchId: state.id,
-              remoteHead: remote.sha,
-              supersede: supersedeReceipt(state),
-            });
-        }
-        recordSupersede(state, {
-          resolution: 'rebuilt',
-          remoteHead: remote.sha,
-        });
-        state.phase = 'staged';
-        state.push = false;
-        state.pushConfirmed = false;
-        state.integrationStatus = 'local_staged';
-        state.remoteConfirmedHead = null;
-        saveBatchState(file, state);
         args.onProgress?.({
           kind: 'vibe-harness.progress',
           command: 'worktree publish',
-          phase: 'supersede-requested',
+          phase: 'baseline-rebuilt',
           at: new Date().toISOString(),
-          batchId: state.id,
-          remoteHead: remote.sha,
+          attempt: attempts,
         });
+        continue;
       }
-      state.phase = 'staged';
-      state.push = false;
-      state.pushConfirmed = false;
+      // reconciled.status === 'current': the remote still points at the staged
+      // baseline, so take the repository FIFO turn and finalize under it.
+      const turn = await args._deliveryGate?.ensure();
+      if (turn && !turn.ok) return queueBlockedFailure('publish', turn);
+      if (turn) state.queue = deliveryQueueTransaction(turn) ?? state.queue ?? null;
       saveBatchState(file, state);
-    }
-    for (let attempt = 1; attempt <= LAND_MAX_ATTEMPTS; attempt += 1) {
-      const remote = await exactRemoteHead(projectDir, endpoint);
-      if (!remote.ok) {
-        return transactionFailure('publish', 'LAND_PUSH_UNCONFIRMED',
-          'Cannot confirm the exact remote target', { batchId: state.id });
-      }
-      if (remote.sha !== state.baseHead) {
-        const fetched = await fetchRemoteBaseline(projectDir, state, endpoint);
-        if (fetched.error) {
-          return transactionFailure('publish', 'LAND_REMOTE_FETCH_FAILED', fetched.error, { batchId: state.id });
-        }
-        if (fetched.sha !== state.baseHead) {
-          const rebuilt = await rebuildPublishedCandidate(
-            projectDir, state, file, settings, delivery, fetched.sha, args,
-          );
-          if (rebuilt.error) return rebuilt;
-          args.onProgress?.({
-            kind: 'vibe-harness.progress',
-            command: 'worktree publish',
-            phase: 'baseline-rebuilt',
-            at: new Date().toISOString(),
-            attempt,
-          });
-          continue;
-        }
-      }
-      const phase2 = await acquirePhase2Lock(projectDir, state.target);
-      if (!phase2.held) {
-        return transactionFailure('publish', 'LAND_BATCH_LOCK', 'Cannot acquire target ref lease', {
-          batchId: state.id,
-        });
-      }
-      const heartbeats = startLeaseHeartbeats(phase2.lockPaths, phase2.leaseMs);
+      let turnStatus = 'cancelled';
       try {
         // The effective push URL is mutable local configuration. Re-resolve it
-        // under the target lease so the exact endpoint used for the push is the
-        // same one whose ref was just checked.
+        // inside the FIFO turn so the push uses the endpoint whose freshness
+        // was just proven, and refuse on drift.
         const freshEndpoint = await resolveStoredPushTarget(projectDir, state, state.target);
         if (freshEndpoint.error) {
           return transactionFailure('publish', 'LAND_PUSH_TARGET_CHANGED',
@@ -3259,14 +2962,17 @@ async function worktreePublishReport(projectDir, args) {
           batchSourcesStillValid(projectDir, state),
         ]);
         if (!freshRemote.ok || !staged.ok || staged.stdout.trim() !== state.candidateHead
-          || !sourceValid || batchHeartbeat.lost || heartbeats.some((heartbeat) => heartbeat.lost)) {
+          || !sourceValid || batchHeartbeat.lost) {
           return transactionFailure('publish', 'LAND_SNAPSHOT_CHANGED',
             'Remote target, staged candidate, source, endpoint, or lease changed before publish', {
               batchId: state.id,
             });
         }
         if (freshRemote.sha !== state.baseHead) {
-          if (attempt === LAND_MAX_ATTEMPTS) {
+          // The remote moved between reconciliation and the turn; release the
+          // turn and reconcile the newer baseline outside the queue.
+          attempts += 1;
+          if (attempts >= LAND_MAX_ATTEMPTS) {
             return transactionFailure('publish', 'LAND_BATCH_BASELINE_CHANGED',
               'Remote target kept advancing; the staged candidate was preserved', {
                 batchId: state.id,
@@ -3287,7 +2993,7 @@ async function worktreePublishReport(projectDir, args) {
           state.phase = 'push_uncertain';
           saveBatchState(file, state);
           return transactionFailure('publish', 'LAND_PUSH_UNCONFIRMED',
-            'Push result is unknown; inspect the remote before retrying', {
+            'Push result is unknown; the transaction is preserved and the next publish run reconciles it', {
               batchId: state.id,
               remoteHead: null,
             });
@@ -3298,7 +3004,7 @@ async function worktreePublishReport(projectDir, args) {
             state.phase = 'push_uncertain';
             saveBatchState(file, state);
             return transactionFailure('publish', 'LAND_PUSH_UNCONFIRMED',
-              'Push result is unknown; inspect the exact remote before retrying', {
+              'Push result is unknown; the transaction is preserved and the next publish run reconciles it', {
                 batchId: state.id,
                 remoteHead: after.sha,
               });
@@ -3309,18 +3015,20 @@ async function worktreePublishReport(projectDir, args) {
             state.integrationStatus = 'integrated';
             state.remoteValidation = 'not_required';
             state.remoteConfirmedHead = after.sha;
+            turnStatus = 'completed';
             saveBatchState(file, state);
           } else if (!pushed.ok && after.sha !== state.baseHead) {
             // The push command was rejected and the remote no longer points at
             // the staged baseline. Treat the candidate as unpublished so the
-            // next attempt can fetch and rebuild from this newer baseline.
+            // next pass reconciles and rebuilds from this newer baseline.
             state.phase = 'staged';
             state.push = false;
             state.pushConfirmed = false;
             state.integrationStatus = 'local_staged';
             state.remoteConfirmedHead = null;
             saveBatchState(file, state);
-            if (attempt === LAND_MAX_ATTEMPTS) {
+            attempts += 1;
+            if (attempts >= LAND_MAX_ATTEMPTS) {
               return transactionFailure('publish', 'LAND_REMOTE_DIVERGED',
                 'Push was rejected and the remote advanced; the staged candidate remains unpublished', {
                   batchId: state.id,
@@ -3335,7 +3043,7 @@ async function worktreePublishReport(projectDir, args) {
             return transactionFailure('publish',
               unchanged && !pushed.ok ? 'LAND_PUSH_FAILED'
                 : unchanged ? 'LAND_PUSH_UNCONFIRMED' : 'LAND_REMOTE_DIVERGED',
-              'Push was not confirmed; the staged candidate and sources are preserved', {
+              'Push was not confirmed; the staged candidate and sources are preserved and the next publish run reconciles the remote', {
                 batchId: state.id,
                 remoteHead: after.sha,
               });
@@ -3346,17 +3054,13 @@ async function worktreePublishReport(projectDir, args) {
         state.integrationStatus = 'integrated';
         state.remoteValidation = 'not_required';
         state.remoteConfirmedHead = after.sha;
+        turnStatus = 'completed';
         saveBatchState(file, state);
       } finally {
-        for (const heartbeat of heartbeats) heartbeat.stop();
-        for (const lockPath of phase2.lockPaths) releaseLease(lockPath);
+        await args._deliveryGate?.release(turnStatus);
       }
       return cleanupConfirmedPublish(projectDir, primary, settings, state, file, args);
     }
-    return transactionFailure('publish', 'LAND_BATCH_BASELINE_CHANGED',
-      'Remote target advanced while publishing; the staged candidate was preserved', {
-        batchId: state.id,
-      });
   } finally {
     batchHeartbeat.stop();
     releaseLease(lockFile);
@@ -3409,7 +3113,8 @@ async function worktreeStageStatusReport(projectDir, args) {
     sources: sourceStates,
     integration: state.integration,
     queue: state.queue ?? null,
-    supersedeHistory: state.supersedeHistory ?? [],
+    reconcileHistory: state.reconcileHistory ?? [],
+    verifyFailure: state.verifyFailure ?? null,
     archive: state.archive ?? null,
   };
 }
@@ -3439,10 +3144,6 @@ async function worktreeDiscardReport(projectDir, args) {
     return transactionFailure('discard', 'LAND_BATCH_STATE_INVALID',
       'The transaction candidate path is outside the configured worktree root', { batchId: state.id });
   }
-  const deliveryTurn = await args._deliveryGate?.ensure();
-  if (deliveryTurn && !deliveryTurn.ok) return queueBlockedFailure('discard', deliveryTurn);
-  if (deliveryTurn) args._deliveryQueue = deliveryTurn;
-  state.queue = deliveryQueueTransaction(args._deliveryQueue) ?? state.queue ?? null;
   const lockFile = `${file}.lock`;
   const lease = await acquireLeaseWithRetry(lockFile, {
     timeoutMs: landLockTimeoutMs(),
@@ -3483,7 +3184,7 @@ async function worktreeDiscardReport(projectDir, args) {
       integrationStatus: 'not_integrated',
       remoteValidation: 'not_required',
       localRefSync: 'not_attempted',
-      queue: args._deliveryGate?.report('running') ?? state.queue ?? null,
+      queue: state.queue ?? null,
       batchId: state.id,
       discarded: true,
       candidateCleanup,
@@ -3500,632 +3201,6 @@ async function worktreeDiscardReport(projectDir, args) {
 }
 
 /**
- * Build and verify a candidate without blocking peer worktrees, then acquire
- * the target-ref lease for the short baseline check, merge, push and cleanup.
- * A baseline change releases the lease, cleans the candidate and retries from
- * the newly observed target head.
- */
-async function worktreeLandReportTwoPhase(projectDir, args) {
-  const deliveryTurn = await args._deliveryGate?.ensure();
-  if (deliveryTurn && !deliveryTurn.ok) return queueBlockedFailure('land', deliveryTurn);
-  if (deliveryTurn) args._deliveryQueue = deliveryTurn;
-  let lastResult = null;
-  let retryArgs = args;
-  for (let attempt = 1; attempt <= LAND_MAX_ATTEMPTS; attempt += 1) {
-    args.onProgress?.({ kind: 'vibe-harness.progress', command: 'worktree land',
-      phase: 'candidate-start', at: new Date().toISOString(), attempt });
-    let phase2 = null;
-    let phase2Heartbeats = [];
-    const candidateActivities = [];
-    try {
-      lastResult = await worktreeLandReportUnlocked(projectDir, retryArgs, {
-        beforeFinalize: async (targetRef) => {
-          phase2 = await acquirePhase2Lock(projectDir, targetRef);
-          if (!phase2.held) return phase2;
-          phase2Heartbeats = startLeaseHeartbeats(phase2.lockPaths, phase2.leaseMs);
-          return {
-            ...phase2,
-            leaseHealthy: () => phase2Heartbeats.every((heartbeat) => !heartbeat.lost),
-          };
-        },
-        onCandidateStart: async (candidateId) => {
-          const activity = await acquireLandCandidateActivityLease(projectDir, candidateId);
-          if (activity.held) candidateActivities.push(activity);
-          return activity;
-        },
-      });
-    } finally {
-      for (const heartbeat of phase2Heartbeats) heartbeat.stop();
-      if (phase2?.held) {
-        for (const lockPath of phase2.lockPaths) releaseLease(lockPath);
-      }
-      for (const activity of candidateActivities) {
-        activity.stopHeartbeat();
-        releaseLease(activity.lockPath);
-      }
-    }
-    if (lastResult.code !== 'LAND_BASELINE_CHANGED') return lastResult;
-    args.onProgress?.({ kind: 'vibe-harness.progress', command: 'worktree land',
-      phase: 'baseline-changed', at: new Date().toISOString(), attempt });
-    if (attempt < LAND_MAX_ATTEMPTS) {
-      // A retry must keep the target chosen by the first attempt. Without this
-      // pin, a checkout switched during verification could redirect the merge.
-      retryArgs = { ...retryArgs, baseRef: lastResult.targetBranch ?? retryArgs.baseRef };
-      await delay(100 * attempt);
-    }
-  }
-  return {
-    ...lastResult,
-    retryCount: LAND_MAX_ATTEMPTS - 1,
-    guidance: `target branch changed ${LAND_MAX_ATTEMPTS - 1} times during land; inspect the target before retrying`,
-  };
-}
-
-async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = null, onCandidateStart = null } = {}) {
-  const failure = (error, code) => ({ schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'land', status: 'failed', ...(code ? { code } : {}), error });
-  const targetMode = 'primary';
-  // Legacy generic local merge remains read/write compatible; every push and
-  // local-land delivery is handled exclusively by the shared transaction path.
-  if (args.push || args.targetMode && args.targetMode !== 'primary') return failure(
-    'Push delivery must use the shared local-land finalizer', 'LAND_LEGACY_OPTIONS');
-  const config = await readProjectConfig(projectDir);
-  const settings = resolveWorktreeSettings(projectDir, config, args);
-  if (settings.error) return failure(settings.error);
-  const delivery = resolveDelivery(config, args.delivery);
-  const reviewPolicy = delivery.reviewPolicy ?? 'none';
-  const { entries, reason } = await worktreeEntries(projectDir);
-  if (reason) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'land', status: 'unavailable', error: reason };
-  const primary = entries.find((item) => item.primary) ?? null;
-  if (!primary?.path) return failure('no primary checkout in the worktree listing; land merges into the primary checkout');
-  if (primary.detached || typeof primary.branch !== 'string' || primary.branch === '') {
-    return failure(`${normalizeSlashes(primary.path)} is on a detached HEAD; land needs a named target branch`);
-  }
-  // `git merge` can only merge into the branch the primary checkout has
-  // checked out, so --base-ref is an assertion of intent, not a selector:
-  // naming a different branch fails instead of switching the user's checkout.
-  const targetBranch = args.baseRef ?? primary.branch;
-  if (targetBranch !== primary.branch) {
-    return failure(
-      `land merges into the primary checkout's current branch ${primary.branch}; check out ${args.baseRef} first or omit --base-ref`,
-      'LAND_BASELINE_CHANGED',
-    );
-  }
-  if (isLandProtectedBranch(targetBranch)) {
-    return failure(`target branch ${targetBranch} is a protected or shared branch; land refuses to merge into it`, 'LAND_TARGET_PROTECTED');
-  }
-  const registryInfo = readPortRegistry(projectDir);
-  const registry = registryInfo.registry ?? null;
-  const attributed = entries.filter((item) => !item.primary && !item.prunable && !item.detached && typeof item.branch === 'string' && item.branch !== ''
-    && (isInsidePath(item.path, settings.root)
-      || (registry?.entries ?? []).some((entry) => entry.id === path.basename(item.path)
-        || (entry.path && pathKey(entry.path) === pathKey(item.path))
-        || (entry.branch && entry.branch === item.branch))));
-  let entry = null;
-  if (args.task.length > 1) return failure('worktree land accepts at most one --task');
-  if (args.task.length === 1) {
-    const task = parseWorktreeTask(args.task[0]);
-    entry = attributed.find((item) => pathKey(item.path) === pathKey(task.path ?? path.join(settings.root, task.id))
-      || (task.branch !== null && item.branch === task.branch)
-      || path.basename(item.path) === task.id) ?? null;
-    if (!entry) return failure(`no attributed worktree matches task ${task.id}`);
-  } else {
-    if (attributed.length === 0) return failure('no attributed worktree to land (bootstrap one first or pass --task <id>)');
-    if (attributed.length > 1) {
-      return failure(`multiple attributed worktrees (${attributed.map((item) => `${path.basename(item.path)} on ${item.branch}`).join(', ')}); pass --task <id> to choose`);
-    }
-    entry = attributed[0];
-  }
-  if (entry.branch === targetBranch) {
-    return failure(`the worktree branch ${entry.branch} is the target branch itself`);
-  }
-  const registryEntry = (registry?.entries ?? []).find((item) => item.id === path.basename(entry.path)
-    || (item.path && pathKey(item.path) === pathKey(entry.path))
-    || (item.branch && item.branch === entry.branch)) ?? null;
-  const taskId = registryEntry?.id ?? path.basename(entry.path);
-  const branchHead = await runGit(['rev-parse', `refs/heads/${entry.branch}`], projectDir);
-  if (!branchHead.ok) return failure(`branch ${entry.branch} is not a local ref; land cannot attribute its commits`);
-  const branchHeadSha = branchHead.stdout.trim();
-  const primaryHead = await runGit(['rev-parse', 'HEAD'], primary.path);
-  const targetHeadBeforeLand = await runGit(['rev-parse', `refs/heads/${targetBranch}`], primary.path);
-  const baselineMergeBase = await runGit(['merge-base', branchHeadSha, targetBranch], projectDir);
-  const baselineDivergence = await runGit(['rev-list', '--left-right', '--count', `${targetBranch}...${branchHeadSha}`], projectDir);
-  const configuredBaseHead = await runGit(['rev-parse', '--verify', settings.baseRef], projectDir);
-  const [targetAhead = null, sourceAhead = null] = baselineDivergence.ok
-    ? baselineDivergence.stdout.trim().split(/\s+/u).map((value) => Number.parseInt(value, 10))
-    : [];
-  const baseline = {
-    baseRef: settings.baseRef,
-    baseRefHead: configuredBaseHead.ok ? configuredBaseHead.stdout.trim() : null,
-    targetBranch,
-    targetHead: targetHeadBeforeLand.ok ? targetHeadBeforeLand.stdout.trim() : null,
-    sourceHead: branchHeadSha,
-    mergeBase: baselineMergeBase.ok ? baselineMergeBase.stdout.trim() : null,
-    targetAhead: Number.isInteger(targetAhead) ? targetAhead : null,
-    sourceAhead: Number.isInteger(sourceAhead) ? sourceAhead : null,
-    // The branch was cut from an older target tip when the configured base has
-    // moved past its merge-base. This is a fact to report, not a blocker: the
-    // isolated candidate still merges into the current target and is verified.
-    baseRefDrift: Boolean(configuredBaseHead.ok && baselineMergeBase.ok
-      && configuredBaseHead.stdout.trim() !== baselineMergeBase.stdout.trim()),
-  };
-
-  const blockers = [];
-  const landStartedAt = Date.now();
-  const timingsMs = {};
-  const residualCandidates = candidateResidue(settings, taskId);
-  if (residualCandidates.length > 0) {
-    blockers.push(`residual land candidate worktree(s) exist for ${taskId}: ${residualCandidates.map(normalizeSlashes).join(', ')}; inspect and remove them before retrying`);
-  }
-  const dependencyBlockers = dependencyRootBlockers(projectDir, entry.path, settings);
-  for (const blocker of dependencyBlockers) blockers.push(blocker.message);
-  const worktreeStatus = await runGit(['status', '--porcelain=v1'], entry.path);
-  if (!worktreeStatus.ok) blockers.push('the worktree status could not be read');
-  else if (worktreeStatus.stdout.trim() !== '') blockers.push('the worktree has uncommitted changes');
-  const primaryCheckout = await inspectPrimaryCheckout(primary);
-  if (!primaryCheckout.readable) blockers.push('the primary checkout status could not be read');
-  else if (primaryCheckout.dirty) blockers.push('the primary checkout has uncommitted changes');
-  // An anchor with unfinished units means the work is not done yet; landing it
-  // anyway would merge a half-finished slice into the target branch.
-  let anchorInfo = null;
-  let unitGate = null;
-  try {
-    anchorInfo = await readTaskAnchor(projectDir, taskId);
-  } catch (error) {
-    blockers.push(`task anchor ${taskAnchorRelativePath(taskId)} is unreadable: ${error.message}`);
-  }
-  if (anchorInfo?.exists && anchorInfo.anchor) {
-    let landPlanUnits = [];
-    if (typeof anchorInfo.anchor.planFile === 'string') {
-      const planCheck = await taskPlanCheckReport(projectDir, taskId);
-      if (planCheck.status !== 'passed') blockers.push(`task plan check failed for ${taskId}: ${planCheck.error ?? planCheck.code}`);
-      else landPlanUnits = planUnitGraph(planCheck);
-    }
-    const units = Array.isArray(anchorInfo.anchor.units) ? anchorInfo.anchor.units.filter((unit) => unit && typeof unit === 'object') : [];
-    const anchorBlockers = Array.isArray(anchorInfo.anchor.blockers) ? anchorInfo.anchor.blockers.filter((item) => typeof item === 'string' && item.trim() !== '') : [];
-    anchorBlockers.forEach((item) => blockers.push(`task anchor ${taskId} has blocker: ${item}`));
-    const pending = units.filter((unit) => unit.status !== 'done').map((unit) => unit.id ?? '?');
-    if (units.length > 0 && pending.length > 0) blockers.push(`task anchor ${taskId} has units not done (${pending.join(', ')})`);
-    // Land reuses the same predecessor judgement the dispatch gate uses: a
-    // failed or blocked unit, and everything the plan declares on top of it,
-    // is named instead of being folded into "units not done".
-    const failedUnits = units.filter((unit) => TASK_UNIT_FAILURE_STATUSES.includes(unit.status)).map((unit) => unit.id ?? '?');
-    const waitingUnits = planDependentUnits(landPlanUnits, failedUnits);
-    if (failedUnits.length > 0) {
-      unitGate = { failed: failedUnits, waiting: waitingUnits };
-      blockers.push(`task anchor ${taskId} has failed or blocked units (${failedUnits.join(', ')}); repair and re-verify them before landing${waitingUnits.length > 0 ? ` (dependent units wait: ${waitingUnits.join(', ')})` : ''}`);
-    }
-  }
-  const ancestor = await runGit(['merge-base', '--is-ancestor', branchHeadSha, targetBranch], projectDir);
-  const alreadyMerged = ancestor.ok;
-  // The verify tier defaults to the quick layer and only escalates when the
-  // task anchor itself declares full risk; --tier always wins.
-  let tier;
-  try {
-    tier = parseVerifyTier(args.tier ?? (anchorInfo?.anchor?.riskLevel === 'full' ? 'standard' : undefined));
-  } catch (error) {
-    return failure(error.message);
-  }
-  // A completion receipt is only accepted when no declared layer is left
-  // deferred, and its acceptance names the checks the caller reviewed as
-  // relevant. Both are preflight facts: a landing that cannot produce them is
-  // reported here instead of after the merge candidate was built and tested.
-  let tierEscalation = null;
-  if (delivery.requireReceipt && args.verify !== false) {
-    const configured = configuredChecks(config, projectDir);
-    if (configured.error) return failure(configured.error);
-    const receiptTier = resolveReceiptTier({ commands: configured.commands, config, explicit: args.tier !== undefined, projectDir, tier });
-    if (receiptTier.blocked) blockers.push(receiptTier.blocked);
-    else tier = receiptTier.tier;
-    if (receiptTier.escalatedFrom) tierEscalation = { from: receiptTier.escalatedFrom, to: receiptTier.tier };
-  }
-  const baseResult = {
-    id: taskId,
-    branch: entry.branch,
-    path: normalizeSlashes(entry.path),
-    alreadyMerged,
-    pushed: false,
-    branchDeleted: false,
-    portBlockReleased: false,
-  };
-  const stepPlans = [
-    { id: 'merge', detail: alreadyMerged ? `already merged into ${targetBranch}; skipped`
-      : `merge ${entry.branch} in an isolated candidate worktree, then fast-forward ${targetBranch}` },
-    ...(args.verify === false ? [{ id: 'verify', detail: 'skipped by --no-verify' }] : [{ id: 'verify', detail: `verify --tier ${tier} on the merged result` }]),
-    { id: 'push', detail: 'no --push; branch kept for explicit delivery' },
-    { id: 'cleanup', detail: 'remove dependency links, the worktree, then release the port registry entry' },
-    { id: 'delete-branch', detail: `branch ${entry.branch} kept without --push` },
-  ];
-  if (blockers.length > 0) {
-    return {
-      schemaVersion: SCHEMA_VERSION,
-      command: 'worktree',
-      subcommand: 'land',
-      status: 'blocked',
-      ...(unitGate ? { code: 'LAND_UNIT_PREDECESSOR_FAILED', unitGate } : {}),
-      blockers,
-      targetBranch,
-      tier,
-      ...(tierEscalation ? { tierEscalation } : {}),
-      preflight: { primaryCheckout, baseline, residualCandidates: residualCandidates.map(normalizeSlashes), dependencyBlockers },
-      write: Boolean(args.write),
-      results: [{ ...baseResult, status: 'blocked', steps: stepPlans.map((step) => ({ ...step, status: 'blocked' })) }],
-    };
-  }
-  if (!args.write) {
-    return {
-      schemaVersion: SCHEMA_VERSION,
-      command: 'worktree',
-      subcommand: 'land',
-      status: 'planned',
-      targetBranch,
-      targetMode,
-        tier,
-      ...(tierEscalation ? { tierEscalation } : {}),
-      preflight: { primaryCheckout, baseline, residualCandidates: residualCandidates.map(normalizeSlashes), dependencyBlockers },
-      write: false,
-      results: [{ ...baseResult, status: 'planned', steps: stepPlans.map((step) => ({ ...step, status: 'planned' })) }],
-    };
-  }
-
-  const steps = [];
-  let failedStep = null;
-  const pushed = false;
-  const markFailed = (step) => {
-    failedStep = step;
-    steps.push(step);
-  };
-
-  let landReceipt = null;
-  // True while the completion receipt returned to the caller is backed by a
-  // durable provenance record; a receipt without one is not handed over.
-  let provenanceRecorded = true;
-  let candidatePath = null;
-  let candidateHeadSha = null;
-  let candidateLeaseHealthy = () => true;
-  let phase2Lease = null;
-  // The best-effort service teardown outcome, carried on the cleanup step when
-  // ownership could not be proven instead of blocking the landing.
-  let servicesTeardown = null;
-  const targetHead = await runGit(['rev-parse', `refs/heads/${targetBranch}`], primary.path);
-  if (!targetHead.ok) {
-    markFailed({ id: 'merge', status: 'failed', code: 'LAND_TARGET_HEAD_UNRESOLVED', error: boundedOutput(targetHead.stderr || targetHead.error?.message || 'target branch head could not be resolved', projectDir), detail: `resolve ${targetBranch}` });
-  } else {
-    const candidateBaseSha = targetHead.stdout.trim();
-    const candidateId = randomUUID();
-    candidatePath = path.join(path.dirname(settings.root), `.vibe-harness-land-${taskId}-${candidateId}`);
-    const candidateActivity = onCandidateStart
-      ? await onCandidateStart(candidateId)
-      : { held: true, leaseHealthy: () => true };
-    if (!candidateActivity?.held) {
-      markFailed({
-        id: 'merge',
-        status: 'blocked',
-        code: candidateActivity?.code ?? 'LAND_CANDIDATE_LOCK_UNAVAILABLE',
-        blockers: candidateActivity?.blockers ?? ['candidate activity lease could not be acquired'],
-        detail: `protect candidate ${candidateId} from concurrent recovery`,
-      });
-    } else if (candidateActivity.leaseHealthy) {
-      candidateLeaseHealthy = candidateActivity.leaseHealthy;
-    }
-    const setupStartedAt = Date.now();
-    const added = failedStep ? { ok: false } : await runIsolatedGit(projectDir, ['worktree', 'add', '--detach', candidatePath, candidateBaseSha]);
-    if (!failedStep && !added.ok) {
-      markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_CREATE_FAILED', error: boundedOutput(added.stderr || added.error?.message || 'candidate worktree creation failed', projectDir), detail: `git worktree add --detach ${candidatePath} ${candidateBaseSha}` });
-    } else if (!failedStep) {
-      try {
-        for (const root of settings.dependencyRoots) linkDependencyRoot(projectDir, candidatePath, settings, root);
-        // The governance surface is ignored by Git and therefore absent from a
-        // fresh candidate worktree, so a verification command that reaches the
-        // mirrored toolchain would fail here while passing in the source
-        // worktree. The candidate is torn down through `removeWorktreeLinks`,
-        // which removes these again before `git worktree remove`.
-        if ((settings.mirrors ?? []).length > 0) linkOrCopyMirrors(projectDir, candidatePath, settings.mirrors);
-        // The isolated per-package overlays belong to the same resolution
-        // surface as the dependency roots: without them a pnpm/Bun isolated
-        // layout resolves in the source worktree and fails in the candidate,
-        // so `worktree land` would reject a mergeable branch. The cleanup path
-        // removes them again through `removeDependencyLinks`.
-        linkPackageRoots(projectDir, candidatePath, settings);
-        for (const relative of new Set([settings.ports.envFile, ...settings.provision.envFiles])) {
-          const source = safeWorktreeFile(entry.path, relative, 'worktree candidate env');
-          const target = safeWorktreeFile(candidatePath, relative, 'worktree candidate env');
-          if (existsSync(source)) {
-            mkdirSync(path.dirname(target), { recursive: true });
-            copyFileSync(source, target);
-          }
-        }
-      } catch (error) {
-        const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
-        markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_SETUP_FAILED', error: error.message, candidatePath: removed.residual, detail: 'prepare isolated candidate dependencies' });
-      }
-      timingsMs.setupMs = Date.now() - setupStartedAt;
-      let candidateMerge = { ok: true };
-      const mergeStartedAt = Date.now();
-      if (!failedStep && !alreadyMerged) {
-        candidateMerge = await runIsolatedGit(projectDir, ['merge', '--no-ff', '--no-edit', '--no-verify', entry.branch], candidatePath);
-      }
-      timingsMs.mergeMs = Date.now() - mergeStartedAt;
-      if (!failedStep && !candidateMerge.ok) {
-        const removed = await cleanupLandCandidate(projectDir, candidatePath, { abort: true, settings });
-        markFailed({
-          id: 'merge',
-          status: 'failed',
-          code: 'LAND_MERGE_CONFLICT',
-          error: boundedOutput(candidateMerge.stderr || candidateMerge.error?.message || 'candidate merge failed', projectDir),
-          candidatePath: removed.residual,
-          detail: `isolated merge ${entry.branch} into ${targetBranch}`,
-        });
-      } else if (!failedStep) {
-        const candidateHead = await runGit(['rev-parse', 'HEAD'], candidatePath);
-        if (!candidateHead.ok) {
-          const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
-          markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_HEAD_UNRESOLVED', error: boundedOutput(candidateHead.stderr || candidateHead.error?.message || 'candidate HEAD could not be resolved', projectDir), candidatePath: removed.residual, detail: 'resolve candidate HEAD' });
-        } else {
-          candidateHeadSha = candidateHead.stdout.trim();
-          steps.push({ id: 'merge', status: alreadyMerged ? 'skipped' : 'passed', detail: alreadyMerged ? `${entry.branch} is already merged into ${targetBranch}` : `merged ${entry.branch} in isolated candidate worktree` });
-          const verifyStartedAt = Date.now();
-          const verify = await verifyProject(candidatePath, {
-            tier, task: [taskId], only: null, reuse: true, allowManual: false, reviewed: args.reviewed,
-            reviewPolicy, targetBranch, onProgress: args.onProgress,
-          }, { deliveryQueue: args._deliveryQueue });
-          timingsMs.verifyMs = Date.now() - verifyStartedAt;
-          timingsMs.cacheLookupMs = verify.cache?.lookupMs ?? null;
-          timingsMs.checks = Object.entries(verify.checks ?? {}).map(([id, item]) => ({
-            id,
-            status: item?.status ?? null,
-            durationMs: item?.durationMs ?? null,
-          }));
-          if (delivery.requireReceipt) {
-            landReceipt = completionReceipt(verify, delivery, {
-              rollback: `git revert -m 1 ${candidateHeadSha}`,
-              targetBranch,
-              reviewPolicy,
-            });
-            landReceipt.delivery.stage = 'complete';
-            landReceipt.target.head = candidateHeadSha;
-          }
-          const completionGate = delivery.requireReceipt
-            ? validateCompletion(landReceipt, delivery, await gitFingerprint(candidatePath),
-              { provenance: await attestCompletionProvenance(candidatePath, landReceipt), targetBranch })
-            : null;
-          const verifyOk = PASS_STATUSES.includes(verify.status)
-            && verify.selectedChecks?.length > 0
-            && verify.verification?.snapshotComparison === 'match'
-            && completionGate?.status !== 'blocked';
-          const checkLines = Object.entries(verify.checks ?? {})
-            .filter(([, item]) => item?.status && item.status !== 'not_configured')
-            .map(([name, item]) => `${name}=${item.status}`)
-            .join(' ');
-          if (verifyOk) {
-            steps.push({ id: 'verify', status: 'passed', tier: verify.tier, receipt: verify.verification?.id ?? null, detail: `verify isolated candidate ${verify.status}${checkLines ? ` (${checkLines})` : ''}` });
-          } else {
-            const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
-            markFailed({ id: 'verify', status: 'failed', code: 'LAND_VERIFY_FAILED', tier: verify.tier, error: verify.error ?? `verify ended ${verify.status}${checkLines ? ` (${checkLines})` : ''}`, candidatePath: removed.residual, detail: `verify --tier ${tier} on isolated candidate` });
-          }
-        }
-      }
-    }
-  }
-
-  if (!failedStep && !candidateLeaseHealthy()) {
-    const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
-    markFailed({
-      id: 'merge',
-      status: 'blocked',
-      code: 'LAND_CANDIDATE_LOCK_LOST',
-      candidatePath: removed.residual,
-      error: removed.reason,
-      detail: 'candidate activity lease was lost during land verification',
-    });
-  }
-
-  if (!failedStep) {
-    if (beforeFinalize && !failedStep) {
-      phase2Lease = await beforeFinalize(targetBranch);
-      if (!phase2Lease?.held) {
-        const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
-        markFailed({
-          id: 'merge',
-          status: 'blocked',
-          code: phase2Lease?.code ?? 'LAND_LOCK_UNAVAILABLE',
-          blockers: phase2Lease?.blockers ?? ['target-ref lease could not be acquired'],
-          ...(removed.residual ? { candidatePath: removed.residual } : {}),
-          ...(removed.reason ? { error: removed.reason } : {}),
-          detail: `acquire Phase 2 lease for ${targetBranch}`,
-        });
-      }
-    }
-  }
-
-  if (!failedStep) {
-    const [
-      targetNow,
-      sourceNow,
-      primaryNow,
-      primaryBranchNow,
-      sourceStatusNow,
-      candidateNow,
-      candidateHeadNow,
-    ] = await Promise.all([
-      runGit(['rev-parse', `refs/heads/${targetBranch}`], primary.path),
-      runGit(['rev-parse', `refs/heads/${entry.branch}`], projectDir),
-      runGit(['status', '--porcelain=v1'], primary.path),
-      runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], primary.path),
-      runGit(['status', '--porcelain=v1'], entry.path),
-      candidatePath ? runGit(['status', '--porcelain=v1'], candidatePath) : Promise.resolve({ ok: false }),
-      candidatePath ? runGit(['rev-parse', 'HEAD'], candidatePath) : Promise.resolve({ ok: false }),
-    ]);
-    const baselineBlockers = [];
-    if (phase2Lease?.held && phase2Lease.leaseHealthy?.() === false) baselineBlockers.push('target-ref lease was lost while land was running');
-    if (!candidateLeaseHealthy()) baselineBlockers.push('candidate activity lease was lost while land was running');
-    if (!targetNow.ok || targetNow.stdout.trim() !== targetHead.stdout.trim()) baselineBlockers.push(`target branch ${targetBranch} changed while land was running`);
-    if (!sourceNow.ok || sourceNow.stdout.trim() !== branchHeadSha) baselineBlockers.push(`source branch ${entry.branch} changed while land was running`);
-    if (!primaryBranchNow.ok || primaryBranchNow.stdout.trim() !== targetBranch) baselineBlockers.push('the primary checkout switched branches while land was running');
-    if (!primaryNow.ok || primaryNow.stdout.trim() !== '') baselineBlockers.push('the primary checkout changed while land was running');
-    if (!sourceStatusNow.ok || sourceStatusNow.stdout.trim() !== '') baselineBlockers.push('the source worktree became dirty while land was running');
-    if (!candidateNow.ok || candidateNow.stdout.trim() !== '') baselineBlockers.push('the candidate worktree is not clean after verification');
-    if (!candidateHeadNow.ok || candidateHeadNow.stdout.trim() !== candidateHeadSha) baselineBlockers.push('the candidate HEAD changed during verification');
-    if (baselineBlockers.length > 0) {
-      const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
-      markFailed({ id: 'merge', status: 'blocked', code: 'LAND_BASELINE_CHANGED', blockers: baselineBlockers, candidatePath: removed.residual, detail: 'baseline changed after isolated verification; retry from the current target' });
-    } else if (phase2Lease?.held && phase2Lease.leaseHealthy?.() === false) {
-      const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
-      markFailed({
-        id: 'merge',
-        status: 'blocked',
-        code: 'LAND_LOCK_LOST',
-        candidatePath: removed.residual,
-        error: removed.reason,
-        detail: 'target-ref lease was lost before fast-forwarding the verified candidate',
-      });
-    } else {
-      const finalizeStartedAt = Date.now();
-      const finalized = await runIsolatedGit(projectDir, ['merge', '--ff-only', candidateHeadSha], primary.path);
-      timingsMs.finalizeMs = Date.now() - finalizeStartedAt;
-      if (!finalized.ok) {
-        const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
-        markFailed({ id: 'merge', status: 'failed', code: 'LAND_FINALIZE_FAILED', error: boundedOutput(finalized.stderr || finalized.error?.message || 'candidate could not be fast-forwarded into the primary checkout', projectDir), candidatePath: removed.residual, detail: `git merge --ff-only ${candidateHeadSha}` });
-      } else {
-        const removed = await cleanupLandCandidate(projectDir, candidatePath, { settings });
-        // The receipt returned by this command describes the primary checkout,
-        // but the write evidence it carries was read in the candidate worktree,
-        // whose metadata the removal just destroyed. Re-anchoring it to the
-        // primary after the fast-forward — and recording that evidence where
-        // the receipt will be validated — keeps the command from returning a
-        // receipt that its own gate then has to reject as stale.
-        if (delivery.requireReceipt && landReceipt?.verification) {
-          const finalizedAt = new Date().toISOString();
-          const anchored = await gitFingerprint(primary.path);
-          landReceipt.verification = {
-            ...landReceipt.verification,
-            verifiedAt: landReceipt.verification.finishedAt,
-            finishedAt: finalizedAt,
-            finalizedAt,
-            fingerprint: anchored.fingerprint,
-            writeFingerprint: anchored.writeFingerprint,
-            ...(landReceipt.verification.acceptance
-              ? { acceptance: { ...landReceipt.verification.acceptance, finalFingerprint: anchored.fingerprint } }
-              : {}),
-          };
-          landReceipt.source = { ...landReceipt.source, head: candidateHeadSha, fingerprint: anchored.fingerprint };
-          const recorded = await recordFinalVerification(primary.path, landReceipt.verification,
-            { checks: landReceipt.acceptance });
-          // The completion receipt is only valid through this record, so a
-          // failure to write it has to stop the landing here: reporting `passed`
-          // with a receipt whose provenance can never be attested would hand the
-          // caller evidence the tool itself would reject.
-          if (!recorded) {
-            provenanceRecorded = false;
-            if (!failedStep) {
-              // The fast-forward already moved the target, so the branch is put
-              // back: a blocked result has to leave the target exactly as
-              // retryable as it found it, otherwise the next attempt sees an
-              // already-landed change with no valid completion evidence. The
-              // primary checkout was proven clean and on this branch just above.
-              const restored = await runGit(['reset', '--hard', targetHead.stdout.trim()], primary.path);
-              markFailed({
-                id: 'merge', status: 'blocked',
-                code: restored.ok ? 'LAND_PROVENANCE_UNRECORDED' : 'LAND_PROVENANCE_UNRECORDED_AND_UNRESTORED',
-                ...(restored.ok ? {} : { error: boundedOutput(restored.stderr || restored.error?.message || 'the target branch could not be restored', projectDir) }),
-                detail: restored.ok
-                  ? 'record the finalized verification evidence for the primary checkout'
-                  : `git reset --hard ${targetHead.stdout.trim()} in ${primary.path}`,
-              });
-            }
-          }
-        }
-        if (!removed.removed) {
-          markFailed({ id: 'merge', status: 'failed', code: 'LAND_CANDIDATE_CLEANUP_FAILED', candidatePath: removed.residual, error: removed.reason, detail: 'remove isolated candidate worktree' });
-        } else {
-          steps[steps.findIndex((step) => step.id === 'merge')].detail = `candidate verified and fast-forwarded into ${targetBranch}`;
-        }
-      }
-    }
-  }
-
-  if (!failedStep) steps.push({ id: 'push', status: 'skipped', detail: 'no --push; branch kept for explicit delivery' });
-
-  // Step 4: cleanup. The worktree removal must precede the branch delete below
-  // because a checked-out branch cannot be deleted. Service teardown is best
-  // effort rather than a gate: it is still attempted because a stopping service
-  // can flush tracked or untracked state into the source worktree, but a
-  // teardown that cannot be proven no longer keeps a merged worktree in place —
-  // its outcome is reported on the cleanup step instead.
-  if (!failedStep && phase2Lease?.held && phase2Lease.leaseHealthy?.() === false) {
-    markFailed({ id: 'cleanup', status: 'blocked', code: 'LAND_LOCK_LOST',
-      detail: 'target-ref lease was lost before removing the source worktree' });
-  }
-  const cleanupStartedAt = Date.now();
-  if (!failedStep) {
-    servicesTeardown = await teardownServices(projectDir, entry.path);
-    // The completion receipt describes the candidate — not the source — so the
-    // source is read again here: the removal below must not delete work that
-    // appeared while services were being stopped.
-    const sourceAfterTeardown = await runGit(['status', '--porcelain=v1', '--untracked-files=all'], entry.path);
-    if (!sourceAfterTeardown.ok || sourceAfterTeardown.stdout.trim() !== '') {
-      // The worktree survives the block, so the teardown marker it would keep
-      // `service start` out with is released again.
-      releaseServiceTeardown(projectDir, entry.path);
-      markFailed({
-        id: 'services', status: 'blocked', code: 'LAND_SOURCE_WORKTREE_DIRTY',
-        error: boundedOutput(sourceAfterTeardown.stderr || sourceAfterTeardown.error?.message || 'the source worktree is not clean after service teardown', projectDir),
-        detail: `git status --porcelain=v1 --untracked-files=all in ${entry.path}`,
-      });
-    }
-  }
-  if (!failedStep && phase2Lease?.held && phase2Lease.leaseHealthy?.() === false) {
-    markFailed({ id: 'cleanup', status: 'blocked', code: 'LAND_LOCK_LOST',
-      detail: 'target-ref lease was lost during service teardown; preserve the source worktree' });
-  }
-  if (!failedStep) {
-    const removedLinks = removeWorktreeLinks(projectDir, entry.path, settings);
-    const removed = await runGit(['worktree', 'remove', entry.path], projectDir);
-    if (removed.ok) {
-      await runGit(['worktree', 'prune'], projectDir);
-      releaseServiceTeardown(projectDir, entry.path);
-      const released = await releasePortRegistryEntry(projectDir, taskId);
-      steps.push({
-        id: 'cleanup',
-        status: 'passed',
-        removedLinks,
-        portBlockReleased: released.released === true,
-        detail: `worktree removed; links ${removedLinks.length}`,
-        ...(servicesTeardown && servicesTeardown.status !== 'passed' ? { services: servicesTeardown } : {}),
-      });
-    } else {
-      // The worktree survives the failed removal, so it must not stay locked
-      // out of `service start` by a teardown marker written for a removal that
-      // never happened.
-      releaseServiceTeardown(projectDir, entry.path);
-      markFailed({ id: 'cleanup', status: 'failed', code: 'LAND_CLEANUP_FAILED', removedLinks, error: boundedOutput(removed.stderr || removed.error?.message || 'git worktree remove failed', projectDir), detail: `git worktree remove ${entry.path}` });
-    }
-  }
-  timingsMs.cleanupMs = Date.now() - cleanupStartedAt;
-
-  if (!failedStep) steps.push({ id: 'delete-branch', status: 'skipped', detail: `branch ${entry.branch} kept without --push` });
-
-  const stepFailures = steps.filter((step) => step.status === 'failed' || step.status === 'blocked');
-  const landStatus = stepFailures.some((step) => step.status === 'blocked') && !stepFailures.some((step) => step.status === 'failed')
-    ? 'blocked'
-    : stepFailures.length > 0 ? 'failed' : 'passed';
-  timingsMs.totalMs = Date.now() - landStartedAt;
-  return {
-    schemaVersion: SCHEMA_VERSION,
-    command: 'worktree',
-    subcommand: 'land',
-    status: landStatus,
-    ...(failedStep?.code ? { code: failedStep.code } : {}),
-    targetBranch,
-    targetMode,
-    tier,
-    ...(tierEscalation ? { tierEscalation } : {}),
-    timingsMs,
-    ...(landReceipt && provenanceRecorded ? { completion: landReceipt } : {}),
-    write: true,
-    results: [{ ...baseResult, pushed, branchDeleted: steps.some((step) => step.id === 'delete-branch' && step.status === 'passed'), portBlockReleased: steps.some((step) => step.id === 'cleanup' && step.status === 'passed' && step.portBlockReleased === true), status: landStatus, steps }],
-  };
-}
-/**
  * Crash recovery for worktree provisioning (docs/rules/git-rules.md §Worktree).
  *
  * A hard kill bypasses the in-process rollback a failed bootstrap runs, so the
@@ -4138,279 +3213,10 @@ async function worktreeLandReportUnlocked(projectDir, args, { beforeFinalize = n
  * ever deleted after being proven to sit at the base ref with a clean tree,
  * so no work can be lost.
  */
-async function worktreeArchiveIntegratedReport(projectDir, args) {
-  if (!args.write) {
-    return transactionFailure('recover', 'LAND_WRITE_REQUIRED',
-      'recover --archive-integrated requires --write');
-  }
-  if (!args.batch || args.batch === true) {
-    return transactionFailure('recover', 'LAND_BATCH_ID_REQUIRED',
-      'recover --archive-integrated requires --batch <batch-id>');
-  }
-  if (args.all || args.task.length > 0 || args.resume !== undefined) {
-    return transactionFailure('recover', 'WORKTREE_RECOVER_SCOPE_INVALID',
-      'recover --archive-integrated accepts one --batch and cannot be combined with --task, --resume, or --all');
-  }
-  const loaded = await readLandTransaction(projectDir, args.batch);
-  if (loaded.error) return { ...loaded.error, subcommand: 'recover' };
-  const { file, commonDir } = loaded;
-  let { state } = loaded;
-  const config = await readProjectConfig(projectDir);
-  const settings = resolveWorktreeSettings(projectDir, config, args);
-  if (settings.error) return transactionFailure('recover', 'LAND_SETTINGS', settings.error, { batchId: state.id });
-  if (!transactionCandidateMatchesSettings(state, settings)) {
-    return transactionFailure('recover', 'LAND_BATCH_STATE_INVALID',
-      'The transaction candidate path is outside the configured worktree root', { batchId: state.id });
-  }
-  const deliveryTurn = await args._deliveryGate?.ensure();
-  if (deliveryTurn && !deliveryTurn.ok) return queueBlockedFailure('recover', deliveryTurn);
-  if (deliveryTurn) args._deliveryQueue = deliveryTurn;
-  state.queue = deliveryQueueTransaction(args._deliveryQueue) ?? state.queue ?? null;
-  const lockFile = `${file}.lock`;
-  const lease = await acquireLeaseWithRetry(lockFile, {
-    timeoutMs: landLockTimeoutMs(),
-    retryMs: LAND_LOCK_RETRY_MS,
-    leaseMs: DEFAULT_LEASE_MS,
-  });
-  if (!lease.ok) {
-    return transactionFailure('recover', 'LAND_BATCH_LOCK',
-      'Another operation owns this batch', { batchId: state.id });
-  }
-  const heartbeat = startLeaseHeartbeats([lockFile], DEFAULT_LEASE_MS)[0];
-  try {
-    const current = await readLandTransaction(projectDir, args.batch);
-    if (current.error) return { ...current.error, subcommand: 'recover' };
-    state = current.state;
-    state.queue = deliveryQueueTransaction(args._deliveryQueue) ?? state.queue ?? null;
-    if (!transactionCandidateMatchesSettings(state, settings)) {
-      return transactionFailure('recover', 'LAND_BATCH_STATE_INVALID',
-        'The transaction candidate path is outside the configured worktree root', { batchId: state.id });
-    }
-    if (state.phase === 'archived_integrated' && state.archive) {
-      return {
-        schemaVersion: SCHEMA_VERSION,
-        command: 'worktree',
-        subcommand: 'recover',
-        status: 'passed',
-        commandStatus: 'passed',
-        integrationStatus: 'integrated',
-        remoteValidation: 'passed',
-        localRefSync: state.localRefSync ?? 'not_attempted',
-        batchId: state.id,
-        phase: state.phase,
-        archive: state.archive,
-        queue: deliveryQueueReport(args._deliveryQueue, 'running'),
-      };
-    }
-    const endpoint = await resolveStoredPushTarget(projectDir, state, state.target);
-    if (endpoint.error) {
-      return transactionFailure('recover', 'LAND_PUSH_TARGET_CHANGED', endpoint.error, {
-        batchId: state.id,
-      });
-    }
-    const remote = await exactRemoteHead(projectDir, endpoint);
-    if (!remote.ok) {
-      return transactionFailure('recover', 'LAND_REMOTE_BASELINE_UNAVAILABLE',
-        'Cannot read the exact remote target for integration proof', { batchId: state.id });
-    }
-    const fetched = await fetchRemoteBaseline(projectDir, state, endpoint);
-    if (fetched.error || fetched.sha !== remote.sha) {
-      return transactionFailure('recover', 'LAND_REMOTE_BASELINE_UNAVAILABLE',
-        fetched.error ?? 'The remote target changed while integration ancestry was checked', {
-          batchId: state.id,
-          remoteHead: remote.sha,
-          fetchedHead: fetched.sha ?? null,
-        });
-    }
-    const integratedSourceHeads = [];
-    const missingSourceHeads = [];
-    for (const source of state.sources) {
-      const contained = await runGit(['merge-base', '--is-ancestor', source.head, fetched.sha], projectDir);
-      const item = { id: source.id, branch: source.branch, head: source.head };
-      (contained.ok ? integratedSourceHeads : missingSourceHeads).push(item);
-    }
-    if (missingSourceHeads.length > 0) {
-      return transactionFailure('recover', 'LAND_RECOVER_SOURCE_NOT_INTEGRATED',
-        'Not every frozen source head is contained in the exact remote target', {
-          batchId: state.id,
-          remoteHead: fetched.sha,
-          integratedSourceHeads,
-          missingSourceHeads,
-        });
-    }
-
-    const inventory = await worktreeEntries(projectDir);
-    if (inventory.reason) {
-      return transactionFailure('recover', 'LAND_BATCH_WORKTREES',
-        'Cannot prove which candidate worktrees belong to this repository', {
-          batchId: state.id,
-          detail: inventory.reason,
-        });
-    }
-    const ownedCandidates = new Set(inventory.entries
-      .filter((entry) => !entry.primary && entry.detached && entry.path)
-      .map((entry) => pathKey(entry.path)));
-    const candidateCleanup = [];
-    const cleanupTargets = [];
-    const preserved = [];
-    let currentCandidatePreserved = false;
-    let candidateActivityPreserved = false;
-    for (const candidate of [state.candidate, ...(state.previousCandidates ?? [])]) {
-      if (typeof candidate !== 'string' || !existsSync(candidate)) continue;
-      const sameAsCurrent = pathKey(candidate) === pathKey(state.candidate);
-      const owned = pathKey(path.dirname(candidate)) === pathKey(path.dirname(settings.root))
-        && /^\.vibe-harness-land-batch-[0-9a-f-]+$/iu.test(path.basename(candidate))
-        && ownedCandidates.has(pathKey(candidate));
-      if (!owned) {
-        if (sameAsCurrent) currentCandidatePreserved = true;
-        preserved.push({
-          path: normalizeSlashes(candidate),
-          reason: 'candidate is not a registered detached worktree owned by this repository',
-        });
-        continue;
-      }
-      const candidateId = /^\.vibe-harness-land-batch-([0-9a-f-]{36})$/iu.exec(path.basename(candidate))?.[1];
-      const activityLease = candidateId
-        ? readLease(landCandidateActivityLockPath(commonDir, candidateId))
-        : null;
-      if (candidateId && activityLease && !activityLease.stale) {
-        if (sameAsCurrent) currentCandidatePreserved = true;
-        candidateActivityPreserved = true;
-        preserved.push({
-          path: normalizeSlashes(candidate),
-          reason: 'candidate has an active repository activity lease',
-        });
-        continue;
-      }
-      const clean = await runGit(['status', '--porcelain=v1', '--untracked-files=all'], candidate);
-      if (!clean.ok || clean.stdout.trim() !== '') {
-        if (sameAsCurrent) currentCandidatePreserved = true;
-        preserved.push({ path: normalizeSlashes(candidate), reason: 'candidate is dirty or unreadable' });
-        continue;
-      }
-      cleanupTargets.push(candidate);
-    }
-    if (candidateActivityPreserved) {
-      for (const candidate of cleanupTargets) {
-        preserved.push({
-          path: normalizeSlashes(candidate),
-          reason: 'candidate cleanup is deferred while another candidate activity lease is active',
-        });
-      }
-      cleanupTargets.length = 0;
-      currentCandidatePreserved = true;
-    }
-    let stagedRefPlan = { delete: false, reason: 'candidate evidence is preserved' };
-    if (!currentCandidatePreserved && typeof state.candidateHead !== 'string') {
-      stagedRefPlan = {
-        delete: false,
-        preserveCandidates: true,
-        reason: 'transaction has no candidate head; candidate evidence is preserved',
-      };
-    } else if (!currentCandidatePreserved) {
-      const reference = await runGit(['rev-parse', '--verify', '--quiet', stagedRef(state.id)], projectDir);
-      if (!reference.ok) {
-        stagedRefPlan = {
-          delete: false,
-          absent: true,
-          preserveCandidates: true,
-          reason: 'staged ref is absent; candidate evidence is preserved',
-        };
-      } else if (reference.stdout.trim() !== state.candidateHead) {
-        preserved.push({ ref: stagedRef(state.id), reason: 'staged ref no longer matches the transaction candidate' });
-        stagedRefPlan = {
-          delete: false,
-          preserveCandidates: true,
-          reason: 'staged ref does not match the transaction candidate; candidate evidence is preserved',
-        };
-      } else {
-        stagedRefPlan = { delete: true, reason: 'candidate is clean and the archived source heads are integrated' };
-      }
-    }
-    if (stagedRefPlan.preserveCandidates) {
-      for (const candidate of cleanupTargets) {
-        preserved.push({ path: normalizeSlashes(candidate), reason: stagedRefPlan.reason });
-      }
-      if (cleanupTargets.length > 0) currentCandidatePreserved = true;
-      cleanupTargets.length = 0;
-    }
-    const archivedAt = new Date().toISOString();
-    const archive = {
-      schemaVersion: 1,
-      archivedAt,
-      status: 'completed',
-      remoteHead: fetched.sha,
-      integratedSourceHeads,
-      candidateCleanup,
-      stagedRefCleanup: { deleted: false, reason: 'cleanup has not completed' },
-      preserved,
-    };
-    state.phase = 'archived_integrated';
-    state.commandStatus = 'passed';
-    state.integrationStatus = 'integrated';
-    state.remoteValidation = 'passed';
-    state.remoteConfirmedHead = fetched.sha;
-    state.archive = archive;
-    state.candidateCleanup = [...(state.candidateCleanup ?? []), ...candidateCleanup];
-    // Persist the proof and terminal audit record before removing any evidence.
-    // A process death after this write can leave residue, but cannot erase a
-    // candidate/ref whose cleanup was never durably associated with an archive.
-    saveBatchState(file, state);
-    for (const candidate of cleanupTargets) {
-      const cleaned = await cleanupLandCandidate(projectDir, candidate, { settings });
-      candidateCleanup.push(cleaned);
-      if (pathKey(candidate) === pathKey(state.candidate) && !cleaned.removed) {
-        currentCandidatePreserved = true;
-        preserved.push({ path: normalizeSlashes(candidate), reason: cleaned.reason ?? 'candidate cleanup did not complete' });
-      }
-    }
-    let stagedRefCleanup;
-    if (currentCandidatePreserved) {
-      stagedRefCleanup = { deleted: false, reason: 'candidate evidence is preserved' };
-    } else if (stagedRefPlan.absent) {
-      stagedRefCleanup = { deleted: true, reason: stagedRefPlan.reason };
-    } else if (stagedRefPlan.delete) {
-      const deleted = await runGit(['update-ref', '-d', stagedRef(state.id), state.candidateHead], projectDir);
-      stagedRefCleanup = deleted.ok
-        ? { deleted: true, reason: stagedRefPlan.reason }
-        : { deleted: false, reason: 'staged ref deletion failed' };
-    } else {
-      stagedRefCleanup = { deleted: false, reason: stagedRefPlan.reason };
-    }
-    if (stagedRefCleanup.deleted) {
-      await runGit(['update-ref', '-d', remoteSnapshotRef(state.id)], projectDir);
-    }
-    archive.candidateCleanup = candidateCleanup;
-    archive.stagedRefCleanup = stagedRefCleanup;
-    archive.preserved = preserved;
-    state.candidateCleanup = [...(state.candidateCleanup ?? []), ...candidateCleanup];
-    saveBatchState(file, state);
-    return {
-      schemaVersion: SCHEMA_VERSION,
-      command: 'worktree',
-      subcommand: 'recover',
-      status: 'passed',
-      commandStatus: 'passed',
-      integrationStatus: 'integrated',
-      remoteValidation: 'passed',
-      localRefSync: state.localRefSync ?? 'not_attempted',
-      batchId: state.id,
-      phase: state.phase,
-      archive,
-      queue: deliveryQueueReport(args._deliveryQueue, 'running'),
-    };
-  } finally {
-    heartbeat.stop();
-    releaseLease(lockFile);
-  }
-}
 async function worktreeRecoverReport(projectDir, args) {
-  if (args.archiveIntegrated || args.batch !== undefined) {
-    if (!args.archiveIntegrated) {
-      return transactionFailure('recover', 'WORKTREE_RECOVER_OPTIONS',
-        'recover --batch is only valid with --archive-integrated');
-    }
-    return worktreeArchiveIntegratedReport(projectDir, args);
+  if (args.batch !== undefined || args.archiveIntegrated) {
+    return transactionFailure('recover', 'WORKTREE_RECOVER_OPTIONS',
+      'recover no longer takes --batch or --archive-integrated; publish auto-reconciles and archives integrated transactions');
   }
   if (args.task.length > 1) {
     return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'recover', status: 'failed',
@@ -4424,59 +3230,7 @@ async function worktreeRecoverReport(projectDir, args) {
     return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'recover', status: 'failed',
       code: 'WORKTREE_RECOVER_SCOPE_REQUIRED', error: 'recover --write requires --task <id>; use --all only for an explicit global recovery' };
   }
-  if (!args.write) return worktreeRecoverReportUnlocked(projectDir, args);
-  const deliveryTurn = await args._deliveryGate?.ensure();
-  if (deliveryTurn && !deliveryTurn.ok) return queueBlockedFailure('recover', deliveryTurn);
-  if (deliveryTurn) args._deliveryQueue = deliveryTurn;
-  const result = await worktreeRecoverReportUnlocked(projectDir, args);
-  return result.subcommand === 'land' ? { ...result, subcommand: 'recover' } : result;
-}
-async function reconcileLegacyWorktreeLandLock(projectDir, args) {
-  const common = await gitCommonDir(projectDir);
-  if (!common.ok) {
-    return {
-      ok: false,
-      code: 'LAND_LOCK_UNAVAILABLE',
-      error: common.error,
-      path: null,
-    };
-  }
-  const lockPath = path.join(common.path, LEGACY_WORKTREE_LAND_LOCK_NAME);
-  if (!existsSync(lockPath)) {
-    return { ok: true, path: lockPath, present: false, stale: false, holder: null, status: 'absent' };
-  }
-  const observed = readLease(lockPath);
-  const report = {
-    path: normalizeSlashes(lockPath),
-    present: true,
-    stale: observed.stale,
-    holder: observed.record ? {
-      pid: observed.pid,
-      startedAt: observed.record.startedAt ?? null,
-      heartbeatAt: observed.record.heartbeatAt ?? null,
-    } : null,
-  };
-  if (!args.write || !args.all) {
-    return { ok: true, ...report, status: observed.stale ? 'planned' : 'blocked' };
-  }
-  const timeoutMs = landLockTimeoutMs();
-  const acquired = await acquireLeaseWithRetry(lockPath, {
-    timeoutMs,
-    retryMs: LAND_LOCK_RETRY_MS,
-    leaseMs: DEFAULT_LEASE_MS,
-  });
-  if (!acquired.ok) {
-    return {
-      ok: false,
-      ...report,
-      code: acquired.code === 'LEASE_UNAVAILABLE' ? 'LAND_LOCK_UNAVAILABLE' : 'LAND_LOCK_TIMEOUT',
-      error: acquired.code === 'LEASE_UNAVAILABLE'
-        ? acquired.error
-        : `legacy worktree land lock is still held after ${timeoutMs}ms`,
-    };
-  }
-  releaseLease(lockPath);
-  return { ok: true, ...report, status: 'passed', reclaimed: true };
+  return worktreeRecoverReportUnlocked(projectDir, args);
 }
 async function worktreeRecoverReportUnlocked(projectDir, args) {
   const config = await readProjectConfig(projectDir);
@@ -4484,18 +3238,6 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
   if (settings.error) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'recover', status: 'failed', error: settings.error };
   const { entries, reason } = await worktreeEntries(projectDir);
   if (reason) return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand: 'recover', status: 'unavailable', error: reason };
-  const legacyLandLock = await reconcileLegacyWorktreeLandLock(projectDir, args);
-  if (!legacyLandLock.ok) {
-    return {
-      schemaVersion: SCHEMA_VERSION,
-      command: 'worktree',
-      subcommand: 'recover',
-      status: 'blocked',
-      code: legacyLandLock.code,
-      error: legacyLandLock.error,
-      legacyLandLock,
-    };
-  }
   const registry = readPortRegistry(projectDir).registry ?? null;
   const taskId = args.task.length === 0 ? null : parseWorktreeTask(args.task[0]).id;
   const inScope = (item = {}) => taskId === null
@@ -4545,7 +3287,7 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
     : []);
   const activeUnidentifiedDelivery = queueInventory.ok
     && queueInventory.active.some((ticket) => ['queued', 'running'].includes(ticket.state)
-      && !ticket.batchId && ['stage', 'land'].includes(ticket.operation));
+      && !ticket.batchId && ticket.operation === 'publish');
   const transactionFiles = candidateCommon.ok
     ? readdirSync(candidateCommon.path)
       .filter((name) => /^vibe-harness-land-batch-[0-9a-f-]+\.json$/iu.test(name))
@@ -4573,9 +3315,15 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
     const batchLease = readLease(`${file}.lock`);
     const activeQueue = activeQueueBatchIds.has(state.id);
     const terminalArchived = state.phase === 'archived_integrated';
-    const protectedPhase = ['staged', 'verified', 'local_merged', 'publishing', 'push_uncertain', 'push_confirmed', 'cleanup_pending']
-      .includes(state.phase);
-    const collectablePhase = ['queued', 'merging', 'merged', 'conflict', 'recovery_required'].includes(state.phase);
+    // A publish-domain 'merging' transaction crashed during a baseline rebuild
+    // and keeps its candidate, so publish must resume it. A stage-domain
+    // 'merging' transaction died before any candidate existed and is safely
+    // collectable.
+    const mergingPublishResume = state.phase === 'merging' && typeof state.candidateHead === 'string';
+    const protectedPhase = ['staged', 'publishing', 'push_uncertain', 'push_confirmed', 'cleanup_pending']
+      .includes(state.phase) || mergingPublishResume;
+    const collectablePhase = ['queued', 'conflict', 'merged', 'recovery_required'].includes(state.phase)
+      || (state.phase === 'merging' && !mergingPublishResume);
     const candidatePaths = [state.candidate, ...(Array.isArray(state.previousCandidates) ? state.previousCandidates : [])]
       .filter((value) => typeof value === 'string' && value);
     const candidatesClean = [];
@@ -4661,7 +3409,7 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
           activeLand: true,
           orphanedTransactionCandidate: true,
           status: 'blocked',
-          reason: 'an unidentified stage/land ticket is active; candidate ownership is not provable',
+          reason: 'an unidentified publish ticket is active; candidate ownership is not provable',
         });
         continue;
       }
@@ -4873,7 +3621,6 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
 
   const failed = [...results, ...candidateResults, ...branchResults, ...registryResults, ...transactions]
     .some((item) => item.status === 'failed' || item.status === 'blocked')
-    || legacyLandLock.status === 'blocked'
     || !queueInventory.ok || !queueReconcile.ok
     || (args.write && prunable.length > 0 && pruned !== true);
   const summary = [
@@ -4885,7 +3632,6 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
     ...registryResults.map((item) => `registry entry: ${item.id} ${item.status}`),
     ...transactions.map((item) => `transaction: ${item.id ?? item.file} ${item.status}${item.reason ? ` (${item.reason})` : ''}`),
     `delivery queue: ${queueInventory.ok ? `${queueInventory.active.length} active, ${queueInventory.tickets.length} retained` : 'unavailable'}`,
-    `legacy land lock: ${legacyLandLock.status}${legacyLandLock.holder?.pid ? ` (pid ${legacyLandLock.holder.pid})` : ''}`,
     ...(queueReconcile.expired ?? []).map((item) => `queue ticket: ${item.id} expired`),
     ...(queueReconcile.removed ?? []).map((id) => `queue ticket: ${id} removed after retention`),
   ].join('\n');
@@ -4897,7 +3643,6 @@ async function worktreeRecoverReportUnlocked(projectDir, args) {
     baseRef: settings.baseRef,
     candidates: candidateResults,
     transactions,
-    legacyLandLock,
     queueInventory: queueInventory.ok ? queueInventory.tickets : [],
     queueReconciliation: queueReconcile.ok ? queueReconcile : {
       ok: false,
@@ -4921,66 +3666,42 @@ async function dispatchWorktreeReport(projectDir, subcommand, args) {
   if (subcommand === 'list') return worktreeListReport(projectDir);
   if (subcommand === 'check') return worktreeCheckReport(projectDir, args);
   if (subcommand === 'bootstrap') return worktreeBootstrapReport(projectDir, args);
-  if (subcommand === 'land') return worktreeLandReport(projectDir, args);
   if (subcommand === 'stage') return worktreeStageReport(projectDir, args);
   if (subcommand === 'publish') return worktreePublishReport(projectDir, args);
   if (subcommand === 'status') return worktreeStageStatusReport(projectDir, args);
   if (subcommand === 'discard') return worktreeDiscardReport(projectDir, args);
   if (subcommand === 'cleanup') return worktreeCleanupReport(projectDir, args);
   if (subcommand === 'recover') return worktreeRecoverReport(projectDir, args);
-  throw new Error(`Unknown worktree subcommand: ${subcommand} (expected list, check, bootstrap, stage, publish, status, discard, land, cleanup or recover)`);
+  throw new Error(`Unknown worktree subcommand: ${subcommand} (expected list, check, bootstrap, stage, publish, status, discard, cleanup or recover)`);
 }
 export async function worktreeReport(projectDir, args) {
   const subcommand = args._[1] ?? 'check';
   if ((args.batch || args.resume !== undefined)
-    && !['land', 'stage', 'publish', 'status', 'discard', 'recover'].includes(subcommand)) {
+    && !['stage', 'publish', 'status', 'discard'].includes(subcommand)) {
     return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand, status: 'failed',
-      code: 'WORKTREE_BATCH_INVALID', error: '--batch and --resume are only supported by delivery recovery commands' };
+      code: 'WORKTREE_BATCH_INVALID', error: '--batch and --resume are only supported by stage, publish, status and discard' };
   }
-  if (subcommand === 'recover' && args.resume !== undefined) {
+  if (args.targetMode !== undefined && subcommand !== 'stage') {
     return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand, status: 'failed',
-      code: 'WORKTREE_BATCH_INVALID', error: 'recover does not accept --resume; use --batch <id> --archive-integrated' };
+      code: 'WORKTREE_TARGET_MODE_INVALID', error: '--target-mode is only supported by worktree stage' };
   }
-  if (args.supersede && subcommand !== 'publish') {
-    return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand, status: 'failed',
-      code: 'WORKTREE_SUPERSEDE_INVALID', error: '--supersede is only supported by worktree publish' };
+  // Only publish takes a repository FIFO turn, and only for its seconds-scale
+  // finalize section; every other subcommand runs entirely outside the queue.
+  if (!(args.write && subcommand === 'publish')) {
+    return dispatchWorktreeReport(projectDir, subcommand, args);
   }
-  if (args.archiveIntegrated && subcommand !== 'recover') {
-    return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand, status: 'failed',
-      code: 'WORKTREE_ARCHIVE_INVALID', error: '--archive-integrated is only supported by worktree recover' };
-  }
-  if (args.targetMode !== undefined && !['land', 'stage'].includes(subcommand)) {
-    return { schemaVersion: SCHEMA_VERSION, command: 'worktree', subcommand, status: 'failed',
-      code: 'WORKTREE_TARGET_MODE_INVALID', error: '--target-mode is only supported by worktree land or stage' };
-  }
-  const serializedWrite = args.write && (['stage', 'publish', 'land', 'discard', 'recover'].includes(subcommand));
-  if (!serializedWrite) {
-    const report = await dispatchWorktreeReport(projectDir, subcommand, args);
-    if (subcommand === 'recover') {
-      const queue = await inspectDeliveryQueue(projectDir);
-      if (queue.ok) report.queueInventory = queue.tickets;
-    }
-    return report;
-  }
-  const deliveryGate = createDeliveryGate(
-    projectDir,
-    args,
-    subcommand,
-    args.batch ?? args.resume ?? null,
-  );
+  const deliveryGate = createDeliveryGate(projectDir, args, subcommand, args.batch ?? args.resume ?? null);
   const queuedArgs = { ...args, _deliveryGate: deliveryGate };
   let report = null;
-  let failure = null;
   try {
     report = await dispatchWorktreeReport(projectDir, subcommand, queuedArgs);
     return report;
-  } catch (error) {
-    failure = error;
-    throw error;
   } finally {
-    const status = report ? 'completed' : 'cancelled';
-    await deliveryGate.release(status);
-    const queue = deliveryGate.report(status);
+    // Publish manages its own turn; this release is the defensive leftover for
+    // an exception path, and the queue evidence keeps the ticket's own
+    // terminal state instead of assuming success.
+    await deliveryGate.release(report ? 'completed' : 'cancelled');
+    const queue = deliveryGate.report();
     if (report && queue) report.queue = queue;
     if (report?.batchId && queue) {
       try {
@@ -4995,9 +3716,6 @@ export async function worktreeReport(projectDir, args) {
         // The transaction may have completed cleanup or be intentionally
         // unreadable. Its delivery ticket is still released by this finally.
       }
-    }
-    if (!report && failure) {
-      // Preserve the original exception; the queue release above is best effort.
     }
   }
 }

@@ -25,7 +25,10 @@ const execute = promisify(execFile);
 
 export const DELIVERY_QUEUE_DIR = 'vibe-harness-delivery-queue';
 export const DELIVERY_QUEUE_STATES = Object.freeze(['queued', 'running', 'completed', 'cancelled', 'expired']);
-export const DELIVERY_QUEUE_OPERATIONS = Object.freeze(['stage', 'publish', 'land', 'verify', 'recover', 'discard']);
+// Only `publish` takes a repository FIFO turn, and only for its seconds-scale
+// finalize section; every other delivery subcommand runs entirely outside the
+// queue, so no other operation may enqueue a ticket.
+export const DELIVERY_QUEUE_OPERATIONS = Object.freeze(['publish']);
 export const DEFAULT_DELIVERY_QUEUE_TIMEOUT_MS = 30 * 60 * 1000;
 const QUEUE_MUTEX_TIMEOUT_MS = 15_000;
 const QUEUE_MUTEX_RETRY_MS = 25;

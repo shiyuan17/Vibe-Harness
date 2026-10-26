@@ -8,7 +8,7 @@
 // argument parsing, dispatch and output selection. Behaviour, field names and
 // exit codes are unchanged; only the module boundary moved.
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { runMicroCheck } from './micro-runner.mjs';
@@ -27,7 +27,6 @@ import {
   storeVerificationReceipt,
   verificationCacheContext,
 } from './verification-receipt.mjs';
-import { acquireVerificationLock } from './verification-lock.mjs';
 
 import { boundedOutput } from './cli-output.mjs';
 import { CHECK_ORDER, CONFIG_FILE, assertSafeCommand, probeExecutable, readJsonIfExists } from './cli-runtime.mjs';
@@ -60,7 +59,22 @@ export function verificationProgress(args, phase, detail = {}) {
   args.onProgress?.({ kind: 'vibe-harness.progress', command: 'verify', phase,
     at: new Date().toISOString(), ...detail });
 }
-export async function verifyProject(projectDir, args, { planOnly = false, deliveryQueue = null } = {}) {
+
+// A cooperative cancellation marker written next to the receipt store when a
+// newer published baseline supersedes this candidate. Killing the process is
+// the backstop; polling this file lets a long verification exit on its own
+// between checks, leaving `not_run` results instead of a half-written run.
+function readCancellationSidecar(projectDir) {
+  try {
+    const file = path.join(projectDir, '.vibe-harness', 'verification', 'CANCEL');
+    if (!existsSync(file)) return null;
+    const parsed = JSON.parse(readFileSync(file, 'utf8'));
+    return parsed && typeof parsed === 'object' ? parsed : { reason: 'cancelled' };
+  } catch {
+    return { reason: 'cancelled' };
+  }
+}
+export async function verifyProject(projectDir, args, { planOnly = false } = {}) {
   args = { reuse: args.micro === undefined && !args.noReuse, ...args };
   const startedAt = new Date().toISOString();
   if (args.micro !== undefined) {
@@ -327,47 +341,24 @@ export async function verifyProject(projectDir, args, { planOnly = false, delive
       }));
     }
   }
-  const selectedPlanChecks = tierPlan.selectedChecks ?? [];
-  const heavyWork = tier === 'deep' || selectedPlanChecks.some((check) => check.resourceClass === 'repo-heavy'
-    || check.costTier === 'deep'
-    || /(?:^|\s)(?:mvn|mvnw|gradle|gradlew)(?:\s|$)/iu.test(check.command ?? ''));
-  let verificationLease = null;
-  if (!planOnly && heavyWork && selectedNames.some((name) => checkCache.get(name)?.status !== 'hit')) {
-    if (deliveryQueue?.report) {
-      verificationLease = { ok: true, borrowed: true, queue: deliveryQueue.report };
-    } else {
-      verificationProgress(args, 'queue-wait', { tier: tierPlan.tier });
-      verificationLease = await acquireVerificationLock(projectDir, {
-        onProgress: (event) => args.onProgress?.(event),
-      });
-    }
-    if (!verificationLease.ok) {
-      verificationProgress(args, 'queue-blocked', { reason: verificationLease.reason });
-      return {
-        schemaVersion: VERIFY_SCHEMA_VERSION,
-        engine: VERIFY_ENGINE,
-        command: 'verify',
-        tier: tierPlan.tier,
-        scope,
-        status: 'blocked',
-        code: verificationLease.reason === 'WORKTREE_QUEUE_TIMEOUT' ? 'WORKTREE_QUEUE_TIMEOUT' : 'VERIFICATION_QUEUE_UNAVAILABLE',
-        error: `repository verification queue is unavailable (${verificationLease.reason})`,
-        queue: verificationLease.queue ?? null,
-        checks: {},
-      };
-    }
-  }
-  try {
   verificationProgress(args, 'plan', { tier: tierPlan.tier, selected: selectedNames, deferredCount: tierPlan.deferredChecks.length, cacheLookupMs });
   if (!planOnly) await storeVerificationReceipt(projectDir, cacheContext, { status: 'running' });
   let selectedCount = 0;
   let stopped = false;
+  let cancelled = null;
   let reusedCount = 0;
   let treeChangedDuringRun = false;
   let budgetStartedAt = null;
   let budgetDeadline = null;
   let budgetExhausted = false;
   for (const name of checkOrder) {
+    if (!planOnly && !cancelled) {
+      cancelled = readCancellationSidecar(projectDir);
+      if (cancelled) {
+        stopped = true;
+        verificationProgress(args, 'cancelled', { reason: cancelled.reason ?? 'cancelled' });
+      }
+    }
     const command = configured.commands[name];
     if (!command) {
       checks[name] = { status: 'not_configured' };
@@ -381,7 +372,7 @@ export async function verifyProject(projectDir, args, { planOnly = false, delive
     }
     selectedCount += 1;
     if (stopped) {
-      checks[name] = { status: 'not_run', command: displayCommand(command, projectDir), reason: 'previous-check-failed' };
+      checks[name] = { status: 'not_run', command: displayCommand(command, projectDir), reason: cancelled ? 'verification-cancelled' : 'previous-check-failed' };
       continue;
     }
     const cachedCheck = treeChangedDuringRun ? null : checkCache.get(name);
@@ -474,6 +465,28 @@ export async function verifyProject(projectDir, args, { planOnly = false, delive
       const currentTree = await gitTreeFingerprint(projectDir);
       if (currentTree !== cacheContext.treeContentFingerprint) treeChangedDuringRun = true;
     }
+  }
+  if (cancelled) {
+    return {
+      schemaVersion: VERIFY_SCHEMA_VERSION,
+      engine: VERIFY_ENGINE,
+      command: 'verify',
+      tier: tierPlan.tier,
+      scope,
+      status: 'blocked',
+      code: 'VERIFICATION_CANCELLED',
+      error: `verification was cancelled (${cancelled.reason ?? 'superseded'}); rerun the delivery command to resume the candidate`,
+      queue: null,
+      checks,
+      selectedChecks: selectedNames,
+      deferredChecks: tierPlan.deferredChecks,
+      cancelled: {
+        reason: typeof cancelled.reason === 'string' ? cancelled.reason : null,
+        publishedHead: typeof cancelled.publishedHead === 'string' ? cancelled.publishedHead : null,
+        publishedBy: typeof cancelled.publishedBy === 'string' ? cancelled.publishedBy : null,
+        at: typeof cancelled.at === 'string' ? cancelled.at : null,
+      },
+    };
   }
   for (const name of CHECK_ORDER) {
     if (only) break;
@@ -679,7 +692,7 @@ export async function verifyProject(projectDir, args, { planOnly = false, delive
     },
     warnings: reviewWarnings,
     environment: { mode: environmentMode, status: environmentStatus },
-    queue: verificationLease?.queue ?? null,
+    queue: null,
     verification: {
       schemaVersion: 3,
       engine: VERIFY_ENGINE,
@@ -733,7 +746,4 @@ export async function verifyProject(projectDir, args, { planOnly = false, delive
   verificationProgress(args, 'complete', { status: report.status, tier: report.tier, selectedCount: selectedNames.length,
     deferredCount: tierPlan.deferredChecks.length });
   return report;
-  } finally {
-    if (!verificationLease?.borrowed) await verificationLease?.release?.();
-  }
 }
