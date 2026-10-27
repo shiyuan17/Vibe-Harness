@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
+import { pathToFileURL } from 'node:url';
 
 import { parsePluginsOption, resolveModuleSelection } from '../../scripts/lib/module-selection.js';
 import { validateProjectConfig } from '../../scripts/lib/project-config.js';
@@ -32,12 +33,24 @@ test('public modules resolve dependencies without exposing install-map groups', 
 
   assert.deepEqual(selection.requestedModules, ['memory', 'hooks']);
   assert.deepEqual(selection.resolvedModules, [
-    'agents', 'rules', 'templates', 'skills', 'memory', 'hooks',
+    'agents', 'rules', 'templates', 'skills', 'project-scripts', 'memory', 'hooks',
   ]);
-  assert.deepEqual(selection.implicitModules, ['agents', 'rules', 'templates', 'skills']);
+  assert.deepEqual(selection.implicitModules, ['agents', 'rules', 'templates', 'skills', 'project-scripts']);
   assert.equal(selection.allowedGroups.has('skills-memory'), true);
   assert.equal(selection.allowedGroups.has('tools-codebase-memory'), false);
   assert.equal(selection.allowedGroups.has('mcp-config'), false);
+});
+
+test('hooks-only installation includes the complete native pre-push runtime', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-hooks-closure-'));
+  try {
+    await runCli(['init', '--project', target]);
+    await runCli(['install', '--project', target, '--target', 'codex', '--modules', 'hooks',
+      '--write', '--confirm-red-zone', '--output', 'json']);
+    const url = pathToFileURL(path.join(target, '.agents/runtime/hooks/git-hook.mjs')).href;
+    await execFileAsync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(url)})`],
+      { cwd: target, windowsHide: true });
+  } finally { await rm(target, { recursive: true, force: true }); }
 });
 
 test('project-scripts is a standalone deterministic runtime module and is included by core/full', () => {

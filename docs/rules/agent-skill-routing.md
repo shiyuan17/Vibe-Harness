@@ -38,8 +38,8 @@ Skill 是宿主按 description 直接选择的领域能力包：description 是�
 - 高影响产品决定使用 `clarify-requirements`：仅处理当轮可关闭的解阻或显式需求发现，不持久化目标。
 - 用户明确要求编写、优化或激活跨任务持续目标时使用 `define-goal`：产出可激活的 Goal Brief，不处理当轮解阻。
 - 用户要求拆分已有计划、建立 Task DAG 或生成节点执行提示词时使用 `task-decomposition`：产出拆分判定、Goal/DAG 和宿主无关的单节点提示词；不自动派发或执行任务。简单单 Agent 任务不创建 DAG。
-- 仅在用户显式调用 `$vb-git-split-push` 或明确指定 `vb-git-split-push` Skill 时使用：整理当前任务改动、按逻辑分组提交并安全地普通推送当前分支。
-- 用户显式调用 `vb-git-develop-flow` / `$vb-git-develop-flow` 时只选择该显式本地交付 Skill：优先接收宿主 worktree，本地 `develop` 的 stage 候选验证与 publish 远端确认；普通提交和 `$vb-git-split-push` 不触发它。用户显式调用 `vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 时只选择该 Linear 集成 Skill：从当前计划同步 Parent/DAG，仅领取本次新建节点并逐节点执行 stage/publish；普通 Linear 请求不触发它。两者的 `--delivery local-land` 仅覆盖本轮，不修改项目默认配置。
+- 仅在用户显式调用 `$vb-git-split-push` 或明确指定 `vb-git-split-push` Skill 时使用：默认分析当前工作区已有修改，按逻辑分组提交、同步精确远端目标并普通推送当前分支，支持直接在 `develop` 交付。
+- 用户显式调用 `vb-git-develop-flow` / `$vb-git-develop-flow` 时只选择该显式本地交付 Skill：优先接收宿主 worktree，本地 `develop` 的 stage 候选验证与 publish 远端确认；普通提交和 `$vb-git-split-push` 不触发它。用户显式调用 `vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 时只选择该 Linear 集成 Skill：复用当前计划或已授权 Parent 的全部必需任务，同 Parent 共用一个任务 worktree、逐 Issue 本地提交、整批统一 stage/publish；成员变化先确认，不认领其他 Parent，普通 Linear 请求不触发它。两者的 `--delivery local-land` 仅覆盖本轮，不修改项目默认配置。
 - 出现具体故障、报错或测试失败且根因未知时使用 `systematic-debugging`：先证明根因再修复；根因已知或已有既定修复时不触发；Agent 规则、Skill、提示或 Hook 行为变化使用 `eval-driven-development`。
 - 用户调用 vb find question、$find-question 或要求跨层字段、配置、授权、生命周期深度审查时，优先使用已安装的 find-question：主动证伪候选，输出证据化问题与整改计划；CLI 只生成 planned 审查包，不证明已审查。普通潜在缺陷继续使用 bug-finding，具体失败症状的根因定位使用 systematic-debugging；没有安装该 Skill 时沿用项目规则和审查模板，不模拟调用。
 - 只读审查现有项目的逻辑、流程、状态、一致性与接口缺陷时使用 `bug-finding`：面向没有具体失败症状的存量代码，产出证据化审查报告，不修改源码、配置、依赖或数据；要定位具体失败的根因时改用 `systematic-debugging`。

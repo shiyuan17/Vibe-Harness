@@ -292,6 +292,76 @@ function stagedDiff(file, addedLines) {
   return header + addedLines.map((line) => `+${line}`).join('\n');
 }
 
+async function commitFixture(run) {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-commit-repair-'));
+  const git = (...args) => execFileAsync('git', args, { cwd: target, windowsHide: true });
+  try {
+    await git('init', '-q');
+    await git('config', 'user.name', 'Commit Fixture');
+    await git('config', 'user.email', 'commit@example.invalid');
+    await git('config', 'core.autocrlf', 'false');
+    await writeFile(path.join(target, 'baseline.txt'), 'baseline\n');
+    await git('add', 'baseline.txt');
+    await git('commit', '-qm', 'chore(fixture): baseline');
+    const hook = `#!/bin/sh\nexec "${process.execPath.replaceAll('\\', '/')}" "${rootDir.replaceAll('\\', '/')}/runtime/hooks/git-hook.mjs" pre-commit\n`;
+    await writeFile(path.join(target, '.git/hooks/pre-commit'), hook, { mode: 0o755 });
+    await git('config', 'core.hooksPath', '.git/hooks');
+    await run({ target, git, hook });
+  } finally {
+    await rm(target, { recursive: true, force: true });
+  }
+}
+
+test('提交先拒绝 EOF 空行并定位文件，修复重新暂存后保留排除项正常提交', async () => {
+  await commitFixture(async ({ target, git, hook }) => {
+    const baseline = (await git('rev-parse', 'HEAD')).stdout;
+    await writeFile(path.join(target, 'app.cjs'), 'module.exports = 1;\n\n');
+    await writeFile(path.join(target, 'private-note.txt'), 'excluded\n');
+    await git('add', 'app.cjs');
+    const rejectWithLocation = (error) => {
+      assert.match(error.stderr, /app\.cjs:2: new blank line at EOF/u);
+      return true;
+    };
+    await assert.rejects(git('commit', '-m', 'feat(app): add value'), rejectWithLocation);
+    assert.equal((await git('rev-parse', 'HEAD')).stdout, baseline);
+    await writeFile(path.join(target, 'app.cjs'), 'module.exports = 1;\n');
+    await assert.rejects(git('commit', '-m', 'feat(app): add value'), rejectWithLocation,
+      '修复工作树但未重新暂存不能解除拒绝');
+    await git('add', 'app.cjs');
+    await git('diff', '--cached', '--check');
+    await git('commit', '-m', 'feat(app): add value');
+    assert.equal((await git('rev-list', '--count', 'HEAD')).stdout.trim(), '2');
+    assert.equal((await git('show', 'HEAD:app.cjs')).stdout, 'module.exports = 1;\n');
+    assert.equal((await git('status', '--porcelain')).stdout.trim(), '?? private-note.txt');
+    assert.equal(await readFile(path.join(target, '.git/hooks/pre-commit'), 'utf8'), hook);
+  });
+});
+
+test('提交诊断只显示空白位置不泄露代码，密钥拒绝仍保留暂存内容和 HEAD', async () => {
+  await commitFixture(async ({ target, git }) => {
+    const baseline = (await git('rev-parse', 'HEAD')).stdout;
+    const privateText = 'fixture-private-message';
+    await writeFile(path.join(target, 'file with spaces.cjs'), `// ${privateText}  \n`);
+    await git('add', 'file with spaces.cjs');
+    await assert.rejects(git('commit', '-m', 'feat(app): add note'), (error) => {
+      assert.match(error.stderr, /file with spaces\.cjs:1: trailing whitespace/u);
+      assert.equal(error.stderr.includes(privateText), false);
+      return true;
+    });
+    const secret = ['sk', 'abcdefghijklmnopqrstuvwxyz1234'].join('-');
+    await writeFile(path.join(target, 'file with spaces.cjs'), `module.exports = "${secret}";\n`);
+    await git('add', 'file with spaces.cjs');
+    const stagedTree = (await git('write-tree')).stdout;
+    await assert.rejects(git('commit', '-m', 'feat(app): add note'), (error) => {
+      assert.match(error.stderr, /Possible secret found/u);
+      assert.equal(error.stderr.includes(secret), false);
+      return true;
+    });
+    assert.equal((await git('write-tree')).stdout, stagedTree);
+    assert.equal((await git('rev-parse', 'HEAD')).stdout, baseline);
+  });
+});
+
 test('scanStagedDiff rejects staged secrets and forbidden paths', () => {
   assert.throws(
     () => scanStagedDiff(stagedDiff('scripts/run.js', ['const key = "sk-abcdefghijklmnopqrstuvwxyz1234";'])),

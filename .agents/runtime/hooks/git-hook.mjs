@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 import { execFile, spawn } from 'node:child_process';
-import { realpath } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { DEFAULT_RED_ZONE_PATHS, findProjectRoot, readHookSettings, readProjectConfig } from './lib/context.mjs';
 import { redZoneMatcher } from './lib/policy.mjs';
+import { inspectPushVerification } from '../lib/push-verification.mjs';
+import { verifyProject } from '../lib/verification-command.mjs';
+import { deliveryRiskPolicy } from '../lib/verification-risk.mjs';
+import { cleanupNativePushCandidate, prepareNativePushCandidate } from '../lib/worktree-command.mjs';
 
 const execFileAsync = promisify(execFile);
 const secretPatterns = [
@@ -46,7 +53,20 @@ export function scanStagedDiff(diff, { redZoneConfirmed = false, redZonePaths = 
 }
 
 async function preCommit(rootDir) {
-  await execFileAsync('git', ['diff', '--cached', '--check'], { cwd: rootDir, windowsHide: true });
+  try {
+    await execFileAsync('git', ['diff', '--cached', '--check'], {
+      cwd: rootDir, windowsHide: true, env: { ...process.env, LC_ALL: 'C' },
+    });
+  } catch (error) {
+    // Git writes diagnostics to stdout, including the offending source line.
+    // Forward only recognized location summaries, never staged code or stderr.
+    const locations = String(error.stdout ?? '').split(/\r?\n/u).flatMap((line) => {
+      if (line.startsWith('+')) return [];
+      const match = /^(.+):(\d+): (new blank line at EOF|trailing whitespace|space before tab in indent|leftover conflict marker)\.$/u.exec(line);
+      return match ? [`${match[1].replace(/\p{C}/gu, '?').slice(0, 300)}:${match[2]}: ${match[3]}.`] : [];
+    }).slice(0, 20);
+    throw new Error(`STAGED_DIFF_CHECK_FAILED: git diff --cached --check rejected the staged snapshot.${locations.length ? `\n${locations.join('\n')}` : '\nInspect git diff --cached --check in the repository for details.'}`);
+  }
   const { stdout } = await execFileAsync('git', ['diff', '--cached', '--no-ext-diff', '--unified=0', '--', '.'], {
     cwd: rootDir,
     maxBuffer: 8 * 1024 * 1024,
@@ -122,18 +142,75 @@ function runCommand(command, cwd, { timeout = 120000, stdio = 'inherit' } = {}) 
   });
 }
 
-async function prePush(rootDir) {
-  let config;
-  try {
-    config = await readProjectConfig(rootDir);
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-    config = {};
+export function parsePushUpdates(input) {
+  if (Buffer.byteLength(input) > 1024 * 1024) throw new Error('Push updates exceed limit');
+  return input.trim().split(/\r?\n/u).filter(Boolean).map((line) => {
+    const [localRef, sha, ref, remoteSha, ...extra] = line.trim().split(/\s+/u);
+    if (extra.length || !localRef || !/^refs\/(?:heads|tags)\/[^\s]+$/u.test(ref ?? '')
+      || !/^[0-9a-f]{40,64}$/iu.test(sha ?? '') || !/^[0-9a-f]{40,64}$/iu.test(remoteSha ?? '')) {
+      throw new Error('Invalid pre-push update');
+    }
+    return { localRef, sha, ref, remoteSha };
+  });
+}
+async function prePush(rootDir, url, input) {
+  const updates = parsePushUpdates(input);
+  if (!updates.length) {
+    if (process.env.VIBE_HARNESS_MANAGED_PUSH === '1') throw new Error('PUSH_PROOF_MISSING: push update is missing');
+    return;
   }
-  const commands = ['lint', 'typecheck', 'test']
-    .map((name) => config.validationCommands?.[name])
-    .filter((command) => typeof command === 'string' && command.trim().length > 0);
-  for (const command of commands) await runCommand(command, rootDir);
+  if (process.env.VIBE_HARNESS_MANAGED_PUSH === '1' || process.env.VIBE_HARNESS_PUSH_PROOF) {
+    if (updates.length !== 1 || !url) throw new Error('PUSH_PROOF_TARGET_MISMATCH');
+    const result = await inspectPushVerification(rootDir, process.env.VIBE_HARNESS_PUSH_PROOF, { ...updates[0], url });
+    if (!result.ok) throw new Error(`${result.code}: ${JSON.stringify({ changed: result.changed, environmentKeys: result.environmentKeys })}`);
+    return;
+  }
+  // Ordinary push: verify the exact pushed objects, never an unrelated dirty
+  // primary checkout. Each SHA is checked once even when pushed to two refs.
+  const checked = new Set();
+  for (const update of updates) {
+    if (/^0+$/u.test(update.sha) || checked.has(update.sha)) continue;
+    const temporary = await mkdtemp(path.join(tmpdir(), 'vibe-push-verification-'));
+    const candidate = path.join(temporary, `.vibe-harness-land-batch-${randomUUID()}`);
+    const emptyHooks = path.join(temporary, 'hooks');
+    await mkdir(emptyHooks);
+    const git = (args, cwd = rootDir) => execFileAsync('git', args, { cwd, windowsHide: true });
+    let added = false;
+    let settings = null;
+    try {
+      await git(['-c', `core.hooksPath=${emptyHooks}`, 'worktree', 'add', '--detach', candidate, update.sha]);
+      added = true;
+      const config = await readProjectConfig(candidate);
+      settings = await prepareNativePushCandidate(rootDir, candidate);
+      const changedPaths = new Set();
+      for (const target of updates.filter((item) => item.sha === update.sha)) {
+        const baseKnown = !/^0+$/u.test(target.remoteSha)
+          && await git(['cat-file', '-e', `${target.remoteSha}^{commit}`]).then(() => true, () => false);
+        const changed = baseKnown
+          ? await git(['diff', '--name-only', '-z', '--no-renames', target.remoteSha, target.sha])
+          : await git(['ls-tree', '-r', '--name-only', '-z', target.sha]);
+        changed.stdout.split('\0').filter(Boolean).forEach((file) => changedPaths.add(file));
+      }
+      const paths = [...changedPaths];
+      const policy = deliveryRiskPolicy(paths, { config });
+      const report = await verifyProject(candidate, { tier: policy.selectedTier, paths, deliveryEvidence: true,
+        reviewPolicy: 'none',
+        targetBranch: update.ref.replace('refs/heads/', '') });
+      if (!['passed', 'reused'].includes(report.status) || report.verification?.snapshotComparison !== 'match') {
+        throw new Error(`Exact push verification did not pass: ${report.code ?? report.status}`);
+      }
+      checked.add(update.sha);
+    } finally {
+      if (added) {
+        const dirty = await git(['status', '--porcelain=v1', '--untracked-files=all'], candidate);
+        if (!dirty.stdout.trim()) {
+          const cleaned = await cleanupNativePushCandidate(rootDir, candidate, settings);
+          if (!cleaned.removed) process.stderr.write(`Push candidate cleanup pending: ${candidate}\n`);
+        }
+      }
+      if (!existsSync(candidate)) await rm(temporary, { recursive: true, force: true });
+    }
+  }
 }
 
 // Run the hook only when invoked directly as `node git-hook.mjs <hook>`, not when
@@ -151,7 +228,14 @@ if (isMain) {
   try {
     const rootDir = await findProjectRoot(process.cwd());
     if (hook === 'pre-commit') await preCommit(rootDir);
-    else if (hook === 'pre-push') await prePush(rootDir);
+    else if (hook === 'pre-push') {
+      let input = '';
+      for await (const chunk of process.stdin) {
+        input += chunk;
+        if (Buffer.byteLength(input) > 1024 * 1024) throw new Error('Push updates exceed limit');
+      }
+      await prePush(rootDir, process.argv[4], input);
+    }
     else throw new Error(`Unknown Git hook: ${String(hook)}`);
   } catch (error) {
     process.stderr.write(`Vibe-Harness ${hook ?? 'git-hook'}: ${error.message}\n`);
