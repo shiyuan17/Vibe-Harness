@@ -421,6 +421,7 @@ test('matching verification receipts reuse by default and --no-reuse forces a ru
     lint: null,
     typecheck: null,
     test: 'node reusable-check.mjs',
+    checks: [{ id: 'test', command: 'node reusable-check.mjs', deterministic: true }],
     eval: null,
   });
   try {

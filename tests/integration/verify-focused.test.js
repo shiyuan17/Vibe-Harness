@@ -74,6 +74,7 @@ test('collectChangedPaths reports committed, staged, unstaged, untracked, and re
     const paths = await collectChangedPaths({ base: 'HEAD~1', cwd: dir });
     assert.deepEqual([...paths].sort(), [
       'adapters/renamed file.md',
+      'docs/rename old.md',
       'docs/rules/staged.md',
       'evals/x.json',
       'scripts/unstaged.js',

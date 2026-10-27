@@ -288,7 +288,7 @@ test('help 覆盖含 worktree、slice、patch 与 task 在内的全部项目命�
   assert.match(result.report.worktree, /never fetches or moves the primary checkout/u);
   assert.match(result.report.worktree, /publish --batch <id> auto-reconciles against the remote/u);
   assert.match(result.report.worktree, /no-force push of the exact target, remote SHA readback/u);
-  assert.match(result.report.worktree, /checks cancelled and their leases force-released/u);
+  assert.match(result.report.worktree, /independent candidates and live leases are retained/u);
   assert.match(result.report.worktree, /recover takes no --batch\/--archive-integrated/u);
   assert.match(result.report.task, /task <init\|update\|status\|list\|plan-check\|plan-sync\|check\|freeze-tests\|rebaseline-tests>/u);
   assert.match(result.report.reuse, /--no-reuse/u);

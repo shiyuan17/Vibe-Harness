@@ -956,6 +956,10 @@ async function makeLandFixture({
   extraFiles = {}, validationCommands = { test: 'node --version' }, verification = null,
   delivery = null, worktree = {},
 } = {}) {
+  validationCommands = { ...validationCommands, tiers: { quick: validationCommands.tiers?.quick ?? Object.values(validationCommands).filter((value) => typeof value === 'string'),
+    ...validationCommands.tiers,
+    standard: validationCommands.tiers?.standard?.length ? validationCommands.tiers.standard
+      : validationCommands.tiers?.quick ?? Object.values(validationCommands).filter((value) => typeof value === 'string') } };
   const fixture = await makeWorkspaceFixture({ extraFiles, validationCommands, verification, delivery, worktree });
   await git(fixture.repo, ['checkout', '-q', '-b', 'feat/landing-zone']);
   return fixture;
@@ -1077,7 +1081,7 @@ test('worktree publish 重试被拒推送时复用已验证候选', async () => 
     assert.equal(unsafeCleanup.report.results[0].batchId, staged.report.batchId);
     assert.match(unsafeCleanup.report.results[0].blockers[0], /publish --batch/);
     assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
-    assert.equal((await readRegistry(fixture.repo)).entries.length, 1);
+    assert.equal((await readRegistry(fixture.repo)).entries.length, 2);
     await rm(hook);
     const retry = await runCommand(args, { cwd: fixture.repo });
     assert.equal(retry.report.status, 'passed', JSON.stringify(retry.report));
@@ -1158,7 +1162,7 @@ test('worktree publish 推送结果不明时核对远端且不重复推送', asy
     assert.equal(unknown.report.code, 'LAND_PUSH_UNCONFIRMED', JSON.stringify(unknown.report));
     assert.equal(await git(fixture.origin, ['rev-parse', 'develop']), staged.report.candidateHead);
     assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
-    assert.equal((await readRegistry(fixture.repo)).entries.length, 1);
+    assert.equal((await readRegistry(fixture.repo)).entries.length, 2);
     const stillUnknown = await runCommand(args, { cwd: fixture.repo });
     assert.equal(stillUnknown.report.code, 'LAND_PUSH_UNCONFIRMED');
     await git(fixture.origin, ['config', '--unset', 'uploadpack.hideRefs']);
@@ -1236,7 +1240,7 @@ test('worktree stage 在脏主检出下只生成持久本地候选，不 fetch �
     const statePath = path.join(fixture.repo, '.git',
       `vibe-harness-land-batch-${staged.report.batchId}.json`);
     const state = JSON.parse(await readFile(statePath, 'utf8'));
-    assert.equal(state.schemaVersion, 4);
+    assert.equal(state.schemaVersion, 5);
     assert.equal(state.queue, null);
     assert.equal(typeof state.pushTarget.fingerprint, 'string');
     assert.equal(Object.hasOwn(state.pushTarget, 'url'), false);
@@ -1302,7 +1306,7 @@ test('worktree publish 独占仓库 FIFO，超时阻塞并在失败时释放', a
       staged: staged.report,
     }));
     const legacyV4 = JSON.parse(await readFile(statePath, 'utf8'));
-    assert.equal(legacyV4.schemaVersion, 4);
+    assert.equal(legacyV4.schemaVersion, 5);
     assert.equal(legacyV4.queue, null);
     await writeJson(statePath, { ...legacyV4, schemaVersion: 3 });
     const v3Status = await runCommand([
@@ -1350,7 +1354,7 @@ test('worktree publish 独占仓库 FIFO，超时阻塞并在失败时释放', a
     assert.equal(rejectedPublish.report.code, 'LAND_PUSH_FAILED', JSON.stringify(rejectedPublish.report));
     assert.equal(rejectedPublish.report.queue.state, 'cancelled');
     const failed = JSON.parse(await readFile(statePath, 'utf8'));
-    assert.equal(failed.schemaVersion, 4);
+    assert.equal(failed.schemaVersion, 5);
     assert.equal(failed.phase, 'push_uncertain');
     assert.equal(failed.queue.state, 'cancelled');
 
@@ -1362,7 +1366,7 @@ test('worktree publish 独占仓库 FIFO，超时阻塞并在失败时释放', a
     assert.equal(published.report.status, 'passed', JSON.stringify(published.report));
     assert.equal(published.report.integrationStatus, 'integrated');
     assert.equal(published.report.queue.state, 'completed');
-    assert.equal(existsSync(statePath), false);
+    assert.equal(JSON.parse(await readFile(statePath, 'utf8')).phase, 'cleaned');
   } finally {
     if (previousTimeout === undefined) delete process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS;
     else process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS = previousTimeout;
@@ -1642,18 +1646,18 @@ test('worktree publish 检测源已远端集成时自动归档事务', async () 
     // Archiving is proven entirely outside the repository FIFO.
     assert.equal(integrated.report.queue, null, JSON.stringify(integrated.report.queue));
     // Stage already reclaimed the candidate, so nothing was left to clean.
-    assert.deepEqual(integrated.report.candidateCleanup, []);
+    assert.ok(integrated.report.candidateCleanup.every((item) => item.removed));
     assert.equal(await git(fixture.origin, ['rev-parse', 'develop']), staged.report.sourceHead);
     // The archived state file is the audit record and is intentionally retained.
     const statePath = path.join(fixture.repo, '.git',
       `vibe-harness-land-batch-${staged.report.batchId}.json`);
     const state = JSON.parse(await readFile(statePath, 'utf8'));
-    assert.equal(state.schemaVersion, 4);
-    assert.equal(state.phase, 'archived_integrated');
+    assert.equal(state.schemaVersion, 5);
+    assert.equal(state.phase, 'cleaned');
     assert.equal(state.archive.reason, 'sources-integrated');
     assert.equal(state.archive.remoteHead, staged.report.sourceHead);
-    // The source worktree survives: only the candidate was archived.
-    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
+    // Proven integrated sources and their resources are reclaimed.
+    assert.equal(await entryExists(fixture.repo, fixture.worktreePath), false);
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
@@ -1702,12 +1706,11 @@ test('worktree publish 在远端证明或源漂移时阻塞并保留现场', asy
   }
 });
 
-test('worktree publish 取消被取代候选的进行中验证并强制释放其租约', async () => {
+test('worktree publish 保留独立候选，只协作取消同目标已集成源的冗余验证', async () => {
   const fixture = await makeDevelopLandFixture();
   const commonDir = path.join(fixture.repo, '.git');
   const supersededUuid = '22222222-3333-4444-5555-666666666666';
   let holder = null;
-  let exited = null;
   try {
     await bootstrapBatchSecond(fixture, 'two\n');
     const first = await runCommand(['worktree', 'stage', '--project', fixture.repo,
@@ -1722,20 +1725,22 @@ test('worktree publish 取消被取代候选的进行中验证并强制释放其
     // A live lease: a real in-flight verification process holds the candidate.
     holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'],
       { stdio: 'ignore', windowsHide: true });
-    exited = new Promise((resolve) => holder.on('exit', () => resolve(true)));
     const now = new Date().toISOString();
     await writeFile(path.join(commonDir, `vibe-harness-land-candidate-${first.report.batchId}.lock`),
       JSON.stringify({ heartbeatAt: now, leaseMs: 60_000, pid: holder.pid, startedAt: now }), 'utf8');
-    // A crashed holder: the heartbeat is stale and its pid is already dead.
-    const crashed = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 1)'],
-      { stdio: 'ignore', windowsHide: true });
-    await new Promise((resolve) => crashed.on('exit', resolve));
-    const staleAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    // A redundant live candidate has the same frozen sources as the batch
+    // being published. Cancellation is cooperative: it must retain its lease
+    // until its owner actually exits. A common ancestor alone is insufficient.
+    const secondState = JSON.parse(await readFile(path.join(commonDir,
+      `vibe-harness-land-batch-${second.report.batchId}.json`), 'utf8'));
+    const redundantCandidate = path.join(fixture.root, `.vibe-harness-land-batch-${supersededUuid}`);
+    await git(fixture.repo, ['worktree', 'add', '--detach', redundantCandidate, second.report.candidateHead]);
     await writeFile(path.join(commonDir, `vibe-harness-land-candidate-${supersededUuid}.lock`),
-      JSON.stringify({ heartbeatAt: staleAt, leaseMs: 60_000, pid: crashed.pid, startedAt: staleAt }), 'utf8');
+      JSON.stringify({ heartbeatAt: now, leaseMs: 60_000, pid: holder.pid, startedAt: now }), 'utf8');
     await writeJson(path.join(commonDir, `vibe-harness-land-batch-${supersededUuid}.json`), {
+      ...secondState,
       id: supersededUuid,
-      baseHead: first.report.targetBefore,
+      candidate: redundantCandidate,
     });
 
     const published = await runCommand(['worktree', 'publish', '--project', fixture.repo,
@@ -1743,31 +1748,29 @@ test('worktree publish 取消被取代候选的进行中验证并强制释放其
     { cwd: fixture.repo });
     assert.equal(published.report.status, 'passed', JSON.stringify(published.report));
     assert.equal(published.report.integrationStatus, 'integrated');
-    assert.equal(published.report.supersededCandidates.length, 2,
+    assert.equal(published.report.supersededCandidates.length, 1,
       JSON.stringify(published.report.supersededCandidates));
     const cancelled = published.report.supersededCandidates
-      .find((item) => item.batchId === first.report.batchId);
-    assert.deepEqual(cancelled, { batchId: first.report.batchId, pid: holder.pid, action: 'cancelled' });
-    const released = published.report.supersededCandidates
       .find((item) => item.batchId === supersededUuid);
-    assert.deepEqual(released, { batchId: supersededUuid, pid: crashed.pid, action: 'lease-released' });
-    // The in-flight run was asked to stop and its process tree was killed.
-    assert.equal(await Promise.race([
-      exited,
-      new Promise((resolve) => setTimeout(() => resolve(false), 8000)),
-    ]), true);
-    const cancel = JSON.parse(await readFile(path.join(firstState.candidate,
+    assert.deepEqual(cancelled, { batchId: supersededUuid, pid: holder.pid, action: 'cancel-requested' });
+    assert.equal(holder.exitCode, null);
+    assert.equal(existsSync(path.join(firstState.candidate, '.vibe-harness', 'verification', 'CANCEL')), false);
+    const cancel = JSON.parse(await readFile(path.join(redundantCandidate,
       '.vibe-harness', 'verification', 'CANCEL'), 'utf8'));
     assert.equal(cancel.reason, 'superseded');
     assert.equal(cancel.publishedHead, published.report.targetAfter);
     assert.equal(cancel.publishedBy, second.report.batchId);
-    // Both leases are force-released even though their holders never finished.
+    // No live lease is released by another transaction.
     assert.equal(existsSync(path.join(commonDir,
-      `vibe-harness-land-candidate-${first.report.batchId}.lock`)), false);
+      `vibe-harness-land-candidate-${first.report.batchId}.lock`)), true);
     assert.equal(existsSync(path.join(commonDir,
-      `vibe-harness-land-candidate-${supersededUuid}.lock`)), false);
+      `vibe-harness-land-candidate-${supersededUuid}.lock`)), true);
   } finally {
-    if (holder && holder.exitCode === null) holder.kill('SIGKILL');
+    if (holder && holder.exitCode === null) {
+      const exited = new Promise((resolve) => holder.once('exit', resolve));
+      holder.kill('SIGKILL');
+      await exited;
+    }
     await removeTemporaryDirectory(fixture.root);
   }
 });
@@ -1998,7 +2001,9 @@ test('batch stage verifies the merged candidate once and publish reuses the rece
   const counter = path.join(tmpdir(), `land-batch-${process.pid}-${Date.now()}.txt`);
   const fixture = await makeLocalFixture({
     extraFiles: { 'verify.mjs': "import { appendFileSync } from 'node:fs'; appendFileSync(process.env.BATCH_VERIFY_COUNTER, 'run\\n');\n" },
-    validationCommands: { tiers: { quick: ['node verify.mjs'], deep: ['node --version'] } },
+    validationCommands: { tiers: { quick: ['node verify.mjs'], standard: [], deep: ['node --version'] },
+      checks: [{ id: 'verify', command: 'node verify.mjs', deterministic: true },
+        { id: 'version', command: 'node --version', deterministic: true }] },
   });
   const previous = process.env.BATCH_VERIFY_COUNTER;
   try {
@@ -2010,8 +2015,8 @@ test('batch stage verifies the merged candidate once and publish reuses the rece
     assert.equal(staged.report.status, 'passed', JSON.stringify(staged.report));
     assert.equal(staged.report.integrationStatus, 'local_staged');
     assert.equal(staged.report.queue, null, 'stage never takes a repository FIFO turn');
-    assert.equal(staged.report.integration.tier, 'quick');
-    assert.equal(staged.report.integration.completion, 'pending_ci');
+    assert.equal(staged.report.integration.tier, 'standard');
+    assert.equal(staged.report.integration.completion, 'integration_only');
     assert.equal((await readFile(counter, 'utf8')).trim(), 'run');
     const published = await runCommand(['worktree', 'publish', '--project', fixture.repo,
       '--batch', staged.report.batchId, '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
@@ -2377,7 +2382,7 @@ test('worktree stage 默认 dry-run:输出落地计划且不落盘', async () =>
     assert.equal(planned.report.status, 'planned');
     assert.equal(planned.report.batch, true);
     assert.equal(planned.report.targetBranch, 'develop');
-    assert.equal(planned.report.tier, 'quick');
+    assert.equal(planned.report.tier, 'standard');
     assert.equal(planned.report.write, false);
     assert.equal(planned.report.sources.length, 1);
     assert.equal(planned.report.sources[0].id, 'ENG-1');
@@ -2393,7 +2398,7 @@ test('worktree stage 默认 dry-run:输出落地计划且不落盘', async () =>
   }
 });
 
-test('stage 预检不因收据或 deferred 自动升级，只执行请求的层级', async () => {
+test('stage 预检按风险选择必要检查，低层请求不能省略高风险证据', async () => {
   const fixture = await makeLocalFixture({
     validationCommands: { tiers: { quick: ['node --version'], standard: ['node --version --no-warnings'] } },
   });
@@ -2402,13 +2407,13 @@ test('stage 预检不因收据或 deferred 自动升级，只执行请求的层�
     const base = ['worktree', 'stage', '--project', fixture.repo, '--delivery', 'local-land', '--task', 'ENG-1', '--json'];
     const missingReview = await runCommand(base, { cwd: fixture.repo });
     assert.equal(missingReview.report.status, 'planned', JSON.stringify(missingReview.report));
-    assert.equal(missingReview.report.tier, 'quick');
+    assert.equal(missingReview.report.tier, 'standard');
     const ignoredReview = await runCommand([...base, '--reviewed', 'not-selected'], { cwd: fixture.repo });
     assert.equal(ignoredReview.report.status, 'planned', JSON.stringify(ignoredReview.report));
     assert.ok(ignoredReview.report.warnings.some((warning) => warning.code === 'LAND_REVIEW_METADATA_IGNORED'));
     const explicit = await runCommand([...base, '--tier', 'quick', '--reviewed', 'all'], { cwd: fixture.repo });
-    assert.equal(explicit.report.status, 'planned', JSON.stringify(explicit.report));
-    assert.equal(explicit.report.tier, 'quick');
+    assert.equal(explicit.report.status, 'blocked', JSON.stringify(explicit.report));
+    assert.equal(explicit.report.code, 'LAND_BATCH_RISK_TIER');
     assert.equal(explicit.report.tierEscalation, undefined);
   } finally {
     await removeTemporaryDirectory(fixture.root);
@@ -2448,13 +2453,13 @@ test('develop stage 不需要审阅或完成收据，但必须实测最终候选
     assert.equal(written.report.queue, null, 'stage never takes a repository FIFO turn');
     // requireReceipt、审阅等收据姿态不影响 stage：集成的证据只来自对最终候选的实测。
     assert.ok(written.report.integration.passedChecks.length > 0, 'final candidate must be verified by a real run');
-    assert.equal(written.report.integration.tier, 'quick');
+    assert.equal(written.report.integration.tier, 'standard');
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
 });
 
-test('stage 在相同代码树的候选 worktree 复用已通过的确定性检查', async () => {
+test('stage 资源身份改变时不复用源 worktree 的确定性检查', async () => {
   const counter = path.join(tmpdir(), `vibe-harness-land-cache-${process.pid}-${Date.now()}.txt`);
   const previousCounter = process.env.VIBE_HARNESS_TEST_COUNTER;
   const fixture = await makeLocalFixture({
@@ -2484,10 +2489,9 @@ test('stage 在相同代码树的候选 worktree 复用已通过的确定性检�
     assert.equal(landed.exitCode, 0, JSON.stringify(landed.report));
     assert.equal(landed.report.status, 'passed', JSON.stringify(landed.report));
     assert.equal(landed.report.integrationStatus, 'local_staged');
-    // The candidate tree matches the verified source tree, so the deterministic
-    // check is reused instead of re-run: the counter must still hold one run.
+    // Same tree is insufficient when the candidate has a different resource identity.
     assert.ok(landed.report.integration.passedChecks.includes('test'), JSON.stringify(landed.report.integration));
-    assert.equal(await readFile(counter, 'utf8'), 'run\n');
+    assert.equal(await readFile(counter, 'utf8'), 'run\nrun\n');
   } finally {
     if (previousCounter === undefined) delete process.env.VIBE_HARNESS_TEST_COUNTER;
     else process.env.VIBE_HARNESS_TEST_COUNTER = previousCounter;
@@ -2648,7 +2652,7 @@ test('stage --write 合并并验证候选,但目标、源工作区与分支都�
     assert.equal(typeof written.report.batchId, 'string');
     assert.equal(typeof written.report.stagedRef, 'string');
     assert.equal(typeof written.report.candidateHead, 'string');
-    assert.equal(written.report.candidatePath, null, 'the candidate worktree is reclaimed once staged');
+    assert.equal(existsSync(written.report.candidatePath), true, 'the verified environment stays available for native pre-push');
     // The merge is a real --no-ff merge commit: fixture + work + merge.
     assert.equal(await git(fixture.repo, ['rev-list', '--count', written.report.stagedRef]), '3');
     assert.equal(await git(fixture.repo, ['rev-parse', written.report.stagedRef]), written.report.candidateHead);
@@ -2658,7 +2662,7 @@ test('stage --write 合并并验证候选,但目标、源工作区与分支都�
     assert.equal(await git(fixture.repo, ['rev-list', '--count', 'develop']), '1');
     assert.equal(await entryExists(fixture.repo, fixture.worktreePath), true);
     assert.equal(await git(fixture.repo, ['branch', '--list', 'feat/ENG-1-scaffold', '--format=%(refname:short)']), 'feat/ENG-1-scaffold');
-    assert.equal((await readRegistry(fixture.repo)).entries.length, 1);
+    assert.equal((await readRegistry(fixture.repo)).entries.length, 2);
   } finally {
     await removeTemporaryDirectory(fixture.root);
   }
@@ -2739,6 +2743,37 @@ test('publish 在仓库队列占用时于预算内 blocked 且不推送', async 
   }
 });
 
+test('stage 与 publish 重建把冻结基线和变更路径传给 affected 检查', async () => {
+  const fixture = await makeDevelopLandFixture({
+    extraFiles: {
+      'check-scope.mjs': [
+        "import assert from 'node:assert/strict';",
+        "assert.deepEqual(JSON.parse(process.env.VIBE_HARNESS_VERIFY_PATHS), ['work.txt']);",
+        "assert.match(process.env.VIBE_HARNESS_VERIFY_BASE, /^[0-9a-f]{40,64}$/);",
+        "assert.equal(process.env.VIBE_HARNESS_VERIFY_SCOPE, 'affected');",
+      ].join('\n'),
+    },
+    validationCommands: { test: 'node check-scope.mjs' },
+    verification: { defaultScope: 'affected' },
+  });
+  try {
+    const staged = await runCommand(['worktree', 'stage', '--project', fixture.repo,
+      '--task', 'ENG-1', '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(staged.report.integrationStatus, 'local_staged', JSON.stringify(staged.report));
+    // Force publish to rebuild against an independently advanced remote.
+    await writeFile(path.join(fixture.repo, 'upstream.txt'), 'unrelated\n');
+    await git(fixture.repo, ['add', 'upstream.txt']);
+    await git(fixture.repo, ['commit', '-q', '-m', 'feat: upstream']);
+    await git(fixture.repo, ['push', 'origin', 'develop']);
+    const published = await runCommand(['worktree', 'publish', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(published.report.integrationStatus, 'integrated', JSON.stringify(published.report));
+    assert.ok(published.report.reconcileHistory.some((item) => item.kind === 'rebuilt'));
+  } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
 test('stage 验证环境未产出证据时保留同一候选供续验', async () => {
   const fixture = await makeLocalFixture({
     // Tier selection is cumulative: standard includes quick, so producing "no
@@ -2752,7 +2787,8 @@ test('stage 验证环境未产出证据时保留同一候选供续验', async ()
     assert.equal(blocked.report.status, 'blocked', JSON.stringify(blocked.report));
     assert.equal(blocked.report.code, 'LAND_VERIFY_ENVIRONMENT_FAILED');
     assert.match(blocked.report.error, /no evidence/u);
-    assert.equal(blocked.report.failureType, 'not-run');
+    assert.equal(blocked.report.failureType, 'blocked');
+    assert.equal(blocked.report.verification.code, 'DELIVERY_EVIDENCE_UNCONFIGURED');
     // The merge only exists in the isolated candidate; the target and the
     // source worktree remain untouched, and the candidate is kept for a
     // `stage --resume` of the very same tree.
@@ -2767,6 +2803,47 @@ test('stage 验证环境未产出证据时保留同一候选供续验', async ()
     // `stage --resume` once the environment produces evidence again.
     assert.equal(status.report.phase, 'merged', JSON.stringify(status.report));
   } finally {
+    await removeTemporaryDirectory(fixture.root);
+  }
+});
+
+test('publish 环境超时后复用同一重建候选续验，不重复 merge', async () => {
+  const fixture = await makeDevelopLandFixture({
+    extraFiles: {
+      'check-retry.mjs': "if (process.env.WORKTREE_AUDIT_BLOCK_CHECK === '1') setTimeout(() => {}, 20000);\n",
+    },
+    validationCommands: { test: 'node check-retry.mjs' },
+    verification: { timeoutMs: 1000 },
+  });
+  const previous = process.env.WORKTREE_AUDIT_BLOCK_CHECK;
+  try {
+    const staged = await runCommand(['worktree', 'stage', '--project', fixture.repo,
+      '--task', 'ENG-1', '--delivery', 'local-land', '--write', '--json'], { cwd: fixture.repo });
+    assert.equal(staged.report.integrationStatus, 'local_staged', JSON.stringify(staged.report));
+    await writeFile(path.join(fixture.repo, 'upstream.txt'), 'advance\n');
+    await git(fixture.repo, ['add', 'upstream.txt']);
+    await git(fixture.repo, ['commit', '-q', '-m', 'feat: advance']);
+    await git(fixture.repo, ['push', 'origin', 'develop']);
+    const args = ['worktree', 'publish', '--project', fixture.repo,
+      '--batch', staged.report.batchId, '--delivery', 'local-land', '--write', '--json'];
+    process.env.WORKTREE_AUDIT_BLOCK_CHECK = '1';
+    const blocked = await runCommand(args, { cwd: fixture.repo });
+    assert.equal(blocked.report.code, 'LAND_VERIFY_ENVIRONMENT_FAILED', JSON.stringify(blocked.report));
+    const candidateHead = await git(blocked.report.candidatePath, ['rev-parse', 'HEAD']);
+    delete process.env.WORKTREE_AUDIT_BLOCK_CHECK;
+    const unowned = path.join(blocked.report.candidatePath, 'unowned.txt');
+    await writeFile(unowned, 'must not be silently discarded\n');
+    const drifted = await runCommand(args, { cwd: fixture.repo });
+    assert.equal(drifted.report.code, 'LAND_SNAPSHOT_CHANGED', JSON.stringify(drifted.report));
+    assert.equal(await readFile(unowned, 'utf8'), 'must not be silently discarded\n');
+    await rm(unowned);
+    const resumed = await runCommand(args, { cwd: fixture.repo });
+    assert.equal(resumed.report.integrationStatus, 'integrated', JSON.stringify(resumed.report));
+    assert.equal(resumed.report.candidateHead, candidateHead);
+    assert.equal(resumed.report.reconcileHistory.filter((item) => item.kind === 'rebuilt').length, 1);
+  } finally {
+    if (previous === undefined) delete process.env.WORKTREE_AUDIT_BLOCK_CHECK;
+    else process.env.WORKTREE_AUDIT_BLOCK_CHECK = previous;
     await removeTemporaryDirectory(fixture.root);
   }
 });
@@ -3262,7 +3339,8 @@ test('recover 在服务 teardown 无法证明停止时仍回收崩溃残留', as
 });
 
 test('显式 develop local-land 从 origin/develop 引导并在推送后清理', async () => {
-  const fixture = await makeWorkspaceFixture({ validationCommands: { test: 'node --version' }, worktree: { baseRef: 'origin/develop' } });
+  const fixture = await makeWorkspaceFixture({ validationCommands: { test: 'node --version',
+    tiers: { quick: ['node --version'], standard: ['node --version'], deep: [] } }, worktree: { baseRef: 'origin/develop' } });
   try {
     const origin = path.join(fixture.root, 'origin.git');
     await git(fixture.root, ['init', '--bare', '-q', origin]);

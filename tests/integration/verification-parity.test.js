@@ -38,7 +38,7 @@ async function configureTreeContent(project, checks) {
 
 async function checkCacheDirectory(project) {
   const common = (await execute('git', ['rev-parse', '--git-common-dir'], { cwd: project })).stdout.trim();
-  return path.join(project, common, 'vibe-harness', 'verification-cache', 'v5');
+  return path.join(project, common, 'vibe-harness', 'verification-cache', 'v6');
 }
 
 for (const tier of ['quick', 'standard', 'deep']) {
@@ -278,7 +278,7 @@ test('非确定性检查失败不阻止已通过的确定性检查写入逐检�
   });
 });
 
-test('tree-content allowlist 只让列出的环境变化失效', async () => {
+test('tree-content 旧 allowlist 不能隐藏仍传给检查的环境变化', async () => {
   await fixture(async (project) => {
     await writeFile(path.join(project, '.gitignore'), '.vibe-harness/\nruns.txt\n');
     await writeFile(path.join(project, 'check.mjs'), "import { appendFileSync } from 'node:fs'; appendFileSync('runs.txt', 'run\\n');\n");
@@ -295,11 +295,11 @@ test('tree-content allowlist 只让列出的环境变化失效', async () => {
       assert.equal(first.report.status, 'passed', JSON.stringify(first.report));
       process.env.VIBE_TEST_OTHER = 'beta';
       const ignored = await runCommand(['verify', '--project', project, '--reuse']);
-      assert.equal(ignored.report.status, 'reused', JSON.stringify(ignored.report));
+      assert.equal(ignored.report.status, 'passed', JSON.stringify(ignored.report));
       process.env.VIBE_TEST_ALLOWED = 'two';
       const allowed = await runCommand(['verify', '--project', project, '--reuse']);
       assert.equal(allowed.report.status, 'passed', JSON.stringify(allowed.report));
-      assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\nrun\n');
+      assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\nrun\nrun\n');
     } finally {
       if (previousAllowed === undefined) delete process.env.VIBE_TEST_ALLOWED;
       else process.env.VIBE_TEST_ALLOWED = previousAllowed;
@@ -328,7 +328,7 @@ test('selection scope 的 base 变化不会跨基线复用检查收据', async (
   });
 });
 
-test('被篡改的第 5 版检查收据按 miss 处理', async () => {
+test('被篡改的第 6 版检查收据按 miss 处理', async () => {
   await fixture(async (project) => {
     await writeFile(path.join(project, '.gitignore'), '.vibe-harness/\n');
     await writeFile(path.join(project, 'check.mjs'), 'process.exit(0);\n');
@@ -339,7 +339,7 @@ test('被篡改的第 5 版检查收据按 miss 处理', async () => {
     const first = await runCommand(['verify', '--project', project]);
     assert.equal(first.report.status, 'passed', JSON.stringify(first.report));
     const common = (await execute('git', ['rev-parse', '--git-common-dir'], { cwd: project })).stdout.trim();
-    const directory = path.join(project, common, 'vibe-harness', 'verification-cache', 'v5');
+    const directory = path.join(project, common, 'vibe-harness', 'verification-cache', 'v6');
     const [name] = (await readdir(directory)).filter((file) => file.endsWith('.json'));
     const file = path.join(directory, name);
     const record = JSON.parse(await readFile(file, 'utf8'));
@@ -444,16 +444,16 @@ test('过期检查收据在 lookup 时被清理并判为 miss', async () => {
   });
 });
 
-test('普通验证默认同树复用且可显式要求重跑', async () => {
+test('未声明确定性的普通验证不复用且仍可显式要求重跑', async () => {
   await fixture(async (project) => {
     await reusableFixture(project, false);
     await runCommand(['verify', '--project', project]);
     const second = await runCommand(['verify', '--project', project, '--reuse']);
-    assert.equal(second.report.status, 'reused');
-    assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\n');
+    assert.equal(second.report.status, 'passed');
+    assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\nrun\n');
     const forced = await runCommand(['verify', '--project', project, '--no-reuse']);
     assert.equal(forced.report.status, 'passed');
-    assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\nrun\n');
+    assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\nrun\nrun\n');
   });
 });
 

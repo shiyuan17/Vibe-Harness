@@ -64,10 +64,30 @@
         "pnpm test:matrix",
         "pnpm smoke:lifecycle"
       ]
-    }
+    },
+    "checks": [
+      {
+        "id": "lint",
+        "command": "pnpm lint",
+        "deterministic": true
+      },
+      {
+        "id": "typecheck",
+        "command": "pnpm typecheck",
+        "deterministic": true
+      },
+      {
+        "id": "test",
+        "command": "pnpm test:unit",
+        "deterministic": true
+      }
+    ]
   },
   "verification": {
-    "timeoutMs": 600000
+    "timeoutMs": 600000,
+    "reuse": {
+      "enabled": false
+    }
   },
   "evaluations": {
     "enabled": true,

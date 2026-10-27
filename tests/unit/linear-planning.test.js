@@ -18,7 +18,19 @@ test('三个写单元在两个槽位按容量调度且不夸大收益', () => {
   assert.equal(result.expectedSavingsRatio, 0.2);
   assert.equal(chooseExecutionMode({ estimate: result, candidateUnitCount: 3,
     isolationProven: true, sharedContractFrozen: true, availableWriteAgents: 2,
-    availableReadAgents: 4, availableAgents: 2 }).mode, 'single');
+    availableReadAgents: 4, availableAgents: 2 }).mode, 'parallel');
+});
+
+test('并行门槛统一为十分钟且百分之十五，两个边界都必须满足', () => {
+  assert.equal(WALL_CLOCK_DEFAULTS.minimumSavingsMinutes, 10);
+  assert.equal(WALL_CLOCK_DEFAULTS.minimumSavingsRatio, 0.15);
+  const candidate = { peakAgents: 2, capacityComplete: true, capacity: { maxAgents: 2, maxReadAgents: 1, maxWriteAgents: 2 },
+    expectedSavingsMinutes: 10, expectedSavingsRatio: 0.15 };
+  const decide = (estimate) => chooseExecutionMode({ estimate, candidateUnitCount: 2, isolationProven: true,
+    sharedContractFrozen: true, availableAgents: 2, availableReadAgents: 1, availableWriteAgents: 2 }).mode;
+  assert.equal(decide(candidate), 'parallel');
+  assert.equal(decide({ ...candidate, expectedSavingsMinutes: 9.99 }), 'single');
+  assert.equal(decide({ ...candidate, expectedSavingsRatio: 0.149 }), 'single');
 });
 
 function v2Plan(options, executionMode = 'auto') {

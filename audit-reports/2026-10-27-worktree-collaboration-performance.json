@@ -1,0 +1,3586 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-27T12:01:00.431Z",
+  "benchmarkScriptSha256": "4242e09fd301f494592cd4513dd474f6c2509eedb21f5eb03cea40b960f0a72c",
+  "measurement": "stage start through successful publish; fixture/bootstrap and cleanup retries excluded",
+  "limitations": [
+    "150ms synthetic check; empty dependencies; not a real-project speed claim",
+    "timeout leaves a start event without end; peak is meaningful only for non-interrupted scenarios",
+    "proof timing fields describe the last retained verification/attempt, not their cumulative total",
+    "baseline does not retain terminal transactions or expose separate input/proof timing"
+  ],
+  "before": {
+    "source": ".vibe-harness/worktree-benchmark-before-final.json",
+    "sourceSha256": "8f27c00cf9d123460900b76e06478d08be600332f3016b6cbc20f01d7c3a0022",
+    "runtimeSha256": "82593bd77c0d45fc7769af9b03bc6e061927bd0c444b90acf06074f05e008aec",
+    "node": "v24.21.0",
+    "platform": "win32",
+    "repetitions": 5,
+    "summary": {
+      "small": {
+        "elapsedMs": {
+          "median": 5078,
+          "max": 5219
+        },
+        "checks": [
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "checksInsideFifo": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "queueWaitMs": {
+          "median": 2,
+          "max": 3
+        },
+        "fifoHoldMs": {
+          "median": 851,
+          "max": 867
+        },
+        "finalInputFingerprintMs": null,
+        "finalProofCreateMs": null,
+        "finalProofInspectMs": null
+      },
+      "parallel": {
+        "elapsedMs": {
+          "median": 11232,
+          "max": 11806
+        },
+        "checks": [
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "checksInsideFifo": [
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "queueWaitMs": {
+          "median": 2,
+          "max": 4
+        },
+        "fifoHoldMs": {
+          "median": 873,
+          "max": 1086
+        },
+        "finalInputFingerprintMs": null,
+        "finalProofCreateMs": null,
+        "finalProofInspectMs": null
+      },
+      "shared-resource": {
+        "elapsedMs": {
+          "median": 11593,
+          "max": 12717
+        },
+        "checks": [
+          5,
+          5,
+          5,
+          5,
+          5
+        ],
+        "checksInsideFifo": [
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "queueWaitMs": {
+          "median": 2,
+          "max": 3
+        },
+        "fifoHoldMs": {
+          "median": 882,
+          "max": 1044
+        },
+        "finalInputFingerprintMs": null,
+        "finalProofCreateMs": null,
+        "finalProofInspectMs": null
+      },
+      "baseline-advance": {
+        "elapsedMs": {
+          "median": 8652,
+          "max": 9067
+        },
+        "checks": [
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "checksInsideFifo": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "queueWaitMs": {
+          "median": 2,
+          "max": 2
+        },
+        "fifoHoldMs": {
+          "median": 856,
+          "max": 877
+        },
+        "finalInputFingerprintMs": null,
+        "finalProofCreateMs": null,
+        "finalProofInspectMs": null
+      },
+      "interrupted": {
+        "elapsedMs": {
+          "median": 11683,
+          "max": 12586
+        },
+        "checks": [
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "checksInsideFifo": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "queueWaitMs": {
+          "median": 2,
+          "max": 2
+        },
+        "fifoHoldMs": {
+          "median": 959,
+          "max": 1145
+        },
+        "finalInputFingerprintMs": null,
+        "finalProofCreateMs": null,
+        "finalProofInspectMs": null
+      }
+    },
+    "samples": [
+      {
+        "scenario": "small",
+        "iteration": 1,
+        "elapsedMs": 5219,
+        "checks": 2,
+        "checksInsideFifo": 1,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 3,
+            "holdMs": 834
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null
+        ],
+        "replayCounts": [
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099792460
+          },
+          {
+            "event": "end",
+            "at": 1793099792618
+          },
+          {
+            "event": "start",
+            "at": 1793099794469
+          },
+          {
+            "event": "end",
+            "at": 1793099794631
+          }
+        ]
+      },
+      {
+        "scenario": "small",
+        "iteration": 2,
+        "elapsedMs": 5112,
+        "checks": 2,
+        "checksInsideFifo": 1,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 3,
+            "holdMs": 807
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null
+        ],
+        "replayCounts": [
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099799091
+          },
+          {
+            "event": "end",
+            "at": 1793099799252
+          },
+          {
+            "event": "start",
+            "at": 1793099800903
+          },
+          {
+            "event": "end",
+            "at": 1793099801064
+          }
+        ]
+      },
+      {
+        "scenario": "small",
+        "iteration": 3,
+        "elapsedMs": 5028,
+        "checks": 2,
+        "checksInsideFifo": 1,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 855
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null
+        ],
+        "replayCounts": [
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099805543
+          },
+          {
+            "event": "end",
+            "at": 1793099805702
+          },
+          {
+            "event": "start",
+            "at": 1793099807345
+          },
+          {
+            "event": "end",
+            "at": 1793099807500
+          }
+        ]
+      },
+      {
+        "scenario": "small",
+        "iteration": 4,
+        "elapsedMs": 5069,
+        "checks": 2,
+        "checksInsideFifo": 1,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 867
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null
+        ],
+        "replayCounts": [
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099811844
+          },
+          {
+            "event": "end",
+            "at": 1793099812007
+          },
+          {
+            "event": "start",
+            "at": 1793099813704
+          },
+          {
+            "event": "end",
+            "at": 1793099813863
+          }
+        ]
+      },
+      {
+        "scenario": "small",
+        "iteration": 5,
+        "elapsedMs": 5078,
+        "checks": 2,
+        "checksInsideFifo": 1,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 1,
+            "holdMs": 851
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null
+        ],
+        "replayCounts": [
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099818221
+          },
+          {
+            "event": "end",
+            "at": 1793099818387
+          },
+          {
+            "event": "start",
+            "at": 1793099820076
+          },
+          {
+            "event": "end",
+            "at": 1793099820239
+          }
+        ]
+      },
+      {
+        "scenario": "parallel",
+        "iteration": 1,
+        "elapsedMs": 11664,
+        "checks": 5,
+        "checksInsideFifo": 2,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 3,
+            "holdMs": 1086
+          },
+          {
+            "waitMs": 4,
+            "holdMs": 873
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null,
+          null
+        ],
+        "replayCounts": [
+          0,
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099825566
+          },
+          {
+            "event": "start",
+            "at": 1793099825597
+          },
+          {
+            "event": "end",
+            "at": 1793099825718
+          },
+          {
+            "event": "end",
+            "at": 1793099825749
+          },
+          {
+            "event": "start",
+            "at": 1793099827912
+          },
+          {
+            "event": "end",
+            "at": 1793099828073
+          },
+          {
+            "event": "start",
+            "at": 1793099831766
+          },
+          {
+            "event": "end",
+            "at": 1793099831919
+          },
+          {
+            "event": "start",
+            "at": 1793099833197
+          },
+          {
+            "event": "end",
+            "at": 1793099833363
+          }
+        ]
+      },
+      {
+        "scenario": "parallel",
+        "iteration": 2,
+        "elapsedMs": 11000,
+        "checks": 5,
+        "checksInsideFifo": 2,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 830
+          },
+          {
+            "waitMs": 2,
+            "holdMs": 807
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null,
+          null
+        ],
+        "replayCounts": [
+          0,
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099839119
+          },
+          {
+            "event": "start",
+            "at": 1793099839231
+          },
+          {
+            "event": "end",
+            "at": 1793099839274
+          },
+          {
+            "event": "end",
+            "at": 1793099839383
+          },
+          {
+            "event": "start",
+            "at": 1793099841389
+          },
+          {
+            "event": "end",
+            "at": 1793099841540
+          },
+          {
+            "event": "start",
+            "at": 1793099844989
+          },
+          {
+            "event": "end",
+            "at": 1793099845143
+          },
+          {
+            "event": "start",
+            "at": 1793099846491
+          },
+          {
+            "event": "end",
+            "at": 1793099846654
+          }
+        ]
+      },
+      {
+        "scenario": "parallel",
+        "iteration": 3,
+        "elapsedMs": 11806,
+        "checks": 5,
+        "checksInsideFifo": 2,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 3,
+            "holdMs": 895
+          },
+          {
+            "waitMs": 1,
+            "holdMs": 959
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null,
+          null
+        ],
+        "replayCounts": [
+          0,
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099852785
+          },
+          {
+            "event": "start",
+            "at": 1793099852827
+          },
+          {
+            "event": "end",
+            "at": 1793099852941
+          },
+          {
+            "event": "end",
+            "at": 1793099852988
+          },
+          {
+            "event": "start",
+            "at": 1793099855365
+          },
+          {
+            "event": "end",
+            "at": 1793099855519
+          },
+          {
+            "event": "start",
+            "at": 1793099859031
+          },
+          {
+            "event": "end",
+            "at": 1793099859191
+          },
+          {
+            "event": "start",
+            "at": 1793099860435
+          },
+          {
+            "event": "end",
+            "at": 1793099860588
+          }
+        ]
+      },
+      {
+        "scenario": "parallel",
+        "iteration": 4,
+        "elapsedMs": 11135,
+        "checks": 5,
+        "checksInsideFifo": 2,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 895
+          },
+          {
+            "waitMs": 2,
+            "holdMs": 870
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null,
+          null
+        ],
+        "replayCounts": [
+          0,
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099866528
+          },
+          {
+            "event": "start",
+            "at": 1793099866603
+          },
+          {
+            "event": "end",
+            "at": 1793099866686
+          },
+          {
+            "event": "end",
+            "at": 1793099866763
+          },
+          {
+            "event": "start",
+            "at": 1793099868665
+          },
+          {
+            "event": "end",
+            "at": 1793099868822
+          },
+          {
+            "event": "start",
+            "at": 1793099872471
+          },
+          {
+            "event": "end",
+            "at": 1793099872634
+          },
+          {
+            "event": "start",
+            "at": 1793099873843
+          },
+          {
+            "event": "end",
+            "at": 1793099874000
+          }
+        ]
+      },
+      {
+        "scenario": "parallel",
+        "iteration": 5,
+        "elapsedMs": 11232,
+        "checks": 5,
+        "checksInsideFifo": 2,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 1,
+            "holdMs": 865
+          },
+          {
+            "waitMs": 2,
+            "holdMs": 809
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null,
+          null
+        ],
+        "replayCounts": [
+          0,
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099879630
+          },
+          {
+            "event": "start",
+            "at": 1793099879635
+          },
+          {
+            "event": "end",
+            "at": 1793099879792
+          },
+          {
+            "event": "end",
+            "at": 1793099879791
+          },
+          {
+            "event": "start",
+            "at": 1793099881832
+          },
+          {
+            "event": "end",
+            "at": 1793099881995
+          },
+          {
+            "event": "start",
+            "at": 1793099885668
+          },
+          {
+            "event": "end",
+            "at": 1793099885821
+          },
+          {
+            "event": "start",
+            "at": 1793099886931
+          },
+          {
+            "event": "end",
+            "at": 1793099887096
+          }
+        ]
+      },
+      {
+        "scenario": "shared-resource",
+        "iteration": 1,
+        "elapsedMs": 12701,
+        "checks": 5,
+        "checksInsideFifo": 2,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1044
+          },
+          {
+            "waitMs": 3,
+            "holdMs": 843
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null,
+          null
+        ],
+        "replayCounts": [
+          0,
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099892739
+          },
+          {
+            "event": "start",
+            "at": 1793099892745
+          },
+          {
+            "event": "end",
+            "at": 1793099892892
+          },
+          {
+            "event": "end",
+            "at": 1793099892908
+          },
+          {
+            "event": "start",
+            "at": 1793099895154
+          },
+          {
+            "event": "end",
+            "at": 1793099895308
+          },
+          {
+            "event": "start",
+            "at": 1793099900089
+          },
+          {
+            "event": "end",
+            "at": 1793099900249
+          },
+          {
+            "event": "start",
+            "at": 1793099901658
+          },
+          {
+            "event": "end",
+            "at": 1793099901812
+          }
+        ]
+      },
+      {
+        "scenario": "shared-resource",
+        "iteration": 2,
+        "elapsedMs": 11274,
+        "checks": 5,
+        "checksInsideFifo": 2,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 826
+          },
+          {
+            "waitMs": 3,
+            "holdMs": 980
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null,
+          null
+        ],
+        "replayCounts": [
+          0,
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099907734
+          },
+          {
+            "event": "start",
+            "at": 1793099907824
+          },
+          {
+            "event": "end",
+            "at": 1793099907894
+          },
+          {
+            "event": "end",
+            "at": 1793099907987
+          },
+          {
+            "event": "start",
+            "at": 1793099910017
+          },
+          {
+            "event": "end",
+            "at": 1793099910178
+          },
+          {
+            "event": "start",
+            "at": 1793099913616
+          },
+          {
+            "event": "end",
+            "at": 1793099913775
+          },
+          {
+            "event": "start",
+            "at": 1793099915150
+          },
+          {
+            "event": "end",
+            "at": 1793099915309
+          }
+        ]
+      },
+      {
+        "scenario": "shared-resource",
+        "iteration": 3,
+        "elapsedMs": 11130,
+        "checks": 5,
+        "checksInsideFifo": 2,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 1,
+            "holdMs": 945
+          },
+          {
+            "waitMs": 2,
+            "holdMs": 882
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null,
+          null
+        ],
+        "replayCounts": [
+          0,
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099920994
+          },
+          {
+            "event": "start",
+            "at": 1793099920998
+          },
+          {
+            "event": "end",
+            "at": 1793099921156
+          },
+          {
+            "event": "end",
+            "at": 1793099921156
+          },
+          {
+            "event": "start",
+            "at": 1793099923175
+          },
+          {
+            "event": "end",
+            "at": 1793099923327
+          },
+          {
+            "event": "start",
+            "at": 1793099926842
+          },
+          {
+            "event": "end",
+            "at": 1793099927006
+          },
+          {
+            "event": "start",
+            "at": 1793099928220
+          },
+          {
+            "event": "end",
+            "at": 1793099928372
+          }
+        ]
+      },
+      {
+        "scenario": "shared-resource",
+        "iteration": 4,
+        "elapsedMs": 12717,
+        "checks": 5,
+        "checksInsideFifo": 2,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 891
+          },
+          {
+            "waitMs": 2,
+            "holdMs": 862
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null,
+          null
+        ],
+        "replayCounts": [
+          0,
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099934882
+          },
+          {
+            "event": "start",
+            "at": 1793099934905
+          },
+          {
+            "event": "end",
+            "at": 1793099935042
+          },
+          {
+            "event": "end",
+            "at": 1793099935058
+          },
+          {
+            "event": "start",
+            "at": 1793099937278
+          },
+          {
+            "event": "end",
+            "at": 1793099937443
+          },
+          {
+            "event": "start",
+            "at": 1793099941352
+          },
+          {
+            "event": "end",
+            "at": 1793099941512
+          },
+          {
+            "event": "start",
+            "at": 1793099942892
+          },
+          {
+            "event": "end",
+            "at": 1793099943049
+          }
+        ]
+      },
+      {
+        "scenario": "shared-resource",
+        "iteration": 5,
+        "elapsedMs": 11593,
+        "checks": 5,
+        "checksInsideFifo": 2,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 1,
+            "holdMs": 874
+          },
+          {
+            "waitMs": 2,
+            "holdMs": 842
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null,
+          null
+        ],
+        "replayCounts": [
+          0,
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099948904
+          },
+          {
+            "event": "start",
+            "at": 1793099948928
+          },
+          {
+            "event": "end",
+            "at": 1793099949066
+          },
+          {
+            "event": "end",
+            "at": 1793099949081
+          },
+          {
+            "event": "start",
+            "at": 1793099951144
+          },
+          {
+            "event": "end",
+            "at": 1793099951309
+          },
+          {
+            "event": "start",
+            "at": 1793099955019
+          },
+          {
+            "event": "end",
+            "at": 1793099955180
+          },
+          {
+            "event": "start",
+            "at": 1793099956512
+          },
+          {
+            "event": "end",
+            "at": 1793099956665
+          }
+        ]
+      },
+      {
+        "scenario": "baseline-advance",
+        "iteration": 1,
+        "elapsedMs": 9067,
+        "checks": 3,
+        "checksInsideFifo": 1,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 856
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null
+        ],
+        "replayCounts": [
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099961403
+          },
+          {
+            "event": "end",
+            "at": 1793099961564
+          },
+          {
+            "event": "start",
+            "at": 1793099965341
+          },
+          {
+            "event": "end",
+            "at": 1793099965500
+          },
+          {
+            "event": "start",
+            "at": 1793099966831
+          },
+          {
+            "event": "end",
+            "at": 1793099966983
+          }
+        ]
+      },
+      {
+        "scenario": "baseline-advance",
+        "iteration": 2,
+        "elapsedMs": 8652,
+        "checks": 3,
+        "checksInsideFifo": 1,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 1,
+            "holdMs": 847
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null
+        ],
+        "replayCounts": [
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099971814
+          },
+          {
+            "event": "end",
+            "at": 1793099971977
+          },
+          {
+            "event": "start",
+            "at": 1793099975510
+          },
+          {
+            "event": "end",
+            "at": 1793099975670
+          },
+          {
+            "event": "start",
+            "at": 1793099976907
+          },
+          {
+            "event": "end",
+            "at": 1793099977070
+          }
+        ]
+      },
+      {
+        "scenario": "baseline-advance",
+        "iteration": 3,
+        "elapsedMs": 8771,
+        "checks": 3,
+        "checksInsideFifo": 1,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 877
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null
+        ],
+        "replayCounts": [
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099981733
+          },
+          {
+            "event": "end",
+            "at": 1793099981886
+          },
+          {
+            "event": "start",
+            "at": 1793099985481
+          },
+          {
+            "event": "end",
+            "at": 1793099985641
+          },
+          {
+            "event": "start",
+            "at": 1793099986941
+          },
+          {
+            "event": "end",
+            "at": 1793099987102
+          }
+        ]
+      },
+      {
+        "scenario": "baseline-advance",
+        "iteration": 4,
+        "elapsedMs": 8557,
+        "checks": 3,
+        "checksInsideFifo": 1,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 865
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null
+        ],
+        "replayCounts": [
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793099991927
+          },
+          {
+            "event": "end",
+            "at": 1793099992081
+          },
+          {
+            "event": "start",
+            "at": 1793099995530
+          },
+          {
+            "event": "end",
+            "at": 1793099995690
+          },
+          {
+            "event": "start",
+            "at": 1793099996851
+          },
+          {
+            "event": "end",
+            "at": 1793099997010
+          }
+        ]
+      },
+      {
+        "scenario": "baseline-advance",
+        "iteration": 5,
+        "elapsedMs": 8538,
+        "checks": 3,
+        "checksInsideFifo": 1,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 840
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null
+        ],
+        "replayCounts": [
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793100001985
+          },
+          {
+            "event": "end",
+            "at": 1793100002141
+          },
+          {
+            "event": "start",
+            "at": 1793100005495
+          },
+          {
+            "event": "end",
+            "at": 1793100005648
+          },
+          {
+            "event": "start",
+            "at": 1793100006799
+          },
+          {
+            "event": "end",
+            "at": 1793100006950
+          }
+        ]
+      },
+      {
+        "scenario": "interrupted",
+        "iteration": 1,
+        "elapsedMs": 11589,
+        "checks": 4,
+        "checksInsideFifo": 1,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 959
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null,
+          null
+        ],
+        "replayCounts": [
+          1,
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          true,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793100011810
+          },
+          {
+            "event": "end",
+            "at": 1793100011973
+          },
+          {
+            "event": "start",
+            "at": 1793100015273
+          },
+          {
+            "event": "start",
+            "at": 1793100017997
+          },
+          {
+            "event": "end",
+            "at": 1793100018150
+          },
+          {
+            "event": "start",
+            "at": 1793100019620
+          },
+          {
+            "event": "end",
+            "at": 1793100019786
+          }
+        ]
+      },
+      {
+        "scenario": "interrupted",
+        "iteration": 2,
+        "elapsedMs": 11586,
+        "checks": 4,
+        "checksInsideFifo": 1,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1145
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null,
+          null
+        ],
+        "replayCounts": [
+          1,
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          true,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793100024519
+          },
+          {
+            "event": "end",
+            "at": 1793100024672
+          },
+          {
+            "event": "start",
+            "at": 1793100028127
+          },
+          {
+            "event": "start",
+            "at": 1793100030960
+          },
+          {
+            "event": "end",
+            "at": 1793100031113
+          },
+          {
+            "event": "start",
+            "at": 1793100032805
+          },
+          {
+            "event": "end",
+            "at": 1793100032971
+          }
+        ]
+      },
+      {
+        "scenario": "interrupted",
+        "iteration": 3,
+        "elapsedMs": 12586,
+        "checks": 4,
+        "checksInsideFifo": 1,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 933
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null,
+          null
+        ],
+        "replayCounts": [
+          1,
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          true,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793100037602
+          },
+          {
+            "event": "end",
+            "at": 1793100037756
+          },
+          {
+            "event": "start",
+            "at": 1793100041242
+          },
+          {
+            "event": "start",
+            "at": 1793100044671
+          },
+          {
+            "event": "end",
+            "at": 1793100044826
+          },
+          {
+            "event": "start",
+            "at": 1793100046381
+          },
+          {
+            "event": "end",
+            "at": 1793100046541
+          }
+        ]
+      },
+      {
+        "scenario": "interrupted",
+        "iteration": 4,
+        "elapsedMs": 11683,
+        "checks": 4,
+        "checksInsideFifo": 1,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 1,
+            "holdMs": 859
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null,
+          null
+        ],
+        "replayCounts": [
+          1,
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          true,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793100052102
+          },
+          {
+            "event": "end",
+            "at": 1793100052254
+          },
+          {
+            "event": "start",
+            "at": 1793100055693
+          },
+          {
+            "event": "start",
+            "at": 1793100058569
+          },
+          {
+            "event": "end",
+            "at": 1793100058719
+          },
+          {
+            "event": "start",
+            "at": 1793100059868
+          },
+          {
+            "event": "end",
+            "at": 1793100060033
+          }
+        ]
+      },
+      {
+        "scenario": "interrupted",
+        "iteration": 5,
+        "elapsedMs": 11907,
+        "checks": 4,
+        "checksInsideFifo": 1,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1056
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": null,
+        "proofTimings": [
+          null,
+          null
+        ],
+        "replayCounts": [
+          1,
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          true,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793100064714
+          },
+          {
+            "event": "end",
+            "at": 1793100064872
+          },
+          {
+            "event": "start",
+            "at": 1793100068213
+          },
+          {
+            "event": "start",
+            "at": 1793100070936
+          },
+          {
+            "event": "end",
+            "at": 1793100071094
+          },
+          {
+            "event": "start",
+            "at": 1793100072798
+          },
+          {
+            "event": "end",
+            "at": 1793100072948
+          }
+        ]
+      }
+    ]
+  },
+  "after": {
+    "source": ".vibe-harness/worktree-benchmark-after-verified.json",
+    "sourceSha256": "a2b74bfff7437152935db3656e1edc06a35d9cdc63ae0150310a7712f7d7db4b",
+    "runtimeSha256": "c98dead4ea5fd7013a6a96546a824fd3cfa5903f31c5d3f3e5747cdfe5111933",
+    "node": "v24.21.0",
+    "platform": "win32",
+    "repetitions": 5,
+    "summary": {
+      "small": {
+        "elapsedMs": {
+          "median": 8014,
+          "max": 8461
+        },
+        "checks": [
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "checksInsideFifo": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "queueWaitMs": {
+          "median": 2,
+          "max": 3
+        },
+        "fifoHoldMs": {
+          "median": 1246,
+          "max": 1487
+        },
+        "finalInputFingerprintMs": {
+          "median": 13,
+          "max": 16
+        },
+        "finalProofCreateMs": {
+          "median": 492,
+          "max": 549
+        },
+        "finalProofInspectMs": {
+          "median": 557,
+          "max": 628
+        }
+      },
+      "parallel": {
+        "elapsedMs": {
+          "median": 17506,
+          "max": 17936
+        },
+        "checks": [
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "checksInsideFifo": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "queueWaitMs": {
+          "median": 2,
+          "max": 4
+        },
+        "fifoHoldMs": {
+          "median": 1241,
+          "max": 1442
+        },
+        "finalInputFingerprintMs": {
+          "median": 12,
+          "max": 14
+        },
+        "finalProofCreateMs": {
+          "median": 561,
+          "max": 621
+        },
+        "finalProofInspectMs": {
+          "median": 570,
+          "max": 577
+        }
+      },
+      "shared-resource": {
+        "elapsedMs": {
+          "median": 18676,
+          "max": 19911
+        },
+        "checks": [
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "checksInsideFifo": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "queueWaitMs": {
+          "median": 2,
+          "max": 3
+        },
+        "fifoHoldMs": {
+          "median": 1319,
+          "max": 1552
+        },
+        "finalInputFingerprintMs": {
+          "median": 13,
+          "max": 15
+        },
+        "finalProofCreateMs": {
+          "median": 517,
+          "max": 550
+        },
+        "finalProofInspectMs": {
+          "median": 559,
+          "max": 612
+        }
+      },
+      "baseline-advance": {
+        "elapsedMs": {
+          "median": 15212,
+          "max": 16890
+        },
+        "checks": [
+          2,
+          2,
+          2,
+          2,
+          2
+        ],
+        "checksInsideFifo": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "queueWaitMs": {
+          "median": 2,
+          "max": 3
+        },
+        "fifoHoldMs": {
+          "median": 1502,
+          "max": 2110
+        },
+        "finalInputFingerprintMs": {
+          "median": 13,
+          "max": 16
+        },
+        "finalProofCreateMs": {
+          "median": 560,
+          "max": 657
+        },
+        "finalProofInspectMs": {
+          "median": 618,
+          "max": 743
+        }
+      },
+      "interrupted": {
+        "elapsedMs": {
+          "median": 14960,
+          "max": 15817
+        },
+        "checks": [
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "checksInsideFifo": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "queueWaitMs": {
+          "median": 2,
+          "max": 2
+        },
+        "fifoHoldMs": {
+          "median": 1155,
+          "max": 1435
+        },
+        "finalInputFingerprintMs": {
+          "median": 13,
+          "max": 14
+        },
+        "finalProofCreateMs": {
+          "median": 471,
+          "max": 487
+        },
+        "finalProofInspectMs": {
+          "median": 503,
+          "max": 567
+        }
+      }
+    },
+    "samples": [
+      {
+        "scenario": "small",
+        "iteration": 1,
+        "elapsedMs": 7985,
+        "checks": 1,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1197
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 294,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 16,
+            "create": 492,
+            "inspect": 527
+          }
+        ],
+        "replayCounts": [
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793101900968
+          },
+          {
+            "event": "end",
+            "at": 1793101901126
+          }
+        ]
+      },
+      {
+        "scenario": "small",
+        "iteration": 2,
+        "elapsedMs": 7890,
+        "checks": 1,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 3,
+            "holdMs": 1246
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 306,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 11,
+            "create": 472,
+            "inspect": 509
+          }
+        ],
+        "replayCounts": [
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793101910896
+          },
+          {
+            "event": "end",
+            "at": 1793101911052
+          }
+        ]
+      },
+      {
+        "scenario": "small",
+        "iteration": 3,
+        "elapsedMs": 8014,
+        "checks": 1,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1226
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 337,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 10,
+            "create": 503,
+            "inspect": 557
+          }
+        ],
+        "replayCounts": [
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793101920691
+          },
+          {
+            "event": "end",
+            "at": 1793101920846
+          }
+        ]
+      },
+      {
+        "scenario": "small",
+        "iteration": 4,
+        "elapsedMs": 8461,
+        "checks": 1,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1487
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 338,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 14,
+            "create": 484,
+            "inspect": 573
+          }
+        ],
+        "replayCounts": [
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793101930782
+          },
+          {
+            "event": "end",
+            "at": 1793101930945
+          }
+        ]
+      },
+      {
+        "scenario": "small",
+        "iteration": 5,
+        "elapsedMs": 8046,
+        "checks": 1,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1305
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 314,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 13,
+            "create": 549,
+            "inspect": 628
+          }
+        ],
+        "replayCounts": [
+          0
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793101941132
+          },
+          {
+            "event": "end",
+            "at": 1793101941288
+          }
+        ]
+      },
+      {
+        "scenario": "parallel",
+        "iteration": 1,
+        "elapsedMs": 17443,
+        "checks": 3,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1241
+          },
+          {
+            "waitMs": 4,
+            "holdMs": 1267
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 342,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          },
+          {
+            "elapsedMs": 326,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 15,
+            "create": 626,
+            "inspect": 547
+          },
+          {
+            "inputFingerprint": 12,
+            "create": 480,
+            "inspect": 570
+          }
+        ],
+        "replayCounts": [
+          0,
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793101952288
+          },
+          {
+            "event": "start",
+            "at": 1793101952417
+          },
+          {
+            "event": "end",
+            "at": 1793101952443
+          },
+          {
+            "event": "end",
+            "at": 1793101952567
+          },
+          {
+            "event": "start",
+            "at": 1793101961218
+          },
+          {
+            "event": "end",
+            "at": 1793101961380
+          }
+        ]
+      },
+      {
+        "scenario": "parallel",
+        "iteration": 2,
+        "elapsedMs": 17506,
+        "checks": 3,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1255
+          },
+          {
+            "waitMs": 2,
+            "holdMs": 1218
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 331,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          },
+          {
+            "elapsedMs": 317,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 13,
+            "create": 621,
+            "inspect": 616
+          },
+          {
+            "inputFingerprint": 12,
+            "create": 563,
+            "inspect": 539
+          }
+        ],
+        "replayCounts": [
+          0,
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793101973009
+          },
+          {
+            "event": "start",
+            "at": 1793101973049
+          },
+          {
+            "event": "end",
+            "at": 1793101973162
+          },
+          {
+            "event": "end",
+            "at": 1793101973208
+          },
+          {
+            "event": "start",
+            "at": 1793101981812
+          },
+          {
+            "event": "end",
+            "at": 1793101981970
+          }
+        ]
+      },
+      {
+        "scenario": "parallel",
+        "iteration": 3,
+        "elapsedMs": 17764,
+        "checks": 3,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1214
+          },
+          {
+            "waitMs": 2,
+            "holdMs": 1215
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 339,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          },
+          {
+            "elapsedMs": 338,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 12,
+            "create": 641,
+            "inspect": 567
+          },
+          {
+            "inputFingerprint": 14,
+            "create": 621,
+            "inspect": 577
+          }
+        ],
+        "replayCounts": [
+          0,
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793101993659
+          },
+          {
+            "event": "start",
+            "at": 1793101993772
+          },
+          {
+            "event": "end",
+            "at": 1793101993821
+          },
+          {
+            "event": "end",
+            "at": 1793101993930
+          },
+          {
+            "event": "start",
+            "at": 1793102002409
+          },
+          {
+            "event": "end",
+            "at": 1793102002560
+          }
+        ]
+      },
+      {
+        "scenario": "parallel",
+        "iteration": 4,
+        "elapsedMs": 17308,
+        "checks": 3,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1240
+          },
+          {
+            "waitMs": 1,
+            "holdMs": 1216
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 361,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          },
+          {
+            "elapsedMs": 331,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 12,
+            "create": 661,
+            "inspect": 530
+          },
+          {
+            "inputFingerprint": 11,
+            "create": 561,
+            "inspect": 518
+          }
+        ],
+        "replayCounts": [
+          0,
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102014612
+          },
+          {
+            "event": "start",
+            "at": 1793102014661
+          },
+          {
+            "event": "end",
+            "at": 1793102014762
+          },
+          {
+            "event": "end",
+            "at": 1793102014825
+          },
+          {
+            "event": "start",
+            "at": 1793102023402
+          },
+          {
+            "event": "end",
+            "at": 1793102023560
+          }
+        ]
+      },
+      {
+        "scenario": "parallel",
+        "iteration": 5,
+        "elapsedMs": 17936,
+        "checks": 3,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 3,
+            "holdMs": 1407
+          },
+          {
+            "waitMs": 3,
+            "holdMs": 1442
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 334,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          },
+          {
+            "elapsedMs": 378,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 21,
+            "create": 591,
+            "inspect": 833
+          },
+          {
+            "inputFingerprint": 12,
+            "create": 503,
+            "inspect": 572
+          }
+        ],
+        "replayCounts": [
+          0,
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102035239
+          },
+          {
+            "event": "start",
+            "at": 1793102035266
+          },
+          {
+            "event": "end",
+            "at": 1793102035397
+          },
+          {
+            "event": "end",
+            "at": 1793102035427
+          },
+          {
+            "event": "start",
+            "at": 1793102044407
+          },
+          {
+            "event": "end",
+            "at": 1793102044560
+          }
+        ]
+      },
+      {
+        "scenario": "shared-resource",
+        "iteration": 1,
+        "elapsedMs": 18617,
+        "checks": 3,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1242
+          },
+          {
+            "waitMs": 3,
+            "holdMs": 1305
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 308,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          },
+          {
+            "elapsedMs": 302,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 14,
+            "create": 632,
+            "inspect": 576
+          },
+          {
+            "inputFingerprint": 11,
+            "create": 517,
+            "inspect": 573
+          }
+        ],
+        "replayCounts": [
+          0,
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102056915
+          },
+          {
+            "event": "end",
+            "at": 1793102057069
+          },
+          {
+            "event": "start",
+            "at": 1793102057223
+          },
+          {
+            "event": "end",
+            "at": 1793102057377
+          },
+          {
+            "event": "start",
+            "at": 1793102066056
+          },
+          {
+            "event": "end",
+            "at": 1793102066209
+          }
+        ]
+      },
+      {
+        "scenario": "shared-resource",
+        "iteration": 2,
+        "elapsedMs": 18187,
+        "checks": 3,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 1,
+            "holdMs": 1268
+          },
+          {
+            "waitMs": 2,
+            "holdMs": 1288
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 315,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          },
+          {
+            "elapsedMs": 346,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 13,
+            "create": 604,
+            "inspect": 573
+          },
+          {
+            "inputFingerprint": 13,
+            "create": 521,
+            "inspect": 557
+          }
+        ],
+        "replayCounts": [
+          0,
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102078720
+          },
+          {
+            "event": "end",
+            "at": 1793102078872
+          },
+          {
+            "event": "start",
+            "at": 1793102078993
+          },
+          {
+            "event": "end",
+            "at": 1793102079152
+          },
+          {
+            "event": "start",
+            "at": 1793102087984
+          },
+          {
+            "event": "end",
+            "at": 1793102088143
+          }
+        ]
+      },
+      {
+        "scenario": "shared-resource",
+        "iteration": 3,
+        "elapsedMs": 19174,
+        "checks": 3,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1392
+          },
+          {
+            "waitMs": 3,
+            "holdMs": 1388
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 360,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          },
+          {
+            "elapsedMs": 374,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 11,
+            "create": 682,
+            "inspect": 624
+          },
+          {
+            "inputFingerprint": 13,
+            "create": 509,
+            "inspect": 559
+          }
+        ],
+        "replayCounts": [
+          0,
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102100530
+          },
+          {
+            "event": "end",
+            "at": 1793102100687
+          },
+          {
+            "event": "start",
+            "at": 1793102100823
+          },
+          {
+            "event": "end",
+            "at": 1793102100978
+          },
+          {
+            "event": "start",
+            "at": 1793102110318
+          },
+          {
+            "event": "end",
+            "at": 1793102110477
+          }
+        ]
+      },
+      {
+        "scenario": "shared-resource",
+        "iteration": 4,
+        "elapsedMs": 18676,
+        "checks": 3,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1278
+          },
+          {
+            "waitMs": 2,
+            "holdMs": 1319
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 379,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          },
+          {
+            "elapsedMs": 480,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 14,
+            "create": 582,
+            "inspect": 560
+          },
+          {
+            "inputFingerprint": 10,
+            "create": 507,
+            "inspect": 559
+          }
+        ],
+        "replayCounts": [
+          0,
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102122878
+          },
+          {
+            "event": "end",
+            "at": 1793102123040
+          },
+          {
+            "event": "start",
+            "at": 1793102123195
+          },
+          {
+            "event": "end",
+            "at": 1793102123350
+          },
+          {
+            "event": "start",
+            "at": 1793102132287
+          },
+          {
+            "event": "end",
+            "at": 1793102132448
+          }
+        ]
+      },
+      {
+        "scenario": "shared-resource",
+        "iteration": 5,
+        "elapsedMs": 19911,
+        "checks": 3,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 3,
+            "holdMs": 1368
+          },
+          {
+            "waitMs": 2,
+            "holdMs": 1552
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 409,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          },
+          {
+            "elapsedMs": 441,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 12,
+            "create": 664,
+            "inspect": 604
+          },
+          {
+            "inputFingerprint": 15,
+            "create": 550,
+            "inspect": 612
+          }
+        ],
+        "replayCounts": [
+          0,
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102145600
+          },
+          {
+            "event": "end",
+            "at": 1793102145756
+          },
+          {
+            "event": "start",
+            "at": 1793102145850
+          },
+          {
+            "event": "end",
+            "at": 1793102146003
+          },
+          {
+            "event": "start",
+            "at": 1793102155499
+          },
+          {
+            "event": "end",
+            "at": 1793102155653
+          }
+        ]
+      },
+      {
+        "scenario": "baseline-advance",
+        "iteration": 1,
+        "elapsedMs": 16023,
+        "checks": 2,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1731
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 444,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 12,
+            "create": 581,
+            "inspect": 743
+          }
+        ],
+        "replayCounts": [
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102167841
+          },
+          {
+            "event": "end",
+            "at": 1793102167999
+          },
+          {
+            "event": "start",
+            "at": 1793102173302
+          },
+          {
+            "event": "end",
+            "at": 1793102173461
+          }
+        ]
+      },
+      {
+        "scenario": "baseline-advance",
+        "iteration": 2,
+        "elapsedMs": 16890,
+        "checks": 2,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1469
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 376,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 16,
+            "create": 657,
+            "inspect": 618
+          }
+        ],
+        "replayCounts": [
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102186464
+          },
+          {
+            "event": "end",
+            "at": 1793102186617
+          },
+          {
+            "event": "start",
+            "at": 1793102193260
+          },
+          {
+            "event": "end",
+            "at": 1793102193422
+          }
+        ]
+      },
+      {
+        "scenario": "baseline-advance",
+        "iteration": 3,
+        "elapsedMs": 14481,
+        "checks": 2,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 3,
+            "holdMs": 1502
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 400,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 13,
+            "create": 560,
+            "inspect": 573
+          }
+        ],
+        "replayCounts": [
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102205285
+          },
+          {
+            "event": "end",
+            "at": 1793102205445
+          },
+          {
+            "event": "start",
+            "at": 1793102210870
+          },
+          {
+            "event": "end",
+            "at": 1793102211026
+          }
+        ]
+      },
+      {
+        "scenario": "baseline-advance",
+        "iteration": 4,
+        "elapsedMs": 15212,
+        "checks": 2,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 2110
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 267,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 12,
+            "create": 532,
+            "inspect": 678
+          }
+        ],
+        "replayCounts": [
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102222396
+          },
+          {
+            "event": "end",
+            "at": 1793102222562
+          },
+          {
+            "event": "start",
+            "at": 1793102228056
+          },
+          {
+            "event": "end",
+            "at": 1793102228210
+          }
+        ]
+      },
+      {
+        "scenario": "baseline-advance",
+        "iteration": 5,
+        "elapsedMs": 11738,
+        "checks": 2,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 1,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1121
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 328,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 15,
+            "create": 487,
+            "inspect": 528
+          }
+        ],
+        "replayCounts": [
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102238882
+          },
+          {
+            "event": "end",
+            "at": 1793102239039
+          },
+          {
+            "event": "start",
+            "at": 1793102243203
+          },
+          {
+            "event": "end",
+            "at": 1793102243355
+          }
+        ]
+      },
+      {
+        "scenario": "interrupted",
+        "iteration": 1,
+        "elapsedMs": 14960,
+        "checks": 3,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1161
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 310,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 10,
+            "create": 0
+          },
+          {
+            "inputFingerprint": 13,
+            "create": 427,
+            "inspect": 518
+          }
+        ],
+        "replayCounts": [
+          1,
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          true,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102252476
+          },
+          {
+            "event": "end",
+            "at": 1793102252636
+          },
+          {
+            "event": "start",
+            "at": 1793102256896
+          },
+          {
+            "event": "start",
+            "at": 1793102259868
+          },
+          {
+            "event": "end",
+            "at": 1793102260019
+          }
+        ]
+      },
+      {
+        "scenario": "interrupted",
+        "iteration": 2,
+        "elapsedMs": 15357,
+        "checks": 3,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1155
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 263,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 10,
+            "create": 0
+          },
+          {
+            "inputFingerprint": 14,
+            "create": 487,
+            "inspect": 503
+          }
+        ],
+        "replayCounts": [
+          1,
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          true,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102269453
+          },
+          {
+            "event": "end",
+            "at": 1793102269609
+          },
+          {
+            "event": "start",
+            "at": 1793102273711
+          },
+          {
+            "event": "start",
+            "at": 1793102277028
+          },
+          {
+            "event": "end",
+            "at": 1793102277188
+          }
+        ]
+      },
+      {
+        "scenario": "interrupted",
+        "iteration": 3,
+        "elapsedMs": 14853,
+        "checks": 3,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1131
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 341,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 11,
+            "create": 0
+          },
+          {
+            "inputFingerprint": 11,
+            "create": 453,
+            "inspect": 477
+          }
+        ],
+        "replayCounts": [
+          1,
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          true,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102286568
+          },
+          {
+            "event": "end",
+            "at": 1793102286728
+          },
+          {
+            "event": "start",
+            "at": 1793102290884
+          },
+          {
+            "event": "start",
+            "at": 1793102293923
+          },
+          {
+            "event": "end",
+            "at": 1793102294078
+          }
+        ]
+      },
+      {
+        "scenario": "interrupted",
+        "iteration": 4,
+        "elapsedMs": 14774,
+        "checks": 3,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 1,
+            "holdMs": 1119
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 263,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 10,
+            "create": 0
+          },
+          {
+            "inputFingerprint": 11,
+            "create": 471,
+            "inspect": 464
+          }
+        ],
+        "replayCounts": [
+          1,
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          true,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102303294
+          },
+          {
+            "event": "end",
+            "at": 1793102303458
+          },
+          {
+            "event": "start",
+            "at": 1793102307603
+          },
+          {
+            "event": "start",
+            "at": 1793102310625
+          },
+          {
+            "event": "end",
+            "at": 1793102310785
+          }
+        ]
+      },
+      {
+        "scenario": "interrupted",
+        "iteration": 5,
+        "elapsedMs": 15817,
+        "checks": 3,
+        "checksInsideFifo": 0,
+        "peakCheckStartsWithoutEnd": 2,
+        "queue": [
+          {
+            "waitMs": 2,
+            "holdMs": 1435
+          }
+        ],
+        "cleanup": "integrated",
+        "cleanupRetries": [
+          {
+            "elapsedMs": 278,
+            "unchangedChecks": true,
+            "remoteHeadUnchanged": true,
+            "pushed": false,
+            "replayDelta": 0
+          }
+        ],
+        "proofTimings": [
+          {
+            "inputFingerprint": 13,
+            "create": 0
+          },
+          {
+            "inputFingerprint": 14,
+            "create": 481,
+            "inspect": 567
+          }
+        ],
+        "replayCounts": [
+          1,
+          1
+        ],
+        "unrelatedCancellations": 0,
+        "candidateRetainedAfterAttempt": [
+          true,
+          false
+        ],
+        "checkEvents": [
+          {
+            "event": "start",
+            "at": 1793102320005
+          },
+          {
+            "event": "end",
+            "at": 1793102320167
+          },
+          {
+            "event": "start",
+            "at": 1793102324449
+          },
+          {
+            "event": "start",
+            "at": 1793102327626
+          },
+          {
+            "event": "end",
+            "at": 1793102327782
+          }
+        ]
+      }
+    ]
+  }
+}

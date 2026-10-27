@@ -8,7 +8,7 @@
 
 - 任务分支与 staged local-land 落地无需 Pull Request：先 <code>worktree stage</code> 生成本地已验候选，再由 <code>worktree publish --batch &lt;id&gt;</code> 对齐最新 <code>origin/develop</code>、精确推送并回读 SHA；也可直接 <code>git push</code>，不要求人工审批或服务器端 required check。需要 PR 时仍可用 squash merge，合并后删除任务分支。
 - 质量责任前移到本地候选合并验证（lint、typecheck、unit，并按 change-plan 追加 component/integration）与提交前检查；<code>merge-gate</code> 聚合 job 保留，但只作为 main 发布边界的 required check。
-- 高风险变更（命中 <code>schemas/</code>、<code>manifests/</code>、<code>adapters/</code>、<code>runtime/</code>、<code>rules/</code>、<code>docs/rules/</code>、<code>skills/core/</code>、<code>templates/</code>、<code>scripts/</code>、<code>.github/workflows/</code> 或 <code>package.json</code>）仍必须携带 Risk Evidence 章节与唯一的 Independent Review Receipt；本地 stage/publish 同样按锚点风险等级执行验证与收据检查，收据缺失、过期、与 diff 不匹配或结论为 negative 时不得落地。
+- 高风险变更按统一 Planner 选择契约、集成与受影响生命周期证据。必要检查不得 deferred 放行；不要求独立审查收据。develop 已集成只表示本地必要验证通过与远端确认，不代表 CI 已执行。
 - 任务分支目标存活不超过约两个工作日；更大工作使用拆分或 feature flag，而非长期共享 feature 分支。
 
 ## Main ruleset
@@ -27,14 +27,9 @@
 
 ## CI 门禁接线
 
-workflow 在同一个 <code>pull_request</code> 事件上运行三个一致性 job，再统一聚合到 merge-gate：
+workflow 保持 PR、main push、定时和手动触发，不新增 develop push。`branch-policy` 核对来源分支；`change-plan` 使用 runtime 的统一风险与必要检查 Planner；`merge-gate` 聚合 `product`、`supply-chain`、`security`、`branch-policy` 和 `change-plan`。独立审查与人工批准 job 已退出自动门禁，工具仍可显式使用。
 
-- <code>branch-policy</code>：校验 PR 来源分支，main 只接受同仓库的 <code>develop</code>、<code>hotfix/*</code>、<code>release-please--branches--main*</code>，develop 接受任务分支前缀。
-- <code>independent-review</code>：校验高风险 PR body 中的独立审查收据区块。
-- <code>high-risk-approval</code>：校验是否存在当前的非作者批准。
-- <code>merge-gate</code> 聚合 <code>product</code>、<code>supply-chain</code>、<code>risk-evidence</code> 与以上三个门禁，并作为 main ruleset 的稳定 required check（develop ruleset 按 ADR-0013 保持 disabled）。
-
-<code>independent-review</code> 在当前规则下为 required，缺少、过期、与 diff 不匹配或结论为 negative 时阻断高风险合并；<code>high-risk-approval</code> 仍可按项目授权保持 shadow，是否要求人工批准由 ruleset 单独决定。
+启用前核对服务器 required checks。2026-10-27 只读核对：main active ruleset 要求 `product` 和 `merge-gate`；develop ruleset disabled。两项稳定名称均保留，未修改服务器设置。
 
 发布边界另有一道准备度检查：<code>release-verify</code> 在安装依赖前运行 <code>pnpm release:readiness --sha "$GITHUB_SHA" --require-clean</code>，核对 <code>package.json</code>、<code>.release-please-manifest.json</code> 与 <code>CHANGELOG.md</code> 是否一致，并把收据写入 release-artifacts。
 

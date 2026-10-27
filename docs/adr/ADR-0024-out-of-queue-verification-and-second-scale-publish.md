@@ -1,7 +1,7 @@
 ---
 id: ADR-0024
 title: 验证出队与秒级发布终锁的交付协议
-status: accepted
+status: superseded
 date: 2026-10-26
 review-date: 2027-04-26
 owner: vibe-harness-maintainers
@@ -9,7 +9,7 @@ decision-makers: [vibe-harness-maintainers]
 consulted: [vibe-harness-contributors]
 informed: [linear-workflow-users]
 supersedes: [ADR-0022, ADR-0023]
-superseded-by: null
+superseded-by: ADR-0025
 ---
 
 # 验证出队与秒级发布终锁的交付协议

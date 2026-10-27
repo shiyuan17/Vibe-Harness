@@ -29,12 +29,8 @@ const AGGREGATE_GATE_ENV = {
   MERGE_GATE_SCOPE: 'aggregate',
   BRANCH_POLICY_RESULT: 'success',
   CHANGE_PLAN_RESULT: 'success',
-  HIGH_RISK_APPROVAL_RESULT: 'success',
-  HIGH_RISK_REVIEW_RESULT: 'success',
   PRODUCT_RESULT: 'success',
-  RISK_EVIDENCE_RESULT: 'success',
   SECURITY_RESULT: 'success',
-  REQUIRED_HIGH_RISK_REVIEW_RESULT: 'false',
   SUPPLY_CHAIN_RESULT: 'skipped',
   REQUIRED_SUPPLY_CHAIN_RESULT: 'false',
 };

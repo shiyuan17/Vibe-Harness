@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 
 import { removeTemporaryDirectory } from '../../scripts/lib/temp-cleanup.js';
 import {
+  checkTaskDagNode,
   computeDagStructureHash,
   normalizeScopeEntry,
   summarizeTaskDag,
@@ -56,6 +57,35 @@ test('a valid DAG reports counts, order, ready set and a stable structure hash',
   assert.deepEqual(analysis.order, ['survey-a', 'survey-b', 'report']);
   assert.equal(analysis.structureHash.length, 64);
   assert.match(summarizeTaskDag(analysis), /status: passed/u);
+});
+
+test('node dispatch ignores unrelated conflicts but rejects structural and transitive dependency failures', async () => {
+  const nodes = [
+    node({ id: 'a', kind: 'write', writeScope: ['src/shared/**'] }),
+    node({ id: 'b', kind: 'write', writeScope: ['src/shared/**'] }),
+    node({ id: 'c', kind: 'write', writeScope: ['src/other/**'] }),
+  ];
+  const analysis = validateTaskDag({ nodes });
+  assert.equal(analysis.ok, false);
+  assert.equal(analysis.structureValid, true);
+  assert.deepEqual(analysis.ready, ['c']);
+  assert.equal(checkTaskDagNode(analysis, 'c').ready, true);
+  assert.equal(checkTaskDagNode(analysis, 'a').ready, false);
+  const root = await mkdtemp(path.join(tmpdir(), 'dag-local-dispatch-'));
+  try {
+    const file = path.join(root, 'dag.json');
+    await writeFile(file, JSON.stringify({ nodes }));
+    assert.equal((await runCli(['check', '--file', file])).code, 1);
+    assert.equal((await runCli(['check', '--file', file, '--node', 'c'])).code, 0);
+    nodes[2].dependsOn = ['a'];
+    assert.equal(checkTaskDagNode(validateTaskDag({ nodes }), 'c').ready, false);
+    nodes[2].dependsOn = ['ghost'];
+    assert.equal(checkTaskDagNode(validateTaskDag({ nodes }), 'c').code, 'TASK_DAG_STRUCTURE_INVALID');
+    const chain = [node({ id: 'failed', result: 'failed' }),
+      node({ id: 'middle', dependsOn: ['failed'], result: 'succeeded' }),
+      node({ id: 'last', dependsOn: ['middle'] })];
+    assert.equal(checkTaskDagNode(validateTaskDag({ nodes: chain }), 'last').ready, false);
+  } finally { await removeTemporaryDirectory(root); }
 });
 
 test('the structure hash is order independent and ignores node result', () => {
@@ -117,7 +147,7 @@ test('a shared resource lock is a conflict unless a dependency orders the nodes'
   });
   assert.equal(lockAgreement(undefined).ok, false);
   assert.deepEqual(codes(lockAgreement(undefined)).filter((code) => code === 'TASK_DAG_RESOURCE_LOCK_CONFLICT').length, 1);
-  assert.deepEqual(lockAgreement(undefined).ready, []);
+  assert.deepEqual(lockAgreement(undefined).ready, ['seed']);
   assert.equal(lockAgreement(['migrate']).ok, true);
   assert.deepEqual(lockAgreement(['migrate']).ready, ['seed']);
 });
