@@ -18,11 +18,11 @@
     "agent": "stub-runtime",
     "configHash": "stub-v1",
     "assets": {
-      "aggregateHash": "1926e1fd364e8e6802ae347ba9a9f9429189cfd2367780bca0d6dd9bdb2acbba",
+      "aggregateHash": "e71a19460dcf330f4551c3ac89b6f5102559945363fb56d682b06733e6ac44a4",
       "groups": {
         "config": {
           "fileCount": 45,
-          "hash": "666544147467b60c259e9c0460fb35147ae6d5dca6ca20275e90a8b6180969ca"
+          "hash": "2f84b4f45a9bf108f5567b106ed7ae6b8d8de91da930dffaaccd496176dceb11"
         },
         "hooks": {
           "fileCount": 21,
@@ -30,11 +30,11 @@
         },
         "rules": {
           "fileCount": 45,
-          "hash": "cb2cbc8d3c0b66ba160fd44fd190592aff52dc4d4713c7eca54ee1504d5b17bd"
+          "hash": "9ee433f27e1cfa72d4287176afbef68dfd11a96b7983072fccc80e79b8d23b12"
         },
         "skills": {
           "fileCount": 166,
-          "hash": "1b87d65ea0f9dccf329d7071f8dd9772f2fb6877ee8693a51f0f1875e8f3c74c"
+          "hash": "919e29c069342f5f27a0faf0f935e549b4e88d7eb2e8a88751ffd782b5d2f040"
         }
       }
     }

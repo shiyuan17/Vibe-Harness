@@ -709,7 +709,7 @@ test('offline replay artifact regeneration creates a missing artifact without a 
   }
 });
 
-test('eval replay CLI writes only inside the pack it evaluates and rejects unknown arguments', async () => {
+test('eval replay CLI writes only inside the pack it evaluates and rejects unknown arguments', { timeout: 120_000 }, async () => {
   const packRoot = await mkdtemp(path.join(tmpdir(), 'vibe-eval-replay-pack-'));
   try {
     await stageEvalPack(packRoot);

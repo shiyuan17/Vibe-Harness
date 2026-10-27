@@ -1827,14 +1827,17 @@ test('worktree 生命周期命令无 Envelope 放行，跨边界效果仍 fail-c
     // Creating, listing, pruning, and reclaiming a worktree is a
     // workspace-internal effect (`gitBranch`). It must not require a
     // host-issued Execution Envelope, otherwise a host worktree can never be
-    // created in the first place.
+    // created in the first place. The stage/publish delivery flow stays on the
+    // same workspace-scoped grade: the repository FIFO and the runtime's own
+    // --write gates govern it, not the host envelope.
     const lifecycle = [
       'git worktree add ../feature-worktree -b feat/example',
       'git worktree remove ../feature-worktree',
       'git worktree prune',
       'git worktree list',
       'node .agents/runtime/commands/run.mjs worktree bootstrap --project . --task t:feat/example --base-ref origin/develop --json',
-      'node .agents/runtime/commands/run.mjs worktree land --project . --task t:feat/example --base-ref develop --delivery local-land --write --push --json',
+      'node .agents/runtime/commands/run.mjs worktree stage --project . --task t:feat/example --delivery local-land --write --json',
+      'node .agents/runtime/commands/run.mjs worktree publish --project . --batch 00000000-0000-4000-8000-000000000000 --delivery local-land --write --json',
     ];
     for (const command of lifecycle) {
       assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: { command } })), {}, command);

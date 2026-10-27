@@ -60,7 +60,7 @@ import { appendFileSync } from 'node:fs';
 import { acquireDeliveryTurn, releaseDeliveryTurn } from ${JSON.stringify(queueModuleUrl)};
 const progress = [];
 const handle = await acquireDeliveryTurn(process.cwd(), {
-  operation: 'verify',
+  operation: 'publish',
   timeoutMs: 5000,
   retryMs: 20,
   onProgress: (event) => progress.push(event),
@@ -145,7 +145,7 @@ test('delivery queue serializes independent processes in ticket order and report
 test('delivery queue timeout preserves a cancelled ticket and the active holder', async () => {
   const project = await makeRepository();
   try {
-    const holder = await acquireDeliveryTurn(project, { operation: 'land', timeoutMs: 1000 });
+    const holder = await acquireDeliveryTurn(project, { operation: 'publish', timeoutMs: 1000 });
     assert.equal(holder.ok, true, JSON.stringify(holder));
     const blocked = await acquireDeliveryTurn(project, {
       operation: 'publish',
@@ -154,7 +154,7 @@ test('delivery queue timeout preserves a cancelled ticket and the active holder'
     });
     assert.equal(blocked.ok, false);
     assert.equal(blocked.code, 'WORKTREE_QUEUE_TIMEOUT');
-    assert.equal(blocked.queue.owner.operation, 'land');
+    assert.equal(blocked.queue.owner.operation, 'publish');
     let queue = await inspectDeliveryQueue(project);
     assert.equal(queue.active.length, 1);
     assert.equal(queue.tickets.some((ticket) => ticket.id === blocked.queue.ticketId && ticket.state === 'cancelled'), true);
@@ -178,7 +178,7 @@ test('dead tickets are ignored, reported stale, and reconciled without touching 
       schemaVersion: 1,
       id: deadId,
       sequence: 1,
-      operation: 'land',
+      operation: 'publish',
       batchId: null,
       state: 'running',
       requestedAt: new Date(Date.now() - 60_000).toISOString(),
@@ -195,7 +195,7 @@ test('dead tickets are ignored, reported stale, and reconciled without touching 
     assert.equal(queue.stale[0].id, deadId);
     const reconciled = await reconcileDeliveryQueue(project, { write: true });
     assert.equal(reconciled.expired.some((ticket) => ticket.id === deadId), true);
-    const holder = await acquireDeliveryTurn(project, { operation: 'verify', timeoutMs: 1000 });
+    const holder = await acquireDeliveryTurn(project, { operation: 'publish', timeoutMs: 1000 });
     assert.equal(holder.ok, true, JSON.stringify(holder));
     queue = await inspectDeliveryQueue(project);
     assert.equal(queue.tickets.find((ticket) => ticket.id === deadId)?.state, 'expired');
@@ -206,7 +206,7 @@ test('dead tickets are ignored, reported stale, and reconciled without touching 
   }
 });
 
-test('resourceClass repo-heavy makes a quick verification participate in the repository FIFO', { timeout: 30_000 }, async () => {
+test('repo-heavy verification runs entirely outside the repository FIFO while publish holds a turn', { timeout: 30_000 }, async () => {
   const project = await makeRepository();
   const previous = process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS;
   let holder = null;
@@ -225,22 +225,12 @@ test('resourceClass repo-heavy makes a quick verification participate in the rep
       },
       verification: { timeoutMs: 30_000 },
     }, null, 2)}\n`);
-    holder = await acquireDeliveryTurn(project, { operation: 'land', timeoutMs: 1000 });
+    holder = await acquireDeliveryTurn(project, { operation: 'publish', timeoutMs: 1000 });
     assert.equal(holder.ok, true, JSON.stringify(holder));
+    // If verification still tried to take a FIFO turn, this sub-second budget
+    // would time out against the held publish turn; passing proves it never
+    // queued at all.
     process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS = '150';
-    const blocked = await verifyProject(project, {
-      tier: 'quick',
-      only: ['heavy'],
-      reuse: false,
-      allowManual: false,
-      task: [],
-    });
-    assert.equal(blocked.status, 'blocked', JSON.stringify(blocked));
-    assert.equal(blocked.code, 'WORKTREE_QUEUE_TIMEOUT');
-    assert.equal(blocked.queue.owner.operation, 'land');
-    await releaseDeliveryTurn(holder, 'completed');
-    holder = null;
-    delete process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS;
     const passed = await verifyProject(project, {
       tier: 'quick',
       only: ['heavy'],
@@ -249,8 +239,22 @@ test('resourceClass repo-heavy makes a quick verification participate in the rep
       task: [],
     });
     assert.equal(passed.status, 'passed', JSON.stringify(passed));
-    assert.equal(passed.queue.state, 'completed');
     assert.equal(passed.checks.heavy.status, 'passed', JSON.stringify(passed));
+    assert.equal(passed.queue, null);
+    const queue = await inspectDeliveryQueue(project);
+    assert.deepEqual(queue.active.map((ticket) => ticket.id), [holder.report.ticketId]);
+    await releaseDeliveryTurn(holder, 'completed');
+    holder = null;
+    delete process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS;
+    const again = await verifyProject(project, {
+      tier: 'quick',
+      only: ['heavy'],
+      reuse: false,
+      allowManual: false,
+      task: [],
+    });
+    assert.equal(again.status, 'passed', JSON.stringify(again));
+    assert.equal(again.queue, null);
   } finally {
     if (previous === undefined) delete process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS;
     else process.env.VIBE_HARNESS_REPO_QUEUE_TIMEOUT_MS = previous;

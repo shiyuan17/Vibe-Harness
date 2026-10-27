@@ -627,8 +627,9 @@ export async function attestCompletionProvenance(projectDir, receipt) {
 /**
  * Persist a provenance record for a verification whose own workspace is gone.
  *
- * `worktree land` verifies an isolated candidate and then removes it, while the
- * completion receipt it returns describes the primary checkout. The record is
+ * The worktree delivery flow verifies an isolated candidate and then removes
+ * it, while the completion receipt it returns describes the primary checkout.
+ * The record is
  * therefore written for the workspace the receipt will be validated against,
  * carrying the finalized fingerprints. It is never marked reusable: the
  * evidence it holds was produced by a run in a different directory.

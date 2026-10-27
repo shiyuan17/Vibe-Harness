@@ -3,8 +3,8 @@
 // The budget used to be a 15s literal at five call sites. On a slow volume that
 // is not a safety margin but a hard failure: `git worktree add` for a large
 // repository measured 145s on a busy volume where the same command in %TEMP%
-// took 8.5s, so `worktree land` could never create its candidate checkout
-// (LAND_CANDIDATE_CREATE_FAILED) while every other Git call sat one slow read
+// took 8.5s, so a delivery run could never create its candidate checkout
+// while every other Git call sat one slow read
 // away from the same fate. The default therefore covers a slow volume, and the
 // parent process can size it per environment.
 export const GIT_TIMEOUT_MS = 120_000;

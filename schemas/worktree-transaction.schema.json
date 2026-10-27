@@ -254,7 +254,6 @@
       "enum": [
         "not_integrated",
         "local_staged",
-        "local_merged",
         "integrated",
         "integrated_cleanup_pending"
       ]

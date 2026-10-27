@@ -1349,7 +1349,7 @@ async function taskUpdateReport(projectDir, args) {
 }
 // The anchor's riskLevel names the verification tier a completion claim
 // needs: quick/light units close on a quick-tier focused receipt, full units
-// need standard-tier evidence. Advisory only — the worktree land verify gate
+// need standard-tier evidence. Advisory only — the worktree stage verify gate
 // is the one place that escalates hard off this field.
 function taskRiskLevelAdvisory(riskLevel) {
   if (riskLevel === 'full') {

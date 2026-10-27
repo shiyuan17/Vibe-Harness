@@ -1434,7 +1434,7 @@
         "maintainer",
         "auditor"
       ],
-      "supersededBy": "docs/adr/ADR-0022-repository-delivery-fifo.md"
+      "supersededBy": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md"
     },
     {
       "path": "docs/adr/ADR-0018-explicit-linear-claim-boundary.md",
@@ -1477,7 +1477,7 @@
         "maintainer",
         "auditor"
       ],
-      "supersededBy": "docs/adr/ADR-0022-repository-delivery-fifo.md"
+      "supersededBy": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md"
     },
     {
       "path": "docs/adr/ADR-0020-lightweight-delivery-blocking-and-verification-limits.md",
@@ -1489,7 +1489,7 @@
         "maintainer",
         "auditor"
       ],
-      "supersededBy": "docs/adr/ADR-0022-repository-delivery-fifo.md"
+      "supersededBy": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md"
     },
     {
       "path": "docs/adr/ADR-0021-staged-local-publish-delivery.md",
@@ -1501,7 +1501,7 @@
         "maintainer",
         "auditor"
       ],
-      "supersededBy": "docs/adr/ADR-0022-repository-delivery-fifo.md"
+      "supersededBy": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md"
     },
     {
       "path": "docs/adr/ADR-0022-repository-delivery-fifo.md",

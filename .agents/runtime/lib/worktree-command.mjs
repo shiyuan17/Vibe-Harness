@@ -1161,7 +1161,7 @@ async function worktreeCleanupReport(projectDir, args) {
     if (transaction.error || transaction.batchId) {
       results.push({ id: task.id, status: 'blocked', code: 'WORKTREE_CLEANUP_LAND_RESUME_REQUIRED',
         ...(transaction.batchId ? { batchId: transaction.batchId } : {}),
-        blockers: [transaction.error ?? 'A staged delivery owns this source; run publish --batch <batchId> --write to finalize it, or recover --batch <batchId> --write to reconcile and close it'] });
+        blockers: [transaction.error ?? 'A staged delivery owns this source; run publish --batch <batchId> --write to finalize it, or discard --batch <batchId> --write to close it unpublished'] });
       continue;
     }
     if (entry.detached || typeof entry.branch !== 'string' || entry.branch === '') {
@@ -1322,23 +1322,12 @@ async function runIsolatedGit(projectDir, args, cwd = projectDir) {
   });
 }
 
-function candidateResidue(settings, taskId) {
-  const parent = path.dirname(settings.root);
-  const prefix = `.vibe-harness-land-${taskId}-`.toLowerCase();
-  try {
-    return readdirSync(parent, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && entry.name.toLowerCase().startsWith(prefix))
-      .map((entry) => path.join(parent, entry.name));
-  } catch {
-    return [];
-  }
-}
-
-function dependencyRootBlockers(projectDir, worktreePath, settings) {
+function dependencyRootBlockers(projectDir, worktreePath, settings, { locations = ['main checkout', 'worktree'] } = {}) {
   if ((settings.provision?.setupCommands ?? []).length > 0) return [];
   const blockers = [];
   for (const root of settings.dependencyRoots) {
     for (const [label, base] of [['main checkout', projectDir], ['worktree', worktreePath]]) {
+      if (!locations.includes(label)) continue;
       const modules = path.join(base, root, 'node_modules');
       if (!existsSync(modules)) {
         blockers.push({ code: 'LAND_DEPENDENCY_ROOT_MISSING', root, location: label, message: `${root === '.' ? '' : `${root}/`}node_modules is absent in the ${label} ${normalizeSlashes(base)}; install dependencies or declare worktree.provision.setupCommands before landing` });
@@ -2172,7 +2161,9 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir) {
         readTaskAnchor(projectDir, task.id),
       ]);
       if (!head.ok || !dirty.ok || dirty.stdout.trim()) blockers.push(`task ${task.id} does not have a clean committed source`);
-      if (dependencyRootBlockers(projectDir, entry.path, settings).length) {
+      // The candidate links dependency roots from the main checkout, so stage
+      // gates on it alone; an adopted host worktree may keep its own roots.
+      if (dependencyRootBlockers(projectDir, entry.path, settings, { locations: ['main checkout'] }).length) {
         blockers.push(`task ${task.id} has missing dependency roots`);
       }
       if (anchorInfo.exists && (anchorInfo.anchor?.blockers?.length
@@ -2649,7 +2640,7 @@ async function cleanupConfirmedPublish(projectDir, primary, settings, state, fil
     localSync: localRefSync,
     reconcileHistory: state.reconcileHistory ?? [],
     supersededCandidates,
-    queue: args?._deliveryGate?.report('completed') ?? state.queue ?? null,
+    queue: args?._deliveryGate?.report('completed') ?? null,
   };
 }
 // A confirmed publish (or a proven sources-integrated archive) makes every
@@ -2704,7 +2695,13 @@ async function cancelSupersededCandidates(projectDir, { publishedHead, batchId }
     } else {
       results.push({ batchId: match[1], pid: lease.pid ?? null, action: 'lease-released' });
     }
-    releaseLease(lockPath);
+    // Force-release: the holder is dead or its candidate is gone, so an
+    // ownership-checked release would leave the lease in place.
+    try {
+      rmSync(lockPath, { force: true });
+    } catch {
+      // A concurrent reclaim already removed the lock.
+    }
   }
   return results;
 }
@@ -3700,8 +3697,9 @@ export async function worktreeReport(projectDir, args) {
     // Publish manages its own turn; this release is the defensive leftover for
     // an exception path, and the queue evidence keeps the ticket's own
     // terminal state instead of assuming success.
-    await deliveryGate.release(report ? 'completed' : 'cancelled');
-    const queue = deliveryGate.report();
+    const queueStatus = report?.status === 'passed' ? 'completed' : 'cancelled';
+    await deliveryGate.release(queueStatus);
+    const queue = deliveryGate.report(queueStatus);
     if (report && queue) report.queue = queue;
     if (report?.batchId && queue) {
       try {

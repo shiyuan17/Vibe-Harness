@@ -254,7 +254,7 @@ worktree 内部生命周期按本轮授权与本地 Git 事实核验，缺少宿
 - 提交不自动触发推送，普通任务完成也不要求提交或推送；只有交付确需远端可见、目标明确且安全时才推送，两者都不隐含建分支、PR/MR、凭据转用或发布授权。
 - Hook 只豁免直接、单一、可判定的 `git commit -m`／`git push`；复合命令、危险参数、无效 Envelope、远端或目标分支无法核实时不豁免，Hook 也不能推断暂存内容归属，提交前仍须人工核对本任务 diff。
 - Vibe-Harness 不通过 Stop Hook、运行时脚本或默认流程自动执行 `git commit`／`git push`；`$vb-git-split-push` 是显式调用的分组提交与普通推送流程，不是唯一入口。
-- split-push 从已核实 upstream 解析唯一实际 push URL 与精确 ref；无 upstream 仅在唯一 origin 且非保护目标时显式建立跟踪。冻结 SHA，用 `git push --no-force <actual-push-url> <sha>:<exact-ref>` 并重读远端 SHA；拒绝多地址、mirror 和目标不明。land 固定 origin/develop，不使用裸 push 或 upstream 推断。
+- split-push 从已核实 upstream 解析唯一实际 push URL 与精确 ref；无 upstream 仅在唯一 origin 且非保护目标时显式建立跟踪。冻结 SHA，用 `git push --no-force <actual-push-url> <sha>:<exact-ref>` 并重读远端 SHA；拒绝多地址、mirror 和目标不明。受管交付固定 `origin/develop`，不使用裸 push 或 upstream 推断。
 - main、master、release 与实际目标的保护/共享分支不得由 split-push 自动推送；不能仅凭当前分支名判断。develop 仍遵循项目实际保护策略，任何普通推送须核实精确目标；强推、远端删除和历史重写不在范围。
 - 按需提交前须核对提交分组：验收点与建议 commit message、包含文件、排除文件、验证（命令及结果）、风险（低／中／高与理由）、回滚方式。
 - 分批验证必须绑定当前批次的 staged snapshot：提交前记录文件清单与 patch/blob 指纹并复核 staged diff。验证命令读取工作树而非 index，须确认验证相关路径的工作树内容与 index 一致；否则用补丁拆分或隔离 checkout 对齐验证对象，不得把对未暂存内容的结果算作当前快照证据。提交后记录 commit SHA；工作树或暂存区变化后不得复用上一批收据，必须针对新快照重跑聚焦验证。

@@ -385,12 +385,6 @@
     },
     {
       "group": "runtime-project-scripts",
-      "source": "runtime/lib/verification-lock.mjs",
-      "target": ".agents/runtime/lib/verification-lock.mjs",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "runtime-project-scripts",
       "source": "runtime/lib/git-fingerprint.mjs",
       "target": ".agents/runtime/lib/git-fingerprint.mjs",
       "contentStrategy": "replace"

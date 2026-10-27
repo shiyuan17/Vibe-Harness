@@ -1016,7 +1016,7 @@ async function verify(args) {
   // commands contradict the completion claim — including a workspace that
   // changed under passing checks, where the commands alone would read green.
   // Whether the draft is `passed` is what `task check --complete` and
-  // `worktree land/cleanup` re-derive from a `complete` receipt.
+  // `worktree cleanup` re-derive from a `complete` receipt.
   const completionBlocked = completion !== null && completion.status === 'blocked';
   const reportOk = verificationReport.ok && !blockingHookFailure && !completionBlocked;
   emitReport({
