@@ -18,11 +18,11 @@
     "agent": "stub-runtime",
     "configHash": "stub-v1",
     "assets": {
-      "aggregateHash": "e71a19460dcf330f4551c3ac89b6f5102559945363fb56d682b06733e6ac44a4",
+      "aggregateHash": "edec6ff6f29a7711f129c283bfaffe34025c4f6efc617f233d9bb63dcb950955",
       "groups": {
         "config": {
           "fileCount": 45,
-          "hash": "2f84b4f45a9bf108f5567b106ed7ae6b8d8de91da930dffaaccd496176dceb11"
+          "hash": "dee8cfc8f9dc5b3d836a3682451d71f29d38e48e5a413bdc3ed1b22cb54c78b0"
         },
         "hooks": {
           "fileCount": 21,
