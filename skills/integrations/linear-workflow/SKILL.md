@@ -18,6 +18,8 @@ Linear MCP 不可用时回退到用户提供的 Issue 上下文，并明确标�
 5. 推送确认即代码集成完成；`integrated_cleanup_pending` 不阻塞 Done、succeeded 或依赖后继，但残留资源继续占用。主检出的本地同步独立报告，不反向否定远端集成。读取节点以约定输出和 Verification 完成；aggregate Parent 以全部必需后代成功和一次 fan-in 验证完成。
 6. Linear 尚未尝试写入且上下文充分时，可继续本地工作并标记 `unregistered / Linear 未同步`。写入已尝试但结果不明、部分登记或重读失败时保留现场并停止受影响节点。
 
+显式 Parent 批次按 `linear-workflow.md` 的「Parent 单 worktree 批次」执行：同一 Writer 共用任务树和分支，逐 Issue 验证及本地提交，同批依赖凭提交证据放行，整批 stage/publish 后才统一 Done。普通 PR/MR、独立 Issue 和批外依赖的完成语义保持原合同。
+
 分支基线为 `feat/*、fix/* → develop → main`，紧急修复为 `hotfix/* → main → develop`；develop 的本地质量责任由真实候选验证承担，不要求服务器 fast gate。项目明确的审查和分支保护继续生效。
 
 ## 停止边界

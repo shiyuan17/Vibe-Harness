@@ -1,6 +1,6 @@
 interface:
   display_name: "Vb Linear Worktree Develop"
-  short_description: "Sync a plan to Linear and deliver its develop DAG"
-  default_prompt: "Use $vb-linear-worktree-develop to sync this plan to Linear and execute only its new tasks."
+  short_description: "Deliver a Linear Parent batch from one task worktree"
+  default_prompt: "Use $vb-linear-worktree-develop to execute this authorized Parent batch in one task worktree, commit each Issue locally, and publish once all required tasks pass."
 policy:
   allow_implicit_invocation: false

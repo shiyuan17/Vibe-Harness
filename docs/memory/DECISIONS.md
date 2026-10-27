@@ -31,7 +31,7 @@
 - **ADR-0021** 本地暂存与远端发布两阶段 worktree 交付 - superseded - stage/publish 分离继续有效；候选并行与短 Per-Ref 锁假设由 ADR-0022 替代 - [ADR](../adr/ADR-0021-staged-local-publish-delivery.md)
 - **ADR-0022** 仓库级 FIFO 串行化受管 Worktree 交付 - superseded - 单调票队列与恢复盘点机制保留；全流程入队的时序假设由 ADR-0024 的验证出队与秒级终锁替代 - [ADR](../adr/ADR-0022-repository-delivery-fifo.md)
 - **ADR-0023** 受管 Worktree 交付的 supersede 与外部集成归档 - superseded - 外部集成的祖先证明边界保留；显式 supersede/归档仪式由 ADR-0024 的 fetch 自动对账替代 - [ADR](../adr/ADR-0023-worktree-delivery-recovery.md)
-- **ADR-0024** 验证出队与秒级发布终锁的交付协议 - accepted - 验证与清理全部移出仓库 FIFO，publish 仅在秒级 finalize 持有队首；fetch 自动对账取代恢复仪式，验证失败分流候选/环境两类，被取代候选的验证被协作取消并强制释放租约 - [ADR](../adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md)
+- **ADR-0024** 验证出队与秒级发布终锁的交付协议 - superseded - 两阶段与队外验证保留；取消范围、恢复及终锁耗时断言由 ADR-0025 修正 - [ADR](../adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md)
 
 ## 纪律
 
@@ -39,3 +39,8 @@
 - 新增或替换决策时先创建 ADR，再更新本索引；不要直接改写已接受或已拒绝 ADR 的核心内容。
 - 这里只存已确认的长期决策；当轮可关闭的解阻走 clarify-requirements，不进此文件。
 - 明确排除的项记录在各自范围的 Out of scope，不在此累积。
+
+- **ADR-0025** 候选取消限域、基线验证与环境失败续验 - accepted - 仅协作取消已集成源的冗余候选，保护活租约，绑定验证基线并复用稳定候选续验 - [ADR](../adr/ADR-0025-bounded-candidate-cancellation-and-retry.md)
+- **ADR-0027** Linear Parent 单任务树批次交付 - accepted - Linear Parent 单任务树批次交付 - [ADR](../adr/ADR-0027-linear-parent-single-worktree-batch.md)
+
+- ADR-0026：并行交付的自动证据、候选资源与局部调度；见 [正式决策](../adr/ADR-0026-worktree-collaboration-evidence-and-resources.md)。

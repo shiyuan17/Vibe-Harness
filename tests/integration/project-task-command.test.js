@@ -555,7 +555,8 @@ test('命令集变化时 verify --reuse 回退为正常执行', async () => {
 test('同树默认复用不要求指定任务锚点且仍校验 task id', async () => {
   const project = await tempProject();
   try {
-    await writeConfig(project, { test: 'node -e "process.exit(0)"' });
+    await writeConfig(project, { test: 'node -e "process.exit(0)"',
+      checks: [{ id: 'test', command: 'node -e "process.exit(0)"', deterministic: true }] });
     await initGitProject(project, '.vibe-harness/\n');
     const first = await runCommand(['verify', '--project', '.', '--json'], { cwd: project });
     await recordReceipt(project, 'present', 'u1', first.report);
@@ -660,7 +661,9 @@ test('help 说明锚点目录与默认复用入口', async () => {
   assert.equal(result.exitCode, 0);
   assert.match(result.report.task, /\.vibe-harness\/tasks\/<task-id>\.json/u);
   assert.match(result.report.task, /task <init\|update\|status\|list\|plan-check\|plan-sync\|check\|freeze-tests\|rebaseline-tests>/u);
-  assert.match(result.report.reuse, /reused by default/u);
+  assert.match(result.report.reuse, /explicitly deterministic checks reuse authenticated receipts/u);
+  assert.match(result.report.reuse, /complete code, dependency, configuration, environment and resource inputs match/u);
+  assert.match(result.report.reuse, /--no-reuse forces execution/u);
   assert.match(result.report.reuse, /--no-reuse/u);
 });
 
@@ -814,6 +817,40 @@ async function bindPlan(project, taskId, planText) {
   assert.equal(init.report.status, 'passed');
   return planPath;
 }
+
+test('Parent 批内前驱提交经验证后可放行后继且不提前完成交付', async () => {
+  const project = await tempProject();
+  try {
+    await writeConfig(project, { test: 'node -e "process.exit(0)"' });
+    await initGitProject(project, '.vibe-harness/\ndocs/plans/\n');
+    await execFileAsync('git', ['checkout', '-qb', 'feat/ENG-P-batch'], { cwd: project });
+    const { stdout: base } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: project });
+    await bindPlan(project, 'ENG-P', planWithUnits([
+      { id: 'ENG-A', files: ['runtime/a.js'], acceptance: ['A-001'] },
+      { id: 'ENG-B', files: ['runtime/b.js'], acceptance: ['A-002'], dependsOn: ['ENG-A'] },
+    ], { executionBatch: {
+      parentId: 'ENG-P', members: ['ENG-A', 'ENG-B'], worktree: project,
+      branch: 'feat/ENG-P-batch', targetRef: 'refs/heads/develop', baseSha: base.trim(),
+    } }));
+    await mkdir(path.join(project, 'runtime'));
+    await writeFile(path.join(project, 'runtime/a.js'), 'export const a = 1;\n');
+    await execFileAsync('git', ['add', 'runtime/a.js'], { cwd: project });
+    const verified = await runCommand(['verify', '--task', 'ENG-P', '--unit', 'ENG-A', '--json'], { cwd: project });
+    assert.equal(verified.report.status, 'passed');
+    await execFileAsync('git', ['commit', '-qm', 'feat(ENG-A): add a'], { cwd: project });
+    const recorded = await runCommand(['task', 'update', 'ENG-P', '--unit', 'ENG-A',
+      '--verification', JSON.stringify(verified.report), '--unit-status', 'ENG-A:done', '--write', '--json'], { cwd: project });
+    assert.equal(recorded.report.status, 'passed', JSON.stringify(recorded.report));
+    assert.equal(typeof recorded.report.anchor.units[0].localCompletion?.commit, 'string');
+    const ready = await runCommand(['task', 'check', 'ENG-P', '--unit', 'ENG-B', '--dispatch', '--json'], { cwd: project });
+    assert.equal(ready.report.status, 'passed', JSON.stringify(ready.report));
+    const complete = await runCommand(['task', 'check', 'ENG-P', '--complete', '--json'], { cwd: project });
+    assert.equal(complete.report.status, 'failed');
+    assert.equal(complete.report.deliveryStatus, 'not_published');
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
 
 function withLinearPlan(planText, overrides = {}) {
   const linearPlan = {

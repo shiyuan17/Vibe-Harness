@@ -19,7 +19,7 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 
 ### 显式 vb-linear-worktree-develop
 
-仅在用户明确调用 `vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 时，才从**当前会话的既定任务计划**创建 Linear Parent aggregate 与 read/write 子任务 DAG；该调用明确授权本次计划范围内的 Parent、子任务、原生 blocked-by / blocks 关系及状态/Receipt 写入、worktree、任务提交、普通推送和合并到 `develop`，不授权 PR/MR、force push、历史改写或 `main`。普通 Linear 工作流的既有授权与 closing PR Done 语义不变。本节与已安装的 `vb-linear-worktree-develop` Skill 描述同一模式，修改须同步。
+仅在用户明确调用 `vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 时，才按**当前会话的既定任务计划**同步所需 Linear 节点；已有 Issue 直接复用，单节点不强建 Parent，多个独立交付节点才创建 Parent aggregate 与 read/write 子任务 DAG。验收切片不逐一映射为 Issue 或 worktree。该调用明确授权本次计划范围内的 Parent、子任务、原生 blocked-by / blocks 关系及状态/Receipt 写入、worktree、任务提交、普通推送和合并到 `develop`，不授权 PR/MR、force push、历史改写或 `main`。普通 Linear 工作流的既有授权与 closing PR Done 语义不变。本节与已安装的 `vb-linear-worktree-develop` Skill 描述同一模式，修改须同步。
 
 #### 显式执行边界
 
@@ -31,11 +31,27 @@ Linear 保存工作状态、责任、委派与依赖；GitHub 或 GitLab 保存�
 
 Linear 写入遵循读取 → 校验 → 写入 → 重读确认，结果不明先按同一幂等键重读，部分创建保留已确认 ID，不盲目新建。尚未尝试写入且现有上下文足以核对任务与依赖时，可继续本地工作并标记 `unregistered / Linear 未同步`；已尝试但结果未知时停止受影响同步与节点，保留现场。
 
-write 节点优先使用宿主或当前会话已创建的 worktree，并以 `--task <ISSUE-ID>:<branch>` 精确归因；没有可用隔离树时用 `worktree bootstrap` 创建已登记工作区。提交 `Refs <ISSUE-ID>` 后，local-land 按 `git-rules.md` 的 stage/publish 合同执行：`worktree stage` 从本地 develop 快照 no-ff 合并并验证，持久化为 `local_staged`；`worktree publish --batch <id>` 先 fetch 自动对账——候选已含于远端则确认，远端前进时从新基线重建并复制收据增量重验——需要终锁才进入秒级 FIFO 段，精确推送并重读远端 SHA。主检出或宿主会话不必为 stage 单独登记端口，stage 也不要求主检出一个干净；主检出脏或落后只影响发布后的本地同步，保留用户改动。`--target-mode primary` 是 stage 专属的意图断言；`--target-mode remote` 退役，不得绕过 stage/publish。
+write 节点优先使用宿主或当前会话已创建的 worktree，并以 `--task <ISSUE-ID>:<branch>` 精确归因；没有可用隔离树时用 `worktree bootstrap` 创建已登记工作区。提交 `Refs <ISSUE-ID>` 后，local-land 按 `git-rules.md` 的 stage/publish 合同执行：`worktree stage` 从本地 develop 快照 no-ff 合并并验证，持久化为 `local_staged`；`worktree publish --batch <id>` 先 fetch 自动对账——候选已含于远端则确认，远端前进时从新基线重建并按完整输入指纹复用或重验——需要终锁才进入短时 FIFO 段，精确推送并重读远端 SHA。主检出或宿主会话不必为 stage 单独登记端口，stage 也不要求主检出一个干净；主检出脏或落后只影响发布后的本地同步，保留用户改动。`--target-mode primary` 是 stage 专属的意图断言；`--target-mode remote` 退役，不得绕过 stage/publish。
 
 local-land 的候选验证与精确远端推送确认后，write 节点即可 Done / succeeded；`local_staged` 只证明本地候选，不能单独支撑 Done。清理失败单列 `integrated_cleanup_pending`，不阻塞依赖后继。残留路径、端口和 resourceLocks 继续占用，后继资源冲突时仍不得派发。read 以输出与 Verification 完成；aggregate Parent 须全部必需后代成功并通过最终组合行为的 fan-in 验证。普通 PR/MR 路径仍以 closing 合并证据完成。
 
+普通独立交付只等待直接前驱和实际冲突资源，不设置全体叶子统一等待屏障；下述显式 Parent 批次仅在发布边界等待全部必需成员。同目标已就绪节点可一次 stage 合批；最终候选收据若已覆盖 Parent 的 fan-in 验收，直接引用，不再重复同一检查。Git 集成事实、Linear 回写结果和清理状态分别报告；仅状态回写延迟不撤销已经核实的 Git 事实，但未知的 Issue 创建、依赖关系写入或执行占用仍先重读确认，不据此猜测后继已就绪。
+
 风险只决定必要验证和隔离，不自动选择 develop flow；独立审查可选，项目明确规定的审查、Hook 与分支保护继续生效。worktree 内部操作按本轮授权和工作区事实执行，跨边界、凭据、红区与外部写入仍遵循 governance-core；不自造宿主证明。
+
+### Parent 单 worktree 批次
+
+显式 `vb-linear-worktree-develop` 执行已授权 Parent 时，默认以其全部必需后代组成同一仓库、同一精确目标 ref 的批次。已有 Issue 直接复用，不限于本轮新建 ID；不读取或认领其他 Parent 的任务。开始、执行期间和发布前重读成员、原生依赖与验收；发现新增、移除或影响执行的依赖变化，暂停受影响步骤并请用户确认范围变更，保留已有提交，再记录原因并同步计划。可见的新成员不自动获得执行授权，旧清单也不允许漏项发布。
+
+整批只设一个 Writer、一个命名分支和一个任务 worktree，以 Parent ID 归属环境与交付来源；Parent 保持 aggregate，代码仍由 write 子任务负责。按原生依赖拓扑顺序实施，无依赖节点按 ID 稳定串行，不为执行顺序添加原生关系。共享 API、Schema、锁文件仍有唯一 owner。任务树内部只有一个活动写单元；交付器的临时候选树允许独立存在。只有明确需要独立交付或实际并行写入时另定批次与隔离，不自动为每个 Issue 建树。
+
+每个代码任务将实现、测试与文档一起暂存，核对工作树与暂存快照一致，运行必要检查后形成关联该 Issue 的 Conventional Commit；提交 Hook 改变提交树时重验。锚点的单元 `done` 代表本地执行完成，绑定已验证的 tree、commit SHA、检查定义、计划版本与成员摘要，不表示 Linear Done 或 DAG succeeded。正常后续提交不使历史证据失效，前驱 SHA 必须仍是当前分支祖先；契约、验收、检查定义或计划变化须重新判断受影响证据。修复追加对应任务的提交，不重写已有 SHA；只读与已交付任务不制造空提交，既有交付事实须核实后复用。
+
+仅同批成员之间的执行依赖可凭有效本地完成证据放行；批外依赖、Linear Done 和 Parent 最终成功仍要求正式交付。此例外只改变批内执行 readiness，不改 `result` 枚举、all_done 或原生关系。批外前驱尚未交付、关系不可见或快照不完整时继续阻断；若外部任务等待本批发布、批内成员又等待该外部任务，报告交付循环并停止，不绕过依赖或擅自拆批。
+
+全部必需成员本地完成、共享工作树和 index 干净后，只将 Parent 与分支最终 HEAD 作为唯一 stage source。stage 记录 Issue→提交映射并验证整批组合与 Parent fan-in，publish 复用远端同步、必要重验、普通推送和 SHA 回读；不得逐子任务 stage、重复传入同一分支或部分发布。发布前仍须重读 Linear 的最新范围；本地工具只能核对已同步的快照，不冒充实时 Linear 读取。
+
+远端确认后先逐项确认子任务 Done，再完成 Parent；已确认的 Git 集成不因 Linear 写入失败撤销。Parent 批次的 publish 保留源任务树、分支、锚点及资源归属，报告 `integrated_cleanup_pending`；状态同步确认后再调用已有 `worktree cleanup --batch <id> --write` 回收。恢复先重读，仅补写缺失状态，不重复 merge/push。共享树存在未解决改动时停止后续写入，保留提交与现场，不自动 stash、rebase、强推或破坏性清理。分别报告本地提交、候选验证、远端确认、Linear 同步和清理；清理失败保留资源归属并仅重试清理。普通 PR/MR、无 Parent 的独立 Issue 和未声明批次的旧计划继续沿用原合同。
 
 ## 2 状态模型与责任
 
@@ -147,3 +163,5 @@ Git credential helper 按 `git-rules.md` credential helper 条款执行：helper
 推荐 Writer In Progress 不超过 3、In Review 不超过 2，作为 Linear 工作流软上限。长任务可选声明超时、最大尝试次数、取消、退避和资源预算；AI Ready Queue 仅供人查看，Agent 不直接读取它来挑选工作。
 
 本规则直接定义 Linear 工作流的触发、操作顺序、不可写回退与停止边界；已安装的 `linear-workflow` Skill 按需辅助执行，不替代这些要求。两者描述同一工作流，修改须同步。
+
+依赖与责任由 Linear 原生关系承载，集成由 Git 精确远端事实承载，环境占用由资源登记承载。任务文档与锚点只引用。连续切片同 writer 共用 Issue/分支，read 节点不创建实现 worktree；合批只含同目标、已就绪且需要共同验收的节点。Git 已集成而 Done 回写延迟记录同步待处理，不重推；恢复先读当前 Issue，只补缺失转换。创建、关系或归属写入结果不明先重读，不盲目补建，不引入 outbox 或状态数据库。

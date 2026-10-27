@@ -1,1 +1,1 @@
-{"id":"vb-linear-worktree-develop","kind":"integration","optional":true,"triggers":["vb-linear-worktree-develop","$vb-linear-worktree-develop","Vb Linear Worktree Develop","lwflow","$lwflow"],"outputs":["Linear Parent 与子任务 DAG","逐节点 stage/publish 交付证据"]}
+{"id":"vb-linear-worktree-develop","kind":"integration","optional":true,"triggers":["vb-linear-worktree-develop","$vb-linear-worktree-develop","Vb Linear Worktree Develop","lwflow","$lwflow"],"outputs":["Linear Parent 必需子任务与原生依赖","逐 Issue 本地提交与 Parent 统一 stage/publish 交付证据"]}

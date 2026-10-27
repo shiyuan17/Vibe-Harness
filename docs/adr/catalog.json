@@ -96,6 +96,18 @@
     {
       "id": "ADR-0024",
       "path": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md"
+    },
+    {
+      "id": "ADR-0025",
+      "path": "docs/adr/ADR-0025-bounded-candidate-cancellation-and-retry.md"
+    },
+    {
+      "id": "ADR-0026",
+      "path": "docs/adr/ADR-0026-worktree-collaboration-evidence-and-resources.md"
+    },
+    {
+      "id": "ADR-0027",
+      "path": "docs/adr/ADR-0027-linear-parent-single-worktree-batch.md"
     }
   ]
 }

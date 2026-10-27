@@ -32,6 +32,7 @@
 - [仓库级 FIFO 串行化受管 Worktree 交付](adr/ADR-0022-repository-delivery-fifo.md)
 - [受管 Worktree 交付的 supersede 与外部集成归档](adr/ADR-0023-worktree-delivery-recovery.md)
 - [验证出队与秒级发布终锁的交付协议](adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md)
+- [候选取消限域、基线验证与环境失败续验](adr/ADR-0025-bounded-candidate-cancellation-and-retry.md)
 - [ADR Schema](schemas/adr.schema.json)
 - [Execution Envelope v1 Schema](schemas/execution-envelope.schema.json)
 - [Execution Envelope v2 Schema](schemas/execution-envelope-v2.schema.json)
@@ -130,6 +131,8 @@
 
 ## 审计参考
 
+- [Git worktree 并行开发与协作审查（2026-10-27）](../audit-reports/2026-10-27-worktree-collaboration-audit.md)
+
 inventory 快照规则：含计数口径的条目必须标注快照日期与再生成方式；计数被取代的快照移入 [`archive/`](archive/)，原文不回溯改写。
 
 - [源规则映射](inventory/source-rules-mapping.md)
@@ -156,3 +159,7 @@ inventory 快照规则：含计数口径的条目必须标注快照日期与再�
 - [贡献指南](../CONTRIBUTING.md)
 - [Agent 规则](../AGENTS.md)
 - [更新日志](../CHANGELOG.md)
+
+- [Worktree 证据与资源决策](adr/ADR-0026-worktree-collaboration-evidence-and-resources.md)
+- [Linear Parent 单任务树批次交付](adr/ADR-0027-linear-parent-single-worktree-batch.md)
+- [Worktree 协作迁移](specs/worktree-collaboration-migration.md)

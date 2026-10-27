@@ -101,6 +101,7 @@ cancelled：
 - `result` 使用统一状态：`pending`、`ready`、`running`、`unverified`、`succeeded`、`failed`、`blocked`、`skipped` 或 `cancelled`；未开始节点不得省略 `pending`，`ready`、`running` 和 `unverified` 都不满足后继的 all_success。
 - Linear 的 Canceled、Duplicate、Won't Fix 只作为外部终态，统一按非 `succeeded` 处理，不混入本地 result 枚举。
 - all_success 要求全部直接前驱 `succeeded`；unverified、failed、blocked、skipped、cancelled、Canceled、Duplicate 和 Won't Fix 都不算成功。
+- 显式 Parent 单 worktree 批次是执行 readiness 的限定例外：仅同批后继可凭绑定任务树、计划、检查定义且提交仍为祖先的本地完成证据放行；不把前驱改成 succeeded。批外依赖与 Parent fan-in 仍要求正式交付，all_done 不接受本地完成。DAG 中可选 `executionBatch` 只引用 Parent ID 与 worktree，检查器从真实锚点重验，不能接受 JSON 自报 passed；单 Agent 不因此创建协作 DAG。完整范围、交付循环与发布规则见 `linear-workflow.md` 的「Parent 单 worktree 批次」。
 - 只有 aggregate、清理或失败报告节点可使用 `all_done`；它只能在全部直接前驱终结后汇总状态和报告部分失败，不得把失败图改判为成功，也不得把失败 Root 改判为成功。
 - `skipped` 只用于没有任何后继依赖其成功的节点；会阻塞后继的节点不得写入 DAG 或标记为 `skipped`，否则一次合法跳过会让下游永久不 `ready`。
 
