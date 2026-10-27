@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -547,6 +547,35 @@ test('ordinary multi-ref push checks pushed SHA once despite dirty primary and i
     assert.equal((await readFile(f.counter, 'utf8')).trim(), head);
     await git(f.repo, ['push', 'origin', ':refs/heads/one']);
     assert.equal((await readFile(f.counter, 'utf8')).trim(), head);
+  } finally { await removeTemporaryDirectory(f.root); }
+});
+
+test('isolated native push candidate preserves pnpm package dependency adjacency', async () => {
+  const f = await fixture({
+    worktree: { dependencyMode: 'isolated' },
+    validationCommands: {
+      test: 'node package-check.cjs',
+      tiers: { quick: ['node package-check.cjs'], standard: ['node package-check.cjs'], deep: [] },
+      checks: [{ id: 'test', command: 'node package-check.cjs', deterministic: true }],
+    },
+    files: { 'package-check.cjs': "if (require('fixture-package') !== 'ok') process.exit(1);\n" },
+  });
+  try {
+    const packageRoot = path.join(f.repo, 'node_modules/.pnpm/fixture-package@1.0.0/node_modules/fixture-package');
+    const optionalRoot = path.join(f.repo, 'node_modules/.pnpm/fixture-package@1.0.0/node_modules/fixture-optional');
+    await mkdir(packageRoot, { recursive: true });
+    await mkdir(optionalRoot, { recursive: true });
+    await writeFile(path.join(packageRoot, 'index.js'), "module.exports = require('fixture-optional');\n");
+    await writeFile(path.join(packageRoot, 'package.json'), JSON.stringify({ name: 'fixture-package', version: '1.0.0', main: 'index.js' }));
+    await writeFile(path.join(optionalRoot, 'index.js'), "module.exports = 'ok';\n");
+    await writeFile(path.join(optionalRoot, 'package.json'), JSON.stringify({ name: 'fixture-optional', version: '1.0.0', main: 'index.js' }));
+    await symlink(packageRoot, path.join(f.repo, 'node_modules/fixture-package'),
+      process.platform === 'win32' ? 'junction' : 'dir');
+    const source = await f.source('A');
+    const head = await git(source, ['rev-parse', 'HEAD']);
+    await f.installHook();
+    await git(f.repo, ['push', 'origin', `${head}:refs/heads/native-deps`]);
+    assert.equal(await git(f.origin, ['rev-parse', 'native-deps']), head);
   } finally { await removeTemporaryDirectory(f.root); }
 });
 

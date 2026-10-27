@@ -538,6 +538,55 @@ function listFilesOf(dir) {
   }
 }
 /**
+ * Copy an isolated dependency root without flattening pnpm's package links.
+ *
+ * `cpSync(..., { dereference: true })` makes the copy independent of the
+ * primary checkout, but turns every top-level package junction into a plain
+ * directory. Isolated pnpm layouts resolve a package's optional and peer
+ * dependencies through its sibling paths under `.pnpm/<id>/node_modules`; once
+ * the top-level package no longer points there, tools such as TypeScript 7
+ * cannot find their platform package. Preserve the copied package files and
+ * `.pnpm` store, then reconnect the top-level links inside the candidate.
+ */
+function copyIsolatedModules(sourceModules, worktreeModules) {
+  const packageLinks = [];
+  const collectScopeLinks = (directory, scope) => {
+    let entries = [];
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isSymbolicLink()) continue;
+      const source = path.join(directory, entry.name);
+      const target = safeRealpath(source);
+      if (!target || !isInsidePath(target, sourceModules)) continue;
+      const relative = scope === null ? entry.name : `${scope}/${entry.name}`;
+      packageLinks.push({
+        link: relative,
+        target: normalizeSlashes(path.relative(sourceModules, target)),
+      });
+    }
+  };
+  collectScopeLinks(sourceModules, null);
+  for (const entry of readdirSync(sourceModules, { withFileTypes: true })) {
+    if (entry.isDirectory() && entry.name.startsWith('@')) {
+      collectScopeLinks(path.join(sourceModules, entry.name), entry.name);
+    }
+  }
+  if (existsSync(worktreeModules)) rmSync(worktreeModules, { recursive: true, force: true });
+  cpSync(sourceModules, worktreeModules, { recursive: true, dereference: true });
+  for (const packageLink of packageLinks) {
+    const link = path.join(worktreeModules, packageLink.link);
+    const target = path.join(worktreeModules, packageLink.target);
+    if (!existsSync(target)) continue;
+    if (existsSync(link)) rmSync(link, { recursive: true, force: true });
+    mkdirSync(path.dirname(link), { recursive: true });
+    linkDirectory(target, link);
+  }
+}
+/**
  * Remove the dependency links a bootstrap created inside one worktree.
  *
  * `git worktree remove` does not follow a junction, so it deletes the tracked
@@ -1925,7 +1974,7 @@ async function prepareBatchCandidate(projectDir, state, settings, { existing = f
     if (isolateDependencies) {
       for (const relative of dependencyPaths) {
         const source = path.join(projectDir, relative);
-        if (existsSync(source)) cpSync(source, path.join(state.candidate, relative), { recursive: true, dereference: true });
+        if (existsSync(source)) copyIsolatedModules(source, path.join(state.candidate, relative));
       }
       for (const root of settings.dependencyRoots) {
         for (const local of packagesForRoot(settings, root)) {
