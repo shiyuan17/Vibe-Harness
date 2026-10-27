@@ -6,11 +6,11 @@
 
 项目阶段、技术债与决策经本文件引用 `docs/memory/PROJECT_STATE.md` 读取，不在此复制其内容；本文件只记录任务级恢复线索。
 
-- 目标: worktree 交付协议重构（验证出锁、失败分类、自动对账、删除 legacy land）在 codex/delivery-batch 完成实施、验证、提交并推送，并把更新安装到 BL-CNAS
-- 当前状态: 阶段 0-E 全部完成；e885111 已推送 origin/codex/delivery-batch；BL-CNAS full 档重装完成，新 stage/publish 交付面就位（runtime 零 land 残留）
-- 已验证证据: `pnpm check:fast` 200/200、`pnpm test:component` 358/358、`pnpm test:integration` 762 通过/0 失败/1 跳过、`pnpm validate` ok、`pnpm eval:check` 绿（eval 参考链按文档化流程刷新全 passed）、`git diff --check` 干净；worktree 集成文件 103/103
-- 未完成事项: 合并 develop（按 vb-git-develop-flow）待用户指令；deep 层 test:e2e/test:matrix/smoke:lifecycle 未运行；BL-CNAS turbo --affected 配置批待做；BL-CNAS 安装产生的 docs 规则/模板变更未提交
-- 下一步最小动作: 按用户指令合并 develop，或继续 BL-CNAS 配置批
-- 锚点提交: e88511110d36d5a4d58be5c417fbc67dfcdc04d9
+- 目标: worktree 交付协议重构落地 develop 并推广到 BL-CNAS
+- 当前状态: 已通过新交付流（stage standard 层验证 + publish FIFO 秒级终锁）合入 origin/develop（3eafa50，no-ff 合并 ec68b03）；本地 develop 工作树已 ff 同步；BL-CNAS 已安装新交付面
+- 已验证证据: origin/develop SHA 回读 = 3eafa504（publish pushConfirmed + 独立 ls-remote 双确认）；批次 a8c50047 standard 层候选验证全过（lint/typecheck/test:unit/test:component/test:integration）；deep 层 e2e 44/44、matrix 99/99、smoke true
+- 未完成事项: BL-CNAS turbo --affected 配置批（per-worktree TURBO_CACHE_DIR、确定性检查、分层超时、lefthook 受管旁路）；BL-CNAS 安装产生的 docs 变更未提交
+- 下一步最小动作: BL-CNAS turbo --affected 配置批
+- 锚点提交: 3eafa504b6cd290dc7b9a2748e371f80fba7cdfb
 - 最后更新: 2026-10-27
 - 最后验证: 2026-10-27
