@@ -6,11 +6,11 @@
 
 项目阶段、技术债与决策经本文件引用 `docs/memory/PROJECT_STATE.md` 读取，不在此复制其内容；本文件只记录任务级恢复线索。
 
-- 目标: 修复 Vibe-Harness 并发 worktree 的仓库级 FIFO 交付队列、事务恢复与 repo-heavy 验证协调；不修改 BL-CNAS
-- 当前状态: 仓库级 FIFO、stage/publish/land 共用租约、v3 事务、repo-heavy 验证协调、recover 盘点、文档/schema/安装镜像及受保护 Eval 产物均已实现并验证
-- 已验证证据: `pnpm test:unit` 200/200、`pnpm test:component` 358/358、`pnpm test:integration` 762 通过/0 失败/1 跳过、`pnpm check`、`pnpm typecheck`、`pnpm eval:check`、`pnpm smoke:lifecycle`、`pnpm docs:audit`、`pnpm tests:catalog check` 与 `git diff --check` 通过；队列并发用例连续 3 轮 4/4 通过
-- 未完成事项: 最终差异尚未提交或推送；`?? .claude/` 为未归属本地资料，保持不动
-- 下一步最小动作: 审阅最终差异；仅按用户后续明确指令提交或推送
-- 锚点提交: 85e46215d0bc85be761c6a3370991d6a028c1f6b
-- 最后更新: 2026-10-25
-- 最后验证: 2026-10-25
+- 目标: worktree 交付协议重构（验证出锁、失败分类、自动对账、删除 legacy land）在 codex/delivery-batch 完成实施、验证、提交并推送，并把更新安装到 BL-CNAS
+- 当前状态: 阶段 0-E 全部完成；e885111 已推送 origin/codex/delivery-batch；BL-CNAS full 档重装完成，新 stage/publish 交付面就位（runtime 零 land 残留）
+- 已验证证据: `pnpm check:fast` 200/200、`pnpm test:component` 358/358、`pnpm test:integration` 762 通过/0 失败/1 跳过、`pnpm validate` ok、`pnpm eval:check` 绿（eval 参考链按文档化流程刷新全 passed）、`git diff --check` 干净；worktree 集成文件 103/103
+- 未完成事项: 合并 develop（按 vb-git-develop-flow）待用户指令；deep 层 test:e2e/test:matrix/smoke:lifecycle 未运行；BL-CNAS turbo --affected 配置批待做；BL-CNAS 安装产生的 docs 规则/模板变更未提交
+- 下一步最小动作: 按用户指令合并 develop，或继续 BL-CNAS 配置批
+- 锚点提交: e88511110d36d5a4d58be5c417fbc67dfcdc04d9
+- 最后更新: 2026-10-27
+- 最后验证: 2026-10-27
