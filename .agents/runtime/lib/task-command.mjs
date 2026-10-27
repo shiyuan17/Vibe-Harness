@@ -16,8 +16,9 @@ import { gitFingerprint } from './git-fingerprint.mjs';
 import { parseLinearPlanBlock } from './linear-planning.mjs';
 
 import { boundedOutput, normalizePath } from './cli-output.mjs';
-import { PASS_STATUSES, SCHEMA_VERSION, normalizeSlashes, readProjectConfig, safeRealpath, stableStringify } from './cli-runtime.mjs';
+import { PASS_STATUSES, SCHEMA_VERSION, normalizeSlashes, readProjectConfig, runGit, safeRealpath, stableStringify } from './cli-runtime.mjs';
 import { configuredChecks, displayCommand } from './verification-plan-support.mjs';
+import { batchPredecessorSatisfied, bindLocalCompletion, localCompletionValid, parentBatchContract, parentBatchPublication, parentBatchWorkspace, sameParentBatch } from './parent-batch.mjs';
 
 // --- task anchors ------------------------------------------------------------
 //
@@ -41,6 +42,7 @@ export const TASK_UNIT_FAILURE_STATUSES = ['failed', 'blocked'];
 const TASK_RISK_LEVELS = ['quick', 'light', 'full'];
 const DEFAULT_TASK_RISK_LEVEL = 'light';
 const INITIAL_TASK_STAGE = 'plan';
+/** @type {Array<[string, RegExp]>} */
 const PLAN_REQUIRED_SECTIONS = [
   ['goal', /(?:^|\n)\s*(?:#{1,6}\s*)?(?:目标|goal|purpose\s*\/\s*big\s*picture)\s*:?\s*$/imu],
   ['non-goals', /(?:^|\n)\s*(?:#{1,6}\s*)?(?:非目标|non-goals?)\s*:?\s*$/imu],
@@ -183,6 +185,8 @@ function planUnitProblems(block, acceptanceIds) {
       dependsOn: asStrings(raw?.dependsOn),
       files: asStrings(raw?.files),
       id,
+      ...(block?.executionBatch ? { kind: raw?.kind ?? 'write' } : {}),
+      ...(block?.executionBatch && raw?.deliveredCommit ? { deliveredCommit: raw.deliveredCommit } : {}),
       // A unit may touch a protected asset only when it repeats that exact
       // asset here, which turns "this step is allowed to write evals/" into a
       // reviewable line instead of an implicit exception.
@@ -190,7 +194,7 @@ function planUnitProblems(block, acceptanceIds) {
     });
   }
   for (const unit of units) {
-    if (unit.files.length === 0) {
+    if (unit.files.length === 0 && !['read', 'aggregate'].includes(unit.kind)) {
       push('VIBE_HARNESS_PLAN_UNITS_INVALID', `execution unit ${unit.id} must declare at least one file or directory`);
     }
     if (unit.acceptance.length === 0) {
@@ -207,7 +211,7 @@ function planUnitProblems(block, acceptanceIds) {
     }
     for (const dependency of unit.dependsOn) {
       if (dependency === unit.id) push('VIBE_HARNESS_PLAN_DEPENDENCY_INVALID', `execution unit ${unit.id} depends on itself`);
-      else if (!seen.has(dependency)) push('VIBE_HARNESS_PLAN_DEPENDENCY_INVALID', `execution unit ${unit.id} depends on unknown unit ${dependency}`);
+      else if (!seen.has(dependency) && !block?.executionBatch?.externalDependencies?.some((node) => node.id === dependency)) push('VIBE_HARNESS_PLAN_DEPENDENCY_INVALID', `execution unit ${unit.id} depends on unknown unit ${dependency}`);
     }
     for (const id of unit.acceptance) {
       if (!acceptanceIds.has(id)) {
@@ -260,16 +264,18 @@ function planExecutionUnits(content) {
     };
   }
   const validated = planUnitProblems(block, planAcceptanceIds(content));
-  return { present: true, problems: validated.problems, units: validated.units, warnings: validated.warnings };
+  const batch = parentBatchContract(block.executionBatch, validated.units);
+  return { present: true, problems: [...validated.problems, ...batch.errors.map((message) => ({ code: 'VIBE_HARNESS_PARENT_BATCH_INVALID', message }))],
+    units: validated.units, warnings: validated.warnings, executionBatch: batch.batch, batchPresent: block.executionBatch !== undefined };
 }
 /** The unit graph of the plan's execution block, derived from a plan-check summary. */
 export function planUnitGraph(planCheck) {
   const dependencies = planCheck?.units?.dependencies;
   if (!dependencies || typeof dependencies !== 'object' || Array.isArray(dependencies)) return [];
-  return Object.entries(dependencies).map(([id, dependsOn]) => ({
+  return [...Object.entries(dependencies).map(([id, dependsOn]) => ({
     dependsOn: Array.isArray(dependsOn) ? dependsOn.map((entry) => String(entry)) : [],
     id,
-  }));
+  })), ...(planCheck.executionBatch?.externalDependencies ?? [])];
 }
 /**
  * Direct and transitive predecessors of one plan unit, classified by the
@@ -277,6 +283,10 @@ export function planUnitGraph(planCheck) {
  * dispatch; every other unfinished status only means "not yet proven done".
  * A predecessor the plan never declared stays `pending` instead of being
  * treated as satisfied.
+ * @param {any[]} planUnits
+ * @param {any[]} anchorUnits
+ * @param {string} unitId
+ * @param {(unit: any) => boolean} isVerified
  */
 function unitPredecessorState(planUnits, anchorUnits, unitId, isVerified = () => false) {
   const byId = new Map(planUnits.map((unit) => [unit.id, unit]));
@@ -361,6 +371,11 @@ async function taskPlanCheckCore(projectDir, taskId) {
     };
   }
   const units = planExecutionUnits(plan.content);
+  if (units.executionBatch && (units.executionBatch.parentId !== taskId
+    || !sameParentBatch(anchor.executionBatch, units.executionBatch))
+    || anchor.executionBatch && !units.executionBatch) {
+    units.problems.push({ code: 'VIBE_HARNESS_PARENT_BATCH_DRIFT', message: 'Parent batch membership or identity changed; confirm the scope then run task plan-sync' });
+  }
   const linearPlan = parseLinearPlanBlock(plan.content);
   const linearPlanProblems = linearPlan.errors.map((message) => ({
     code: message.startsWith('VIBE_HARNESS_LINEAR_PLAN_INVALID')
@@ -410,6 +425,7 @@ async function taskPlanCheckCore(projectDir, taskId) {
     taskId,
     status: 'passed',
     managed: true,
+    ...(units.executionBatch ? { executionBatch: units.executionBatch } : {}),
     units: unitSummary,
     linearPlan: {
       present: linearPlan.present,
@@ -902,6 +918,9 @@ async function taskInitReport(projectDir, args) {
     return taskFailure('init', `anchor for task ${taskId} already exists at ${taskAnchorRelativePath(taskId)}; use "task update ${taskId}" to change it`);
   }
   const now = new Date().toISOString();
+  const execution = plan ? planExecutionUnits(plan.content) : null;
+  if (execution?.batchPresent && (execution.executionBatch?.parentId !== taskId
+    || execution.problems.length)) return taskFailure('init', 'invalid Parent batch or plan execution units', 'VIBE_HARNESS_PARENT_BATCH_INVALID');
   const anchor = {
     schemaVersion: TASK_SCHEMA_VERSION,
     taskId,
@@ -915,7 +934,8 @@ async function taskInitReport(projectDir, args) {
       planDigest: plan.digest,
       planRevision: plan.revision,
     } : {}),
-    units: [],
+    units: execution?.executionBatch ? execution.units.map((unit) => ({ ...unit, status: 'pending', verification: null })) : [],
+    ...(execution?.executionBatch ? { executionBatch: execution.executionBatch } : {}),
     decisions: [],
     blockers: [],
     failures: [],
@@ -957,11 +977,24 @@ async function taskPlanSyncReport(projectDir, args) {
   }
   if (plan.missing.length > 0) return taskFailure('plan-sync', `plan is missing required sections: ${plan.missing.join(', ')}`, 'VIBE_HARNESS_PLAN_INVALID');
   const changed = read.anchor.planDigest !== plan.digest;
+  const execution = planExecutionUnits(plan.content);
+  if (execution.batchPresent && (execution.problems.length || execution.executionBatch?.parentId !== taskId)) {
+    return taskFailure('plan-sync', 'invalid Parent batch or execution units', 'VIBE_HARNESS_PARENT_BATCH_INVALID');
+  }
+  if (!read.anchor.executionBatch && execution.executionBatch && read.anchor.units.length
+    || read.anchor.executionBatch && !execution.executionBatch) {
+    return taskFailure('plan-sync', 'running independent and Parent batch plans cannot be migrated automatically', 'VIBE_HARNESS_PARENT_BATCH_MIGRATION');
+  }
   const next = {
     ...read.anchor,
     planDigest: plan.digest,
     planRevision: plan.revision,
     decisions: [...(Array.isArray(read.anchor.decisions) ? read.anchor.decisions : []), `plan-sync: ${args.reason.trim()}`],
+    ...(execution.executionBatch ? {
+      executionBatch: execution.executionBatch,
+      units: execution.units.map((unit) => ({ ...read.anchor.units.find((item) => item.id === unit.id), ...unit,
+        status: read.anchor.units.find((item) => item.id === unit.id)?.status ?? 'pending' })),
+    } : {}),
   };
   if (changed && args.write) {
     const now = new Date().toISOString();
@@ -983,6 +1016,29 @@ async function taskPlanSyncReport(projectDir, args) {
     written: changed && Boolean(args.write),
     plan: { path: plan.path, revision: plan.revision, digest: plan.digest },
     reason: args.reason.trim(),
+  };
+}
+/** Shared verifier for task gates, stage/publish preflight and Task DAG CLI. */
+export async function taskParentBatchEvidence(projectDir, taskId) {
+  const plan = await taskPlanCheckReport(projectDir, taskId);
+  const read = await readTaskAnchor(projectDir, taskId);
+  const batch = read.anchor?.executionBatch;
+  if (plan.status !== 'passed' || !batch) return { ok: false, reason: plan.code ?? 'no-parent-batch', localCompleted: [] };
+  const workspace = await parentBatchWorkspace(projectDir, batch);
+  const configured = configuredChecks(await readProjectConfig(projectDir), projectDir);
+  const completed = await Promise.all(read.anchor.units.map(async (unit) =>
+    await localCompletionValid(projectDir, read.anchor, unit, configured) ? unit.id : null));
+  const external = batch.externalDependencies.filter((node) => node.result !== 'succeeded');
+  const commits = await runGit(['rev-list', '--no-merges', `${batch.baseSha}..HEAD`], projectDir);
+  const mapped = new Set(read.anchor.units.filter((unit) => unit.kind === 'write').flatMap((unit) => unit.localCompletion?.commits ?? []));
+  const unmappedCommits = commits.ok ? commits.stdout.trim().split(/\r?\n/u).filter((sha) => sha && !mapped.has(sha)) : ['unknown'];
+  return { ...batch, ok: workspace.ok && read.anchor.blockers.length === 0,
+    reason: !workspace.ok ? workspace.reason : read.anchor.blockers.length ? 'batch-blockers' : null,
+    localCompleted: completed.filter(Boolean), head: workspace.head ?? null,
+    dependencies: plan.units.dependencies,
+    unmappedCommits,
+    externalPending: external.map((node) => node.id),
+    units: read.anchor.units.map(({ id, kind, files, status }) => ({ id, kind, files, status })),
   };
 }
 async function taskCheckReport(projectDir, args) {
@@ -1019,8 +1075,14 @@ async function taskCheckCore(projectDir, args) {
   const currentFingerprint = needsEvidence ? (await gitFingerprint(projectDir)).fingerprint : null;
   const configured = needsEvidence ? configuredChecks(await readProjectConfig(projectDir), projectDir) : null;
   const isVerified = (unit) => currentUnitVerification(unit, currentFingerprint, configured, projectDir);
+  const batchEvidence = read.anchor.executionBatch ? await taskParentBatchEvidence(projectDir, taskId) : null;
+  const effectiveUnits = batchEvidence ? [...units, ...batchEvidence.externalDependencies?.map((node) => ({
+    id: node.id, status: node.result === 'succeeded' ? 'done' : node.result,
+  })) ?? []] : units;
+  const batchVerified = (unit) => batchEvidence?.externalDependencies?.some((node) => node.id === unit.id && node.result === 'succeeded')
+    || batchPredecessorSatisfied(batchEvidence, selected?.id, unit.id);
   const predecessors = selected && planUnits.length > 0
-    ? unitPredecessorState(planUnits, units, selected.id, isVerified)
+    ? unitPredecessorState(planUnits, effectiveUnits, selected.id, batchEvidence ? batchVerified : isVerified)
     : { blocked: [], checked: [], failed: [], unfinished: [] };
   const stopped = [...predecessors.failed, ...predecessors.blocked];
   const describeUnits = (items) => items.map((item) => `${item.id}=${item.status}`).join(', ');
@@ -1029,6 +1091,7 @@ async function taskCheckCore(projectDir, args) {
   // completion, so a parent agent can gate a write dispatch mechanically.
   if (args.dispatch) {
     if (!args.unit) return taskFailure('check', '--dispatch requires --unit <unitId>', 'VIBE_HARNESS_TASK_UNIT_MISSING');
+    if (batchEvidence && !batchEvidence.ok) return { ...taskFailure('check', batchEvidence.reason, 'VIBE_HARNESS_PARENT_BATCH_NOT_READY'), batchEvidence };
     let conflicts = [];
     if (typeof planCheck.plan?.path === 'string') {
       const plan = await readManagedPlan(projectDir, planCheck.plan.path);
@@ -1037,11 +1100,24 @@ async function taskCheckCore(projectDir, args) {
       if (target) {
         conflicts = declared.filter((unit) => unit.id !== target.id
           && units.some((active) => active.id === unit.id && active.status === 'in_progress')
-          && unit.files.some((file) => target.files.some((other) => scopeIntersects(file, other))))
+          && (batchEvidence || unit.files.some((file) => target.files.some((other) => scopeIntersects(file, other)))))
           .map((unit) => unit.id);
       }
     }
     const unmet = [...stopped, ...predecessors.unfinished];
+    if (batchEvidence && !unmet.length && !conflicts.length) {
+      const candidates = units.filter((unit) => ['pending', 'in_progress'].includes(unit.status))
+        .filter((unit) => {
+          const state = unitPredecessorState(planUnits, effectiveUnits, unit.id,
+            (predecessor) => batchEvidence.externalDependencies.some((node) => node.id === predecessor.id && node.result === 'succeeded')
+              || batchPredecessorSatisfied(batchEvidence, unit.id, predecessor.id));
+          return !state.failed.length && !state.blocked.length && !state.unfinished.length;
+        }).map((unit) => unit.id).sort();
+      if (selected.status !== 'in_progress' && candidates[0] !== selected.id) {
+        return taskFailure('check', `Parent batch executes one member at a time in stable order; next: ${candidates[0] ?? 'none'}`,
+          'VIBE_HARNESS_PARENT_BATCH_SINGLE_WRITER');
+      }
+    }
     return {
       schemaVersion: SCHEMA_VERSION,
       command: 'task',
@@ -1089,6 +1165,16 @@ async function taskCheckCore(projectDir, args) {
     })
     .map((unit) => unit.id ?? '?');
   const complete = Boolean(args.complete);
+  if (complete && batchEvidence) {
+    const publication = batchEvidence.ok && !batchEvidence.unmappedCommits.length && !batchEvidence.externalPending.length
+      && batchEvidence.members.every((id) => batchEvidence.localCompleted.includes(id))
+      ? await parentBatchPublication(projectDir, read.anchor) : null;
+    return {
+      ...(publication ? { schemaVersion: SCHEMA_VERSION, command: 'task', subcommand: 'check', taskId, status: 'passed' }
+        : taskFailure('check', 'Parent local completion is not remote delivery; require stage validation and publish confirmation', 'VIBE_HARNESS_PARENT_BATCH_NOT_PUBLISHED')),
+      complete, deliveryStatus: publication ? 'remote_confirmed' : 'not_published', publication, batchEvidence,
+    };
+  }
   const blockers = Array.isArray(read.anchor.blockers) ? read.anchor.blockers.filter((item) => typeof item === 'string' && item.trim() !== '') : [];
   const ok = complete
     ? targetUnits.length > 0 && unfinished.length === 0 && unverified.length === 0 && failedUnits.length === 0 && blockers.length === 0
@@ -1313,6 +1399,22 @@ async function taskUpdateReport(projectDir, args) {
       unit.verification = entry;
       changes.push(`verification:${args.unit}`);
     }
+    if (next.executionBatch) {
+      if (!next.executionBatch.members.includes(args.unit)) return taskFailure('update', 'unit is outside the Parent batch', 'VIBE_HARNESS_PLAN_UNIT_UNDECLARED');
+      try {
+        unit.localCompletion = await bindLocalCompletion(projectDir, next, unit, receipt,
+          configuredChecks(await readProjectConfig(projectDir), projectDir));
+        changes.push(`local-completion:${args.unit}`);
+      } catch (error) {
+        return taskFailure('update', error.message, 'VIBE_HARNESS_LOCAL_COMPLETION_INVALID');
+      }
+    }
+  }
+  if (next.executionBatch && next.units.some((unit) => unit.status === 'done' && !unit.localCompletion)) {
+    return taskFailure('update', 'batch done units require local completion evidence', 'VIBE_HARNESS_LOCAL_COMPLETION_INVALID');
+  }
+  if (next.executionBatch && next.units.filter((unit) => unit.status === 'in_progress').length > 1) {
+    return taskFailure('update', 'a Parent batch permits one active Writer unit', 'VIBE_HARNESS_PARENT_BATCH_SINGLE_WRITER');
   }
   if (args.stage === 'verify' && current.stage !== 'verify') {
     next.latestCheckpoint = await buildTaskCheckpoint(projectDir, next, 'pre-verify');

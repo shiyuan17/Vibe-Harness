@@ -417,11 +417,19 @@ export async function gitSnapshot(projectDir) {
   if (!status.ok) return { available: false, reason: 'git-status-failed', changes: [] };
   const changes = parseStatus(status.stdout);
   if (changes === null) return { available: false, reason: 'git-status-undecodable', changes: [] };
+  // A staged snapshot can be verified before commit, then bound to that exact
+  // tree after commit. No unstaged/untracked content may disappear from proof.
+  let indexTree = null;
+  if (changes.every((change) => change.status[1] === ' ' && change.status[0] !== '?')) {
+    const tree = await git(changes.length ? ['write-tree'] : ['rev-parse', 'HEAD^{tree}'], projectDir);
+    if (tree.ok && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(tree.stdout.trim())) indexTree = tree.stdout.trim();
+  }
   return {
     available: true,
     root: rootPath.trim().replaceAll('\\', '/'),
     head: head.ok ? head.stdout.trim() : null,
     changes,
+    indexTree,
     reason: null,
   };
 }

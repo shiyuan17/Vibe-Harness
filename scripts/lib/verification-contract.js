@@ -1,3 +1,4 @@
+import { normalizeCheckResources } from '../../runtime/lib/check-resources.mjs';
 export const VERIFICATION_SCOPES = Object.freeze(['affected', 'layer', 'full']);
 export const DEFAULT_VERIFICATION_SCOPE = 'layer';
 export const MICRO_CHECK_STATUSES = Object.freeze(['planned', 'passed', 'failed', 'blocked']);
@@ -61,6 +62,8 @@ export function normalizeValidationChecks(value) {
       costTier,
       scopes,
       deterministic: item.deterministic === true,
+      resources: normalizeCheckResources(item.resources),
+      writesDependencies: item.writesDependencies === true,
       cacheScope,
       subsumes: [...new Set(subsumes.map((value) => value.trim()))],
       cwd: item.cwd ?? '.',

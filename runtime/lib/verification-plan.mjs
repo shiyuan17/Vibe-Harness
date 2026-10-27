@@ -4,6 +4,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'n
 import path from 'node:path';
 
 import { gitTimeoutMs } from './git-timeouts.mjs';
+import { normalizeCheckResources } from './check-resources.mjs';
 
 export const VERIFICATION_TIERS = ['quick', 'standard', 'deep'];
 const TIER_RANK = Object.freeze(Object.fromEntries(VERIFICATION_TIERS.map((tier, index) => [tier, index])));
@@ -47,7 +48,7 @@ export function verificationChanges(projectDir, { paths = undefined, base = unde
     return { changedPaths: [], baseSha: null, selectionMode: 'unavailable' };
   }
   if (paths !== undefined) return { changedPaths: verificationPaths(projectDir, paths), baseSha, selectionMode: 'explicit-paths' };
-  const changed = git(['diff', '--name-only', '-z', baseSha, '--']).split('\0').filter(Boolean);
+  const changed = git(['diff', '--name-only', '-z', '--no-renames', baseSha, '--']).split('\0').filter(Boolean);
   const untracked = git(['ls-files', '--others', '--exclude-standard', '-z']).split('\0').filter(Boolean);
   return { changedPaths: verificationPaths(projectDir, [...changed, ...untracked]), baseSha, selectionMode: 'changed' };
 }
@@ -279,7 +280,7 @@ export function selectVerificationChecks({
       ?? VERIFICATION_TIERS.flatMap((name) => tiers[name] ?? []).find((value) => verificationCheckId(value, commandStatus) === item.id);
     if (typeof command !== 'string' || !command.trim()) throw new Error(`Cannot resolve command for check: ${item.id}`);
     const cwd = projectDir ? verificationCwd(projectDir, item.cwd).relative : item.cwd ?? '.';
-    return { ...item, command: command.trim(), cwd };
+    return { ...item, command: command.trim(), cwd, resources: normalizeCheckResources(item.resources) };
   });
   const seen = new Set();
   const identities = new Map();
@@ -295,6 +296,8 @@ export function selectVerificationChecks({
         if (seen.has(identity)) {
           const existing = allChecks.find((check) => verificationCommandIdentity(check.command, check.cwd) === identity);
           existing.deterministic = existing.deterministic === true && declaration.deterministic === true;
+          existing.resources = normalizeCheckResources([...(existing.resources ?? []), ...(declaration.resources ?? [])]);
+          existing.writesDependencies = existing.writesDependencies === true || declaration.writesDependencies === true;
           continue;
         }
         seen.add(identity);

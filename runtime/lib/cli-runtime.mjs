@@ -42,8 +42,8 @@ export function assertSafeCommand(command) {
   const tokens = splitCommand(command);
   for (const token of tokens) {
     if (shellControlPattern.test(token)) {
-      const error = new Error('Command contains shell metacharacters and cannot be executed safely.');
-      error.code = 'VIBE_HARNESS_UNSAFE_COMMAND';
+      const error = Object.assign(new Error('Command contains shell metacharacters and cannot be executed safely.'),
+        { code: 'VIBE_HARNESS_UNSAFE_COMMAND' });
       throw error;
     }
   }
@@ -144,7 +144,7 @@ export async function readJsonIfExists(filePath) {
     return { exists: true, value: null, error: redactText(error.message, path.dirname(filePath)) };
   }
 }
-export async function runFile(program, args, { cwd, timeoutMs = 10_000, env = {} } = {}) {
+export async function runFile(program, args, { cwd = undefined, timeoutMs = 10_000, env = {} } = {}) {
   try {
     const result = await execFileAsync(program, args, {
       cwd,
@@ -259,6 +259,7 @@ export async function envReport(projectDir) {
 }
 export async function changesReport(projectDir, args) {
   const snapshot = await gitSnapshot(projectDir);
+  /** @type {Record<string, any>} */
   const report = { schemaVersion: SCHEMA_VERSION, command: 'changes', status: snapshot.available ? 'ready' : 'unavailable', ...snapshot };
   delete report.root;
   if (args.base && snapshot.available) {

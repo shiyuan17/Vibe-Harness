@@ -301,6 +301,17 @@
                   "type": "string",
                   "minLength": 1
                 }
+              },
+              "resources": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9:._/-]{0,127}$"
+                }
+              },
+              "writesDependencies": {
+                "type": "boolean"
               }
             },
             "additionalProperties": false
@@ -494,6 +505,9 @@
               "type": "integer",
               "minimum": 60000,
               "maximum": 7776000000
+            },
+            "enabled": {
+              "type": "boolean"
             }
           },
           "additionalProperties": false
@@ -947,9 +961,31 @@
                 "type": "string",
                 "minLength": 1
               }
+            },
+            "candidateSetupCommands": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "candidateTeardownCommands": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           },
           "additionalProperties": false
+        },
+        "dependencyMode": {
+          "type": "string",
+          "enum": [
+            "shared-immutable",
+            "isolated"
+          ],
+          "default": "shared-immutable"
         }
       },
       "additionalProperties": false

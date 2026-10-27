@@ -220,7 +220,7 @@ export async function executeCommand(command, targetDir, timeoutMs, redactionRoo
     };
     child.stdout?.on('data', (chunk) => append('stdout', chunk));
     child.stderr?.on('data', (chunk) => append('stderr', chunk));
-    child.once('error', (error) => finish({ status: 'blocked', code: error.code ?? 'START_FAILED', exitCode: null }));
+    child.once('error', (error) => finish({ status: 'blocked', code: /** @type {NodeJS.ErrnoException} */ (error).code ?? 'START_FAILED', exitCode: null }));
     child.once('close', (code, signal) => {
       if (timedOut) finish({ status: 'blocked', code: 'TIMEOUT', exitCode: null, signal });
       else if (bytes > MAX_OUTPUT_BYTES) finish({ status: 'blocked', code: 'OUTPUT_LIMIT', exitCode: null, signal });
@@ -271,6 +271,7 @@ export function verificationReview({
     reviewPolicy: 'required',
   };
 }
+/** @param {{review?: any, status?: string, snapshotComparison?: string, inputsStable?: boolean, fingerprint?: string, selectedNames?: string[], deferredCount?: number}} options */
 export function verificationAcceptance({ review, status, snapshotComparison, inputsStable, fingerprint, selectedNames = [], deferredCount = 0 } = {}) {
   const passed = status === 'verified' || status === 'passed' || status === 'reused';
   const stable = snapshotComparison === 'match' && inputsStable !== false && typeof fingerprint === 'string' && fingerprint.length > 0;

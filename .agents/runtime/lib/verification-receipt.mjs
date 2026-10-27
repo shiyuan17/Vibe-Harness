@@ -1,17 +1,18 @@
 import { execFile } from 'node:child_process';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { userInfo } from 'node:os';
+import { hostname, userInfo } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { gitFingerprint, gitTreeFingerprint } from './git-fingerprint.mjs';
 import { verificationCwd } from './verification-plan.mjs';
+import { dependencyFingerprint, resourceFingerprintInput } from './verification-inputs.mjs';
 
 const execute = promisify(execFile);
 const RECEIPTS = '.vibe-harness/verification/receipts';
-export const VERIFICATION_RECEIPT_SCHEMA_VERSION = 5;
-const CHECK_CACHE_RELATIVE = 'vibe-harness/verification-cache/v5';
+export const VERIFICATION_RECEIPT_SCHEMA_VERSION = 6;
+const CHECK_CACHE_RELATIVE = 'vibe-harness/verification-cache/v6';
 // The record store lives inside the project it describes, so the caller that
 // supplies a handcrafted completion receipt can also write a matching record by
 // hand. Each record is therefore authenticated with a per-user key kept outside
@@ -110,6 +111,16 @@ async function readRecord(file) {
     return { record: null, reason: 'record-authentication-mismatch' };
   }
   return { record, reason: null };
+}
+
+export async function authenticatePushRecord(record) {
+  if (!['push-verification', 'push-attempt'].includes(record?.kind) || record.schemaVersion !== 1) return null;
+  const key = await authenticationKey();
+  return key ? { ...record, mac: authenticate(record, key) } : null;
+}
+export async function readAuthenticatedPushRecord(file) {
+  if ((await lstat(file)).isSymbolicLink() || (await stat(file)).size > 1024 * 1024) return null;
+  return (await readRecord(file)).record;
 }
 
 /** The acceptance evidence a completion receipt has to reproduce, or null. */
@@ -245,6 +256,7 @@ export async function prepareVerificationReceiptStore(projectDir) {
 }
 
 export async function verificationCacheContext(projectDir, plan, snapshot = undefined) {
+  const inputStartedAt = Date.now();
   const state = snapshot ?? await gitFingerprint(projectDir);
   const root = await realpath(projectDir);
   const commands = (plan.selectedChecks ?? []).map((check) => ({
@@ -261,14 +273,12 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
   }));
   const configBytes = await readFile(path.join(root, 'vibe-harness.config.json'), 'utf8').catch(() => '{}');
   const config = JSON.parse(configBytes);
+  const dependencies = dependencyFingerprint(projectDir, config, commands);
+  const resourceContext = resourceFingerprintInput(projectDir);
   const reuseMode = config.verification?.reuse?.mode === 'tree-content' ? 'tree-content' : 'workspace';
-  const envAllowlist = Array.isArray(config.verification?.reuse?.envAllowlist)
-    ? [...new Set(config.verification.reuse.envAllowlist)]
-    : null;
-  const environment = envAllowlist
-    ? Object.fromEntries(envAllowlist.sort().map((name) => [name, process.env[name] === undefined
-      ? null : createHash('sha256').update(process.env[name]).digest('hex')]))
-    : Object.entries(process.env).filter(([name]) => name !== 'VIBE_HARNESS_VERIFICATION_ID')
+  // Commands inherit the environment. A legacy allowlist is not evidence that
+  // an inherited variable is irrelevant, so v6 fingerprints the complete input.
+  const environment = Object.entries(process.env).filter(([name]) => name !== 'VIBE_HARNESS_VERIFICATION_ID')
       .sort(([left], [right]) => left.localeCompare(right));
   const treeContentFingerprint = reuseMode === 'tree-content'
     ? await gitTreeFingerprint(projectDir)
@@ -284,6 +294,26 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
     const program = check.command.match(/^(?:\.\/)?mvnw(?:\.cmd)?(?=\s|$)/u)?.[0];
     if (program) tools[`${check.cwd}:${program}`] = await version(program, ['--version'], path.join(root, check.cwd));
   }
+  // Keep the execution inputs separate from the inherited environment: native
+  // Git hooks transform transport variables, but must still check this same
+  // dependency/configuration/toolchain identity before consuming a proof.
+  const executionInputs = {
+    platform: process.platform, arch: process.arch, tools, inputs,
+    machine: hostname(), user: userInfo().username,
+    dependencies: dependencies.fingerprint,
+    resources: resourceContext,
+    implementation: createHash('sha256')
+      .update(await readFile(new URL(import.meta.url)))
+      .update(await readFile(new URL('./verification-plan.mjs', import.meta.url)))
+      .update(await readFile(new URL('./verification-command.mjs', import.meta.url)))
+      .update(await readFile(new URL('./verification-plan-support.mjs', import.meta.url)))
+      .update(await readFile(new URL('./verification-inputs.mjs', import.meta.url)))
+      .update(await readFile(new URL('./verification-risk.mjs', import.meta.url)))
+      .update(await readFile(new URL('./check-resources.mjs', import.meta.url)))
+      .update(await readFile(new URL('./git-fingerprint.mjs', import.meta.url)))
+      .digest('hex'),
+    provider: config.verification?.environment ?? null,
+  };
   const fingerprints = {
     worktreeIdentity: digest(root),
     fingerprint: state.fingerprint,
@@ -295,22 +325,16 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
       deferredChecks: (plan.deferredChecks ?? []).map((check) => [check.id ?? check.name, check.command, check.cwd ?? '.']),
     }),
     commandSetFingerprint: digest(commands),
-    environmentFingerprint: digest({
-      platform: process.platform, arch: process.arch, tools, inputs,
-      implementation: createHash('sha256')
-        .update(await readFile(new URL(import.meta.url)))
-        .update(await readFile(new URL('./verification-plan.mjs', import.meta.url)))
-        .update(await readFile(new URL('./verification-command.mjs', import.meta.url)))
-        .update(await readFile(new URL('./git-fingerprint.mjs', import.meta.url)))
-        .digest('hex'),
-      environment,
-      provider: config.verification?.environment ?? null,
-    }),
+    dependencyFingerprint: dependencies.fingerprint,
+    executionFingerprint: digest(executionInputs),
+    environmentFingerprint: digest({ ...executionInputs, environment }),
   };
   const deterministic = commands.length > 0 && commands.every((check) => check.deterministic);
   const anyDeterministic = commands.some((check) => check.deterministic);
   const warm = config.verification?.environment?.mode === 'warm';
-  const toolsAvailable = Object.values(tools).every((value) => value !== null);
+  const enabled = config.verification?.reuse?.enabled !== false;
+  const sharedDependencies = resourceContext?.dependencyMode === 'shared-immutable';
+  const toolsAvailable = Object.values(tools).every((value) => value !== null) && dependencies.available;
   // The write evidence is part of the schema-v4 contract: a run that cannot
   // produce it must not be stored or reused, or a receipt would be replayed
   // against a workspace whose writes were never fingerprinted.
@@ -321,12 +345,9 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
   // is later checked against, so a non-deterministic or warm run still leaves
   // the durable record a receipt has to match.
   const recordable = state.fingerprint !== null && writeEvidenceAvailable;
-  // Same-workspace reuse is bound to the exact content and environment
-  // fingerprints, so an ordinary command does not need to opt into
-  // determinism merely to avoid being rerun. Cross-worktree tree-content reuse
-  // is different: it drops the workspace identity and therefore remains
-  // opt-in for explicitly deterministic checks.
-  const available = recordable && (reuseMode !== 'tree-content' || deterministic) && !warm
+  // Even same-workspace reuse requires explicit determinism: matching local
+  // inputs cannot establish the state of a mutable external dependency.
+  const available = enabled && recordable && deterministic && !warm && (reuseMode !== 'tree-content' || !sharedDependencies)
     && toolsAvailable && !inputs.some(([, value]) => value === 'unreadable')
     && (reuseMode !== 'tree-content' || treeContentFingerprint !== null);
   // The cache key deliberately leaves the write evidence out. The checks a run
@@ -352,7 +373,8 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
     arch: process.arch,
   };
   const perCheck = commands.map((check) => {
-    const checkAvailable = recordable && check.deterministic && !warm && toolsAvailable
+    const checkAvailable = enabled && recordable && check.deterministic && !warm && toolsAvailable
+      && (reuseMode !== 'tree-content' || !sharedDependencies)
       && !inputs.some(([, value]) => value === 'unreadable')
       && (reuseMode !== 'tree-content' || treeContentFingerprint !== null);
     const identity = {
@@ -374,6 +396,8 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
   });
   return {
     fingerprints, key, available, recordable, snapshot: state, mode: reuseMode,
+    inputsAvailable: toolsAvailable && !inputs.some(([, value]) => value === 'unreadable'),
+    inputFingerprintMs: Date.now() - inputStartedAt,
     treeContentFingerprint, perCheck, selectionFingerprint,
     reason: reuseMode === 'tree-content' && !deterministic
       ? anyDeterministic ? 'some-checks-not-explicitly-deterministic' : 'checks-not-explicitly-deterministic'
@@ -533,6 +557,8 @@ export async function storeVerificationReceipt(projectDir, context, receipt, { c
     ...context.fingerprints,
     fingerprint,
     writeFingerprint,
+    verifiedTree: receipt.verifiedTree ?? null,
+    task: receipt.task ?? null,
   };
   summary.mac = authenticate(summary, key);
   const temporary = path.join(directory, `${context.key}.${randomUUID()}.tmp`);
@@ -587,6 +613,8 @@ export async function attestCompletionProvenance(projectDir, receipt) {
     if (record.status !== 'passed' || record.snapshotComparison !== 'match') problems.push('record-status');
     if (record.fingerprint !== verification.fingerprint) problems.push('content-fingerprint');
     if (record.writeFingerprint !== verification.writeFingerprint) problems.push('write-fingerprint');
+    if ((record.verifiedTree ?? null) !== (verification.verifiedTree ?? null)) problems.push('verified-tree');
+    if (record.task !== undefined && !sameProjection(record.task, verification.task ?? null)) problems.push('task-binding');
     if (cited !== null && JSON.stringify(record.selectedChecks) !== JSON.stringify(cited)) problems.push('selected-checks');
     // The review and the acceptance are what make a completion *acceptable*, so
     // they are compared with the normalization the record was written under: a
@@ -659,6 +687,8 @@ export async function recordFinalVerification(projectDir, verification, { checks
     checks: commandEvidence(checks),
     fingerprint: verification.fingerprint ?? null,
     writeFingerprint: verification.writeFingerprint ?? null,
+    verifiedTree: verification.verifiedTree ?? null,
+    task: verification.task ?? null,
     finalizedAt: verification.finalizedAt ?? null,
   };
   record.mac = authenticate(record, key);

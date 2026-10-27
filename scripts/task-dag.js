@@ -17,10 +17,11 @@ import { pathToFileURL } from 'node:url';
 
 import { readJson } from './lib/manifest.js';
 import { safeJsonParse } from './lib/safe-json.js';
-import { summarizeTaskDag, validateTaskDag } from './lib/task-dag.js';
+import { checkTaskDagNode, summarizeTaskDag, validateTaskDag } from './lib/task-dag.js';
+import { taskParentBatchEvidence } from '../runtime/lib/task-command.mjs';
 
 function printUsage() {
-  console.log('Usage: node scripts/task-dag.js check --file <dag.json> [--require-ready] [--json]');
+  console.log('Usage: node scripts/task-dag.js check --file <dag.json> [--node <id>] [--require-ready] [--json]');
   console.log('       node scripts/task-dag.js check --stdin [--require-ready] [--json]');
   console.log('       node scripts/task-dag.js hash --file <dag.json> [--json]');
   console.log();
@@ -44,17 +45,18 @@ function usageError(message) {
 
 /** Parse argv for `check` and `hash`. */
 export function parseTaskDagArgs(argv) {
-  const options = { file: null, json: false, requireReady: false, stdin: false };
+  const options = { file: null, node: null, json: false, requireReady: false, stdin: false };
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (token === '--stdin') { options.stdin = true; continue; }
     if (token === '--json') { options.json = true; continue; }
     if (token === '--require-ready') { options.requireReady = true; continue; }
     if (token === '--help' || token === '-h') { printUsage(); process.exit(0); }
-    if (token !== '--file') usageError(`unknown argument: ${token}`);
+    if (!['--file', '--node'].includes(token)) usageError(`unknown argument: ${token}`);
     const value = argv[index + 1];
     if (value === undefined || value.startsWith('--')) usageError(`${token} requires a value`);
-    options.file = value;
+    if (token === '--node') options.node = value;
+    else options.file = value;
     index += 1;
   }
   if (options.file === null && !options.stdin) usageError('--file <path> or --stdin is required');
@@ -81,7 +83,14 @@ async function readDag(options) {
 
 async function runCheck(argv) {
   const options = parseTaskDagArgs(argv);
-  const analysis = validateTaskDag(await readDag(options));
+  const analysis = await analyzeDag(await readDag(options));
+  if (options.node) {
+    const dispatch = checkTaskDagNode(analysis, options.node);
+    console.log(options.json ? JSON.stringify({ ...analysis, dispatch, ok: dispatch.ready }, null, 2)
+      : `${summarizeTaskDag(analysis)}\nnode ${dispatch.id}: ${dispatch.code}`);
+    if (!dispatch.ready) process.exitCode = 1;
+    return;
+  }
   if (options.json) console.log(JSON.stringify(analysis, null, 2));
   else console.log(summarizeTaskDag(analysis));
   if (!analysis.ok) process.exitCode = 1;
@@ -93,10 +102,20 @@ async function runCheck(argv) {
 
 async function runHash(argv) {
   const options = parseTaskDagArgs(argv);
-  const analysis = validateTaskDag(await readDag(options));
+  const analysis = await analyzeDag(await readDag(options));
   if (options.json) console.log(JSON.stringify({ ok: analysis.ok, structureHash: analysis.structureHash }, null, 2));
   else console.log(analysis.structureHash);
   if (!analysis.ok) process.exitCode = 1;
+}
+
+async function analyzeDag(value) {
+  const pointer = value?.executionBatch;
+  let batchEvidence = null;
+  if (pointer && typeof pointer.worktree === 'string' && path.isAbsolute(pointer.worktree) && typeof pointer.parentId === 'string') {
+    try { batchEvidence = await taskParentBatchEvidence(pointer.worktree, pointer.parentId); }
+    catch { /* An unreadable batch fails closed in the validator. */ }
+  }
+  return validateTaskDag(value, { batchEvidence });
 }
 
 async function main() {

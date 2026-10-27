@@ -10,6 +10,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { acquireCheckResources } from './check-resources.mjs';
+import { candidateEnvironment } from './verification-inputs.mjs';
+import { buildDeliveryVerificationPlan } from './verification-risk.mjs';
 
 import { runMicroCheck } from './micro-runner.mjs';
 import { gitFingerprint, gitTreeFingerprint } from './git-fingerprint.mjs';
@@ -23,6 +26,7 @@ import {
   findVerificationReceipt,
   findVerificationCheckReceipt,
   prepareVerificationReceiptStore,
+  recordFinalVerification,
   storeVerificationCheckReceipt,
   storeVerificationReceipt,
   verificationCacheContext,
@@ -38,7 +42,7 @@ import { VERIFY_ENGINE, VERIFY_SCHEMA_VERSION, configuredChecks, declaredCheckTi
  * names the task and the plan revision it verified can be traced back to the
  * plan a reader opens, instead of being a free-floating "tests passed".
  */
-async function verificationTaskBinding(projectDir, taskId) {
+async function verificationTaskBinding(projectDir, taskId, unitId) {
   let read;
   try {
     read = await readTaskAnchor(projectDir, taskId);
@@ -53,6 +57,7 @@ async function verificationTaskBinding(projectDir, taskId) {
     planFile: typeof anchor.planFile === 'string' ? anchor.planFile : null,
     planRevision: typeof anchor.planRevision === 'string' ? anchor.planRevision : null,
     planDigest: typeof anchor.planDigest === 'string' ? anchor.planDigest : null,
+    ...(anchor.executionBatch && anchor.executionBatch.members.includes(unitId) ? { unitId } : {}),
   };
 }
 export function verificationProgress(args, phase, detail = {}) {
@@ -61,8 +66,8 @@ export function verificationProgress(args, phase, detail = {}) {
 }
 
 // A cooperative cancellation marker written next to the receipt store when a
-// newer published baseline supersedes this candidate. Killing the process is
-// the backstop; polling this file lets a long verification exit on its own
+// newer published baseline supersedes this candidate. The owner keeps its lease
+// until polling this file lets verification exit on its own
 // between checks, leaving `not_run` results instead of a half-written run.
 function readCancellationSidecar(projectDir) {
   try {
@@ -135,7 +140,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
         checks: {},
       };
     }
-    taskBinding = await verificationTaskBinding(projectDir, taskIdCandidate);
+    taskBinding = await verificationTaskBinding(projectDir, taskIdCandidate, args.unit);
   }
   const configInfo = await readJsonIfExists(path.join(projectDir, CONFIG_FILE));
   if (configInfo.error) {
@@ -203,7 +208,10 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   let changeScope;
   try {
     changeScope = verificationChanges(projectDir, { paths: args.paths, base: args.base });
-    tierPlan = resolveVerifyTierPlan({
+    tierPlan = args.deliveryEvidence ? buildDeliveryVerificationPlan({
+      changedPaths: args.riskPaths ?? changeScope.changedPaths, config, projectDir, tier: args.tier ?? null,
+      scopeConfidence: args.scopeConfidence ?? 'complete', fullRisk: args.fullRisk === true, full: args.full === true,
+    }) : resolveVerifyTierPlan({
       commands: configured.commands,
       config,
       tier,
@@ -213,6 +221,11 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     });
   } catch (error) {
     return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: error.message, checks: {} };
+  }
+  if (tierPlan.missingRequiredEvidence?.length) {
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify',
+      status: 'blocked', code: 'DELIVERY_EVIDENCE_UNCONFIGURED', checks: {}, selectedChecks: [],
+      riskLevel: tierPlan.riskLevel, missingRequiredEvidence: tierPlan.missingRequiredEvidence };
   }
   const checkOrder = [...new Set([...tierPlan.allChecks.map((check) => check.id), ...CHECK_ORDER])];
   const checkMetadata = new Map(tierPlan.allChecks.map((check) => [check.id, check]));
@@ -272,7 +285,9 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   const wholeRunCache = !planOnly && args.reuse && cacheContext?.mode !== 'tree-content';
   const cached = wholeRunCache ? await findVerificationReceipt(projectDir, cacheContext) : null;
   const cacheLookupMs = Date.now() - cacheLookupStartedAt;
-  if (cached?.receipt) {
+  if (cached?.receipt && (!taskBinding?.unitId
+    || cached.receipt.task?.id === taskBinding.id && cached.receipt.task?.unitId === taskBinding.unitId
+      && cached.receipt.task?.planDigest === taskBinding.planDigest)) {
     const confirmedContext = await verificationCacheContext(projectDir, receiptPlan);
     const confirmed = confirmedContext.snapshot;
     if (confirmedContext.key === cacheContext.key) {
@@ -294,6 +309,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
         minimumTier: null,
         selectedMicroChecks: [], deferredMicroChecks: [], estimatedCostMs: estimateSelectedCost(selectedNames),
         cache: { status: 'hit', reason: cached.reason, lookupMs: cacheLookupMs }, environment: { mode: environmentMode, status: 'reused' },
+        timingsMs: { inputFingerprint: cacheContext.inputFingerprintMs + confirmedContext.inputFingerprintMs },
         reused: {
           id: cached.receipt.id, finishedAt: cached.receipt.finishedAt, fingerprint: before.fingerprint,
           command: commandSet, beforeHead: before.snapshot.head, afterHead: confirmed.snapshot.head,
@@ -307,6 +323,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
           after: confirmed.snapshot,
           stable: true,
           snapshotComparison: 'match',
+          verifiedTree: before.snapshot.indexTree === confirmed.snapshot.indexTree ? confirmed.snapshot.indexTree : null,
           review: verificationReview({
             changedPaths: changeScope.changedPaths,
             selectedNames,
@@ -440,11 +457,20 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       check: name, elapsedMs: Date.now() - checkStartedAt, timeoutMs: checkTimeoutMs,
     }), 30_000) : null;
     heartbeat?.unref();
+    let resources;
     try {
-      result = await executeCommand(executableCommand, cwd.absolute, effectiveTimeoutMs, projectDir, verificationContextEnvironment({ ...changeScope, scope }));
+      resources = await acquireCheckResources(projectDir, checkMetadata.get(name)?.resources, { timeoutMs: effectiveTimeoutMs });
+      if (!resources.ok) result = { status: 'blocked', code: resources.code, exitCode: null };
+      else {
+        resources.begin?.();
+        result = await executeCommand(executableCommand, cwd.absolute,
+        Math.max(1, effectiveTimeoutMs - resources.waitMs), projectDir,
+        { ...candidateEnvironment(projectDir).environment, ...verificationContextEnvironment({ ...changeScope, scope }) });
+      }
     } catch (error) {
       result = { status: 'blocked', code: 'UNSAFE_COMMAND', exitCode: null, stderr: boundedOutput(error.message, projectDir) };
     } finally {
+      resources?.release?.({ retain: ['TIMEOUT', 'OUTPUT_LIMIT'].includes(result?.code) });
       if (heartbeat) clearInterval(heartbeat);
     }
     const durationMs = Date.now() - checkStartedAt;
@@ -456,6 +482,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       cwd: cwd.relative,
       exitCode: result.exitCode,
       durationMs,
+      resourceWaitMs: resources?.waitMs ?? 0,
       ...(declaredTimeoutMs ? { timeoutMs: effectiveTimeoutMs } : {}),
       ...(result.stdout ? { stdout: result.stdout } : {}),
       ...(result.stderr ? { stderr: result.stderr } : {}),
@@ -661,8 +688,9 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     tier: tierPlan.tier,
     scope,
     scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
-    riskLevel: null,
-    impactGroups: [],
+    riskLevel: tierPlan.riskLevel ?? null,
+    impactGroups: tierPlan.impactGroups ?? [],
+    requiredChecks: tierPlan.requiredChecks ?? [],
     deferredChecks: tierPlan.deferredChecks,
     subsumedChecks: tierPlan.subsumedChecks ?? [],
     nextTier: tierPlan.nextTier,
@@ -686,6 +714,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     selectedMicroChecks: [],
     deferredMicroChecks: [],
     estimatedCostMs: estimateSelectedCost(selectedNames),
+    timingsMs: { inputFingerprint: cacheContext.inputFingerprintMs + afterContext.inputFingerprintMs },
     cache: {
       status: cacheStatus,
       reason: cacheContext?.mode === 'tree-content'
@@ -708,6 +737,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       stable,
       inputsStable,
       snapshotComparison,
+      verifiedTree: stable && inputsStable && before.snapshot.indexTree === after.snapshot.indexTree ? after.snapshot.indexTree : null,
       status: verificationStatus,
       // Receipt identity: governance-core.md references these fields when a
       // delivery cites `vibe-harness verify --project`.
@@ -748,6 +778,13 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   }, {
     checks: Object.entries(report.checks ?? {}).map(([id, check]) => ({ id, command: check?.command })),
   }).catch(() => false);
+  // Two read/reverification units can share a tree/cache key. Preserve each
+  // authenticated historical run independently of that mutable cache slot.
+  if (taskBinding?.unitId && receiptStatus === 'passed') {
+    await recordFinalVerification(projectDir, report.verification, {
+      checks: Object.entries(report.checks ?? {}).map(([id, check]) => ({ id, command: check?.command })),
+    });
+  }
   verificationProgress(args, 'complete', { status: report.status, tier: report.tier, selectedCount: selectedNames.length,
     deferredCount: tierPlan.deferredChecks.length });
   return report;

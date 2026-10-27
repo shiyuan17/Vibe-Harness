@@ -9,6 +9,8 @@ import { terminateProcessTree } from './process-tree.js';
 import { maxDiagnosticOutput, redactDiagnosticText } from './tool-provisioning/subprocess.js';
 import { verificationCheckEvidence, verificationContextEnvironment, verificationCwd } from '../../runtime/lib/verification-plan.mjs';
 import { findVerificationReceipt, prepareVerificationReceiptStore, storeVerificationReceipt, verificationCacheContext } from '../../runtime/lib/verification-receipt.mjs';
+import { acquireCheckResources } from '../../runtime/lib/check-resources.mjs';
+import { candidateEnvironment } from '../../runtime/lib/verification-inputs.mjs';
 
 const execFileAsync = promisify(execFile);
 export const DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS = 120_000;
@@ -651,14 +653,20 @@ export async function runFocusedProjectVerification({
       stopped = true;
       continue;
     }
+    let resources;
+    let resourceStopUnconfirmed = false;
     try {
       const { command: exec, preArgs } = executableFor(program);
+      const limit = remainingBudgetMs === null ? commandTimeoutMs : Math.max(1, Math.min(commandTimeoutMs, remainingBudgetMs));
+      resources = await acquireCheckResources(targetDir, item.resources, { timeoutMs: limit });
+      if (!resources.ok) throw Object.assign(new Error(resources.code), { code: resources.code });
+      resources.begin?.();
       const result = await executeVerificationCommand(exec, [...preArgs, ...args], {
         cwd: verificationCwd(targetDir, item.cwd).absolute,
         signal,
-        timeoutMs: remainingBudgetMs === null ? commandTimeoutMs : Math.max(1, Math.min(commandTimeoutMs, remainingBudgetMs)),
+        timeoutMs: Math.max(1, limit - resources.waitMs),
         verificationId: id,
-        context: verificationContextEnvironment(focused),
+        context: { ...candidateEnvironment(targetDir).environment, ...verificationContextEnvironment(focused) },
       });
       results.push({
         ...item,
@@ -672,6 +680,7 @@ export async function runFocusedProjectVerification({
       stopped = ['failed', 'blocked'].includes(results.at(-1).status);
       if (budgetDeadline !== null && Date.now() >= budgetDeadline) budgetExhausted = true;
     } catch (cause) {
+      resourceStopUnconfirmed = cause.verificationTimedOut || cause.verificationCancelled || cause.verificationOutputLimitExceeded;
       results.push({
         ...item,
         ...commandFailureResult({
@@ -687,6 +696,8 @@ export async function runFocusedProjectVerification({
       });
       stopped = ['failed', 'blocked'].includes(results.at(-1).status);
       if (budgetDeadline !== null && Date.now() >= budgetDeadline) budgetExhausted = true;
+    } finally {
+      resources?.release?.({ retain: resourceStopUnconfirmed });
     }
   }
   const after = await createProjectSnapshot(targetDir);

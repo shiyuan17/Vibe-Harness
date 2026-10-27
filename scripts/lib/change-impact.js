@@ -12,12 +12,8 @@ const execFileAsync = promisify(execFile);
 // itself, so it is the only place (besides CI) that may claim lifecycle smoke
 // evidence. Single source of truth — verification-plan.js imports it for risk
 // classification instead of keeping a second copy.
-export const LIFECYCLE_PATHS = [
-  /^scripts\/(?:vibe-harness\.js|smoke-lifecycles\.js|lib\/(?:install|file-transaction|transaction|tool-provisioning))/u,
-  /^runtime\/hooks\//u,
-  /^\.agents\/runtime\/hooks\//u,
-  /^\.github\/workflows\//u,
-];
+import { LIFECYCLE_PATHS } from '../../runtime/lib/verification-risk.mjs';
+export { LIFECYCLE_PATHS } from '../../runtime/lib/verification-risk.mjs';
 
 export function checkStage(command) {
   if (/test:matrix/iu.test(command)) return 'matrix';
@@ -88,8 +84,8 @@ export function parseNulPorcelainPaths(output) {
 export async function collectChangedPaths({ base = null, cwd = process.cwd() } = {}) {
   const gitEnv = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
   const diffArgs = base
-    ? ['diff', '--name-only', '-z', '--find-renames', base]
-    : ['diff', '--name-only', '-z', '--find-renames', 'HEAD'];
+    ? ['diff', '--name-only', '-z', '--no-renames', base]
+    : ['diff', '--name-only', '-z', '--no-renames', 'HEAD'];
   const paths = new Set();
   const [diff, status] = await Promise.all([
     execFileAsync('git', diffArgs, { env: gitEnv, cwd }),

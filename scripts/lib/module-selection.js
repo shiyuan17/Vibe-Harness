@@ -22,7 +22,7 @@ export const moduleCatalog = {
   'open-code-review': { dependencies: ['skills'], groups: ['tools-open-code-review'] },
   linear: { dependencies: ['skills'], groups: ['rules-linear', 'skills-linear', 'templates-linear', 'mcp-config'] },
   'linear-readonly': { dependencies: ['skills'], groups: ['rules-linear', 'skills-linear', 'templates-linear', 'mcp-config'] },
-  hooks: { dependencies: ['agents'], groups: ['hooks'] },
+  hooks: { dependencies: ['agents', 'project-scripts'], groups: ['hooks'] },
   roles: { dependencies: ['agents', 'rules'], groups: ['roles'] },
 };
 

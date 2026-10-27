@@ -451,6 +451,12 @@
     },
     {
       "group": "runtime-project-scripts",
+      "source": "runtime/lib/parent-batch.mjs",
+      "target": ".agents/runtime/lib/parent-batch.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
       "source": "runtime/lib/verification-command.mjs",
       "target": ".agents/runtime/lib/verification-command.mjs",
       "contentStrategy": "replace"
@@ -1298,6 +1304,36 @@
       "group": "agents-index",
       "source": "templates/agents-index.md",
       "target": ".agents/README.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/verification-risk.mjs",
+      "target": ".agents/runtime/lib/verification-risk.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/verification-inputs.mjs",
+      "target": ".agents/runtime/lib/verification-inputs.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/check-resources.mjs",
+      "target": ".agents/runtime/lib/check-resources.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/push-verification.mjs",
+      "target": ".agents/runtime/lib/push-verification.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/candidate-resources.mjs",
+      "target": ".agents/runtime/lib/candidate-resources.mjs",
       "contentStrategy": "replace"
     }
   ],

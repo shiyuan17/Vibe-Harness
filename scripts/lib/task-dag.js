@@ -12,6 +12,7 @@
 // scenarios. Nothing in the installed runtime calls it automatically — it is a
 // pre-dispatch validator, not a lifecycle step.
 import { createHash } from 'node:crypto';
+import { batchPredecessorSatisfied } from '../../runtime/lib/parent-batch.mjs';
 
 export const TASK_DAG_SCHEMA = 'vibe-harness.task-dag/v1';
 export const DAG_CONCURRENCY_DEFAULTS = Object.freeze({
@@ -219,7 +220,7 @@ function normalizeNode(raw, index, push) {
  * @param {unknown} value `{schema, nodes}` or a bare node array
  * @returns {Record<string, any>} the analysis, including ready/blocked sets
  */
-export function validateTaskDag(value) {
+export function validateTaskDag(value, { batchEvidence = null } = {}) {
   const problems = [];
   const push = (code, message, severity = 'error') => problems.push({ code, message, severity });
   const nodes = Array.isArray(value) ? value : isObject(value) ? value.nodes : null;
@@ -231,6 +232,22 @@ export function validateTaskDag(value) {
     push('TASK_DAG_SCHEMA_UNSUPPORTED', `unsupported schema ${JSON.stringify(value.schema)}; expected ${TASK_DAG_SCHEMA}`);
   }
   const normalized = nodes.map((node, index) => normalizeNode(node, index, push)).filter((node) => node !== null);
+  if (isObject(value) && value.executionBatch !== undefined) {
+    const pointer = value.executionBatch;
+    if (!batchEvidence?.ok || pointer?.parentId !== batchEvidence.parentId || pointer?.worktree !== batchEvidence.worktree) {
+      push('TASK_DAG_BATCH_EVIDENCE_INVALID', 'Parent batch requires current evidence from its bound task worktree');
+    } else {
+      for (const member of batchEvidence.members) {
+        const node = normalized.find((item) => item.id === member);
+        const expected = batchEvidence.units.find((item) => item.id === member);
+        if (!node || node.kind !== expected?.kind
+          || JSON.stringify([...node.dependsOn].sort()) !== JSON.stringify([...(batchEvidence.dependencies[member] ?? [])].sort())
+          || JSON.stringify(node.writeScope.map((scope) => scope.raw).sort()) !== JSON.stringify([...expected.files].sort())) {
+          push('TASK_DAG_BATCH_PROJECTION_DRIFT', `${member} differs from the bound Parent plan`);
+        }
+      }
+    }
+  } else batchEvidence = null;
   const byId = new Map();
   for (const node of normalized) {
     if (byId.has(node.id)) push('TASK_DAG_DUPLICATE_ID', `${node.id} is declared twice`);
@@ -260,7 +277,8 @@ export function validateTaskDag(value) {
       const second = writeNodes[right];
       const hit = writeConflict(first, second);
       if (hit.locks.length === 0 && hit.scopes.length === 0) continue;
-      const ordered = reachable(edges, first.id, second.id) || reachable(edges, second.id, first.id);
+      const ordered = reachable(edges, first.id, second.id) || reachable(edges, second.id, first.id)
+        || batchEvidence?.ok && batchEvidence.members.includes(first.id) && batchEvidence.members.includes(second.id);
       const detail = [
         hit.scopes.length > 0 ? `scope ${hit.scopes.join(', ')}` : null,
         hit.locks.length > 0 ? `resource lock ${hit.locks.join(', ')}` : null,
@@ -288,14 +306,17 @@ export function validateTaskDag(value) {
     nodes: [...byId.values()].sort((left, right) => left.id.localeCompare(right.id)),
     order: cycle ? null : topologicalOrder(byId),
     problems,
+    batchEvidence,
   };
   return finishDag(dag);
 }
 
-function finishDag({ byId = new Map(), conflicts = [], nodes, order = null, problems }) {
+function finishDag({ byId = new Map(), conflicts = [], nodes, order = null, problems, batchEvidence = null }) {
   const errors = problems.filter((problem) => problem.severity === 'error');
-  const readyComputed = errors.length === 0 && byId.size > 0;
-  const scheduling = readyComputed ? scheduleNodes(byId, conflicts) : { blocked: [], ready: [] };
+  const schedulingCodes = new Set(['TASK_DAG_SCOPE_CONFLICT', 'TASK_DAG_RESOURCE_LOCK_CONFLICT']);
+  const structureValid = errors.every((problem) => schedulingCodes.has(problem.code));
+  const readyComputed = structureValid && byId.size > 0;
+  const scheduling = readyComputed ? scheduleNodes(byId, conflicts, batchEvidence) : { blocked: [], ready: [] };
   return {
     blocked: scheduling.blocked,
     conflictCount: conflicts.length,
@@ -309,27 +330,66 @@ function finishDag({ byId = new Map(), conflicts = [], nodes, order = null, prob
     nodeCount: nodes.length,
     nodes,
     ok: errors.length === 0,
+    structureValid,
     order,
     problems: problems.sort((left, right) => left.code.localeCompare(right.code)),
     ready: scheduling.ready,
     readyComputed,
     schemaVersion: 1,
-    structureHash: computeDagStructureHash(nodes),
+    structureHash: computeDagStructureHash(nodes, batchEvidence),
+    ...(batchEvidence ? { batchEvidence } : {}),
     warningCount: problems.filter((problem) => problem.severity === 'warning').length,
   };
 }
 
-function scheduleNodes(byId, conflicts) {
+/** A node can be dispatched despite unrelated scheduling conflicts, never an invalid graph. */
+function predecessorSatisfied(byId, batchEvidence, consumer, predecessor, trigger) {
+  const result = byId.get(predecessor).result;
+  if (trigger === 'all_done') return TERMINAL_RESULTS.includes(result);
+  if (batchEvidence?.ok && batchEvidence.members.includes(consumer)) {
+    if (batchEvidence.members.includes(predecessor)) {
+      return batchPredecessorSatisfied(batchEvidence, consumer, predecessor);
+    }
+    const external = batchEvidence.externalDependencies.find((node) => node.id === predecessor);
+    if (external) return external.result === 'succeeded' && SUCCESSFUL_RESULTS.includes(result);
+  }
+  return SUCCESSFUL_RESULTS.includes(result);
+}
+
+export function checkTaskDagNode(analysis, id) {
+  if (!analysis.structureValid) return { id, ready: false, code: 'TASK_DAG_STRUCTURE_INVALID' };
+  if (!analysis.nodes.some((node) => node.id === id)) return { id, ready: false, code: 'TASK_DAG_NODE_UNKNOWN' };
+  const nodes = new Map(analysis.nodes.map((node) => [node.id, node]));
+  const visit = (nodeId, visited = new Set()) => {
+    if (visited.has(nodeId)) return null;
+    visited.add(nodeId);
+    for (const predecessor of nodes.get(nodeId).dependsOn) {
+      if (!predecessorSatisfied(nodes, analysis.batchEvidence, id, predecessor, 'all_success')) return predecessor;
+      const blocked = visit(predecessor, visited);
+      if (blocked) return blocked;
+    }
+    return null;
+  };
+  if (nodes.get(id).trigger === 'all_success') {
+    const predecessor = visit(id);
+    if (predecessor) return { id, ready: false, code: 'TASK_DAG_PREDECESSOR_NOT_SUCCESSFUL', predecessor };
+  }
+  if (analysis.ready.includes(id)) return { id, ready: true, code: 'TASK_DAG_NODE_READY' };
+  return { id, ready: false, ...(analysis.blocked.find((node) => node.id === id)
+    ?? { code: 'TASK_DAG_NODE_NOT_PENDING' }) };
+}
+
+function scheduleNodes(byId, conflicts, batchEvidence) {
   const ready = [];
   const blocked = [];
   for (const node of byId.values()) {
     if (!['pending', 'ready'].includes(node.result)) continue;
+    if (batchEvidence?.ok && batchEvidence.localCompleted.includes(node.id)) continue;
     const waiting = [];
     const failed = [];
     for (const dependency of node.dependsOn) {
       const result = byId.get(dependency).result;
-      const satisfied = node.trigger === 'all_success' ? SUCCESSFUL_RESULTS.includes(result) : TERMINAL_RESULTS.includes(result);
-      if (satisfied) continue;
+      if (predecessorSatisfied(byId, batchEvidence, node.id, dependency, node.trigger)) continue;
       // `blocked` and `unverified` are non-terminal, so those predecessors are
       // still pending resolution: the node waits instead of failing.
       if (['pending', 'ready', 'running', 'unverified', 'blocked'].includes(result)) waiting.push(`${dependency}=${result}`);
@@ -339,7 +399,8 @@ function scheduleNodes(byId, conflicts) {
     else if (waiting.length > 0) blocked.push({ code: 'TASK_DAG_WAIT', id: node.id, reason: waiting.join(', ') });
     else {
       const occupied = [...byId.values()].filter((other) => other.id !== node.id
-        && (other.cleanupPending || ['running', 'unverified'].includes(other.result)))
+        && (other.cleanupPending || ['running', 'unverified'].includes(other.result)
+          && !batchPredecessorSatisfied(batchEvidence, node.id, other.id)))
         .filter((other) => {
           const hit = writeConflict(node, other);
           return hit.locks.length > 0 || hit.scopes.length > 0;
@@ -352,10 +413,21 @@ function scheduleNodes(byId, conflicts) {
   const readySet = new Set(ready);
   for (const conflict of conflicts) {
     const [first, second] = conflict.nodes;
-    if (!readySet.has(first) || !readySet.has(second)) continue;
+    const pending = conflict.nodes.filter((id) => ['pending', 'ready', 'running', 'unverified', 'blocked'].includes(byId.get(id).result)
+      || byId.get(id).cleanupPending);
+    if (pending.length < 2) continue;
     for (const id of [first, second]) {
+      if (!readySet.has(id)) continue;
       readySet.delete(id);
       blocked.push({ code: conflict.code, id, reason: `conflicts with ${id === first ? second : first}: ${conflict.detail}` });
+    }
+  }
+  if (batchEvidence?.ok) {
+    const candidates = [...readySet].filter((id) => batchEvidence.members.includes(id)).sort();
+    const active = batchEvidence.units.some((unit) => unit.status === 'in_progress');
+    for (const id of candidates.slice(active ? 0 : 1)) {
+      readySet.delete(id);
+      blocked.push({ code: 'TASK_DAG_BATCH_SINGLE_WRITER', id, reason: 'one Parent batch executes one member at a time' });
     }
   }
   return { blocked: blocked.sort((left, right) => left.id.localeCompare(right.id)), ready: [...readySet].sort() };
@@ -365,7 +437,7 @@ function scheduleNodes(byId, conflicts) {
  * Deterministic hash of the DAG structure (ids, kinds, edges, scopes, locks,
  * verification) for the pre-dispatch re-check and checkpoint fields.
  */
-export function computeDagStructureHash(nodes) {
+export function computeDagStructureHash(nodes, batchEvidence = null) {
   const canonical = [...nodes]
     .sort((left, right) => left.id.localeCompare(right.id))
     .map((node) => ({
@@ -377,7 +449,9 @@ export function computeDagStructureHash(nodes) {
       verification: [...node.verification].sort(),
       writeScope: node.writeScope.map((scope) => `${scope.kind}:${scope.path.toLowerCase()}`).sort(),
     }));
-  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+  return createHash('sha256').update(JSON.stringify(batchEvidence
+    ? { nodes: canonical, batch: { parentId: batchEvidence.parentId, membershipDigest: batchEvidence.membershipDigest } }
+    : canonical)).digest('hex');
 }
 
 /** Human-readable summary of a Task DAG analysis. */

@@ -4,6 +4,7 @@ import { readProjectConfig, resolveValidationCommands } from './lib/project-conf
 import { inspectValidationCommands } from './lib/command-status.js';
 import { buildVerificationPlan } from './lib/verification-plan.js';
 import { collectChangedDetails, collectChangedPaths } from './lib/change-impact.js';
+import { deliveryRiskPolicy } from '../runtime/lib/verification-risk.mjs';
 
 const targetDir = process.cwd();
 const config = await readProjectConfig(targetDir);
@@ -20,9 +21,11 @@ try {
   // Path-only classification remains fail-safe when a diff is unavailable.
 }
 const forceFull = process.env.FORCE_FULL === 'true';
-const plan = await buildVerificationPlan({ changedDetails, changedPaths, commandStatus, config, full: forceFull, targetDir });
+const plan = await buildVerificationPlan({ changedDetails, changedPaths, commandStatus, config, full: forceFull, targetDir, delivery: true });
+if (plan.missingRequiredEvidence?.length) throw new Error(`Required delivery evidence is not configured: ${plan.missingRequiredEvidence.join(', ')}`);
 const report = {
   ...plan,
+  deliveryRisk: deliveryRiskPolicy(changedPaths, { config }),
   required: {
     lint: plan.selectedChecks.some((item) => item.id === 'lint'),
     validate: plan.selectedChecks.some((item) => item.id === 'validate'),
@@ -30,16 +33,14 @@ const report = {
     component: plan.selectedChecks.some((item) => item.id === 'component'),
     // A slimmed high-risk plan defers eval instead of selecting it; CI still
     // pays for that evidence, so the gate counts both surfaces.
-    eval: plan.selectedChecks.some((item) => item.id === 'eval')
-      || (plan.deferredChecks ?? []).some((item) => item.id === 'eval'),
+    eval: plan.selectedChecks.some((item) => item.id === 'eval'),
     evalCheck: plan.selectedChecks.some((item) => item.id === 'eval-check'),
     docs: plan.selectedChecks.some((item) => item.id === 'docs'),
     skills: plan.selectedChecks.some((item) => item.id === 'skills'),
-    integration: plan.selectedChecks.some((item) => item.id === 'integration')
-      || plan.impactGroups.some((item) => ['adapters', 'manifests', 'schemas', 'runtime'].includes(item)),
-    smoke: plan.riskLevel === 'high' || plan.lifecycle,
+    integration: plan.selectedChecks.some((item) => item.id === 'integration'),
+    smoke: plan.selectedChecks.some((item) => item.id === 'smoke'),
     supplyChain: plan.riskLevel === 'high' || plan.impactGroups.some((item) => ['runtime', 'manifests', 'config', 'schemas'].includes(item)),
-    full: forceFull || plan.riskLevel === 'high',
+    full: forceFull || plan.selectedChecks.some((item) => ['e2e', 'matrix'].includes(item.id)),
     // A docs-only diff selects nothing but the docs audit, so the code
     // baseline (eslint, typecheck, unit) cannot be affected by it. CI gates
     // those steps on this flag instead of duplicating the decision in YAML.
@@ -47,6 +48,13 @@ const report = {
   },
 };
 console.log(JSON.stringify(report, null, 2));
+if (process.env.GITHUB_STEP_SUMMARY) {
+  const rows = plan.selectedChecks.map((check) => `- ${check.id}: \`${check.command}\``);
+  await appendFile(process.env.GITHUB_STEP_SUMMARY,
+    `## Verification plan\n\nRisk: ${plan.riskLevel}\n\n${rows.join('\n')}\n\n`
+    + `Deferred: ${(plan.deferredChecks ?? []).map((check) => check.id).join(', ') || 'none'}.\n\n`
+    + 'Rollback: revert the delivered change through a new commit; preserve existing worktrees and user changes.\n');
+}
 if (process.env.GITHUB_OUTPUT) {
   const lines = [
     `riskLevel=${report.riskLevel}`,

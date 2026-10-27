@@ -12,7 +12,8 @@ import {
 } from './validation-tiers.js';
 import { verificationCommandIdentity } from '../../runtime/lib/verification-plan.mjs';
 import { TEST_FILE_PATTERN } from './test-enumeration.js';
-import { LIFECYCLE_PATHS } from './change-impact.js';
+import { buildDeliveryVerificationPlan, classifyVerificationRisk, deliveryRiskPolicy, normalize } from '../../runtime/lib/verification-risk.mjs';
+export { classifyVerificationRisk } from '../../runtime/lib/verification-risk.mjs';
 import {
   DEFAULT_VERIFICATION_SCOPE,
   estimateVerificationCost,
@@ -57,158 +58,6 @@ function minimumTierForRisk(risk, scopeConfidence) {
   return 'micro';
 }
 
-const HIGH_PATHS = [
-  /^\.github\/workflows\//u,
-  /^(?:schemas|manifests|adapters|runtime)\//u,
-  /^(?:scripts\/vibe-harness\.js|scripts\/lib\/(?:install|module|pack|project-verification|tool-provisioning))/u,
-  /^(?:package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|npm-shrinkwrap\.json)$/u,
-  /^(?:\.codex|\.cursor|\.qoder|\.zcode)\//u,
-  // The host's ignore list controls what the agent is allowed to see, so it
-  // carries the same trust level as the .codex/ config directory.
-  /^\.zcodeignore$/u,
-  /^\.agents\/(?:runtime\/hooks\/|(?:mcp_config|hooks)\.json$)/u,
-];
-
-/** @type {Array<[string, RegExp]>} */
-const GROUP_RULES = [
-  ['rules', /^(?:docs\/rules\/|rules\/|AGENTS\.md$|CONTRIBUTING\.md$)/u],
-  ['tests', /^tests\//u],
-  ['eval', /^(?:evals\/|\.agents\/evals\/|runtime\/evals\/|scripts\/lib\/eval-|schemas\/eval-)/u],
-  ['schemas', /^(?:schemas\/|docs\/schemas\/)/u],
-  ['skills', /^(?:skills\/|\.agents\/skills\/|manifests\/skills\.json$)/u],
-  ['manifests', /^manifests\//u],
-  ['adapters', /^adapters\//u],
-  ['runtime', /^(?:runtime\/|\.agents\/runtime\/)/u],
-  ['scripts', /^scripts\//u],
-  ['templates', /^(?:templates\/|docs\/templates\/)/u],
-  ['workflows', /^\.github\/workflows\//u],
-  // Governance notes and delivery audits are reviewed documents, not runtime
-  // code. Without an explicit group they fall through to `unknown`, which
-  // escalates a documentation-only change to the full verification matrix.
-  ['docs', /^(?:audit-reports\/|\.github\/|\.agents\/memory\/)/u],
-  ['docs', /^(?:docs\/|README(?:\.en)?\.md$|CHANGELOG\.md$|LICENSE$)/u],
-  // Root dotfiles and tool configs get an explicit group so a single trivial
-  // change (ignore lists, lint/commitlint config) does not escalate to the
-  // unknown->high full-matrix fallback.
-  ['config', /^(?:vibe-harness\.config\.json|package(?:-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|(?:tsconfig(?:\.[^/]+)?|jsconfig\.json|\.editorconfig|\.npmrc|\.nvmrc|\.prettierrc(?:\.[^/]+)?|\.gitignore|\.gitattributes|\.cbmignore|\.zcodeignore|\.lintstagedrc\.json|\.release-please-manifest\.json|commitlint\.config\.mjs|eslint\.config\.mjs))$/iu],
-];
-
-const LOW_IMPACT_CONFIG = /^(?:\.editorconfig|\.npmrc|\.nvmrc|\.prettierrc(?:\.[^/]+)?|(?:jsconfig|tsconfig(?:\.[^/]+)?)\.json)$/iu;
-
-const SOURCE_PATH = /^(?:src|app|apps|lib|packages|components|server|client|backend|frontend)\//u;
-
-function normalize(value) {
-  return String(value).replaceAll('\\', '/').replace(/^\.\//u, '');
-}
-
-function globRegex(pattern) {
-  const normalized = normalize(pattern);
-  let source = '';
-  for (let index = 0; index < normalized.length; index += 1) {
-    const character = normalized[index];
-    if (character === '*' && normalized[index + 1] === '*') {
-      source += '.*';
-      index += 1;
-    } else if (character === '*') {
-      source += '[^/]*';
-    } else if (character === '?') {
-      source += '[^/]';
-    } else {
-      source += character.replace(/[.+^${}()|[\]\\]/gu, '\\$&');
-    }
-  }
-  return new RegExp(`^${source}$`, 'iu');
-}
-
-/** @param {string} pathname @param {string[]} patterns */
-function matchesConfiguredZone(pathname, patterns = []) {
-  return patterns.some((pattern) => {
-    if (typeof pattern !== 'string' || !pattern.trim()) return false;
-    const normalizedPattern = normalize(pattern).toLowerCase().replace(/\/+$/u, '');
-    if (!normalizedPattern) return false;
-    if (!/[?*]/u.test(normalizedPattern)) {
-      const normalizedPath = pathname.toLowerCase();
-      return matchesZoneName(normalizedPath, normalizedPattern)
-        || normalizedPath.includes(`/${normalizedPattern}/`)
-        || normalizedPath.startsWith(`${normalizedPattern}/`)
-        || normalizedPath.endsWith(`/${normalizedPattern}`)
-        || normalizedPath.endsWith(`.${normalizedPattern}`);
-    }
-    try { return globRegex(pattern).test(pathname); } catch { return false; }
-  });
-}
-
-/**
- * Match a non-glob zone name against whole path parts.
- *
- * The previous implementation compared compacted alphanumeric strings, so a
- * red-zone entry like `env` also matched `scripts/envelope.js`. Matching whole
- * segments (`shared-libs/`) and whole hyphen-separated parts
- * (`secrets` in `secrets-manager.js`) keeps multi-word zone names working
- * without substring false positives.
- *
- * @param {string} normalizedPath lower-case, forward-slash path
- * @param {string} normalizedPattern lower-case zone name without trailing slash
- */
-function matchesZoneName(normalizedPath, normalizedPattern) {
-  const segments = normalizedPath.split(/[/.\\_]+/u).filter(Boolean);
-  if (segments.includes(normalizedPattern)) return true;
-  return segments.some((segment) => segment.split('-').includes(normalizedPattern));
-}
-
-function classifyGroup(pathname) {
-  return GROUP_RULES.find(([, pattern]) => pattern.test(pathname))?.[0]
-    ?? (SOURCE_PATH.test(pathname) ? 'scripts' : 'unknown');
-}
-
-/**
- * @param {string[]} changedPaths
- * @param {{riskZones?: {red?: string[], yellow?: string[], pathPatterns?: {red?: string[], yellow?: string[]}}, changedDetails?: Array<{changedPath?: string, commentsOnly?: boolean, docsOnly?: boolean, formatOnly?: boolean, publicContract?: boolean, api?: boolean, schema?: boolean, dynamicDependency?: boolean}>}} options
- */
-export function classifyVerificationRisk(changedPaths = [], { riskZones = {}, changedDetails = [] } = {}) {
-  const paths = changedPaths.map(normalize);
-  const groups = [...new Set(paths.map(classifyGroup))];
-  const redPatterns = [...(riskZones.red ?? []), ...(riskZones.pathPatterns?.red ?? [])];
-  const yellowPatterns = [...(riskZones.yellow ?? []), ...(riskZones.pathPatterns?.yellow ?? [])];
-  const red = paths.some((item) => matchesConfiguredZone(item, redPatterns));
-  const yellow = paths.some((item) => matchesConfiguredZone(item, yellowPatterns));
-  const lifecycle = paths.some((item) => LIFECYCLE_PATHS.some((pattern) => pattern.test(item)));
-  const details = Array.isArray(changedDetails) ? changedDetails : [];
-  const detailFor = (pathname, index) => details.find((item) => normalize(item?.changedPath ?? '') === pathname) ?? details[index] ?? {};
-  const pathRisk = paths.map((pathname, index) => {
-    const detail = detailFor(pathname, index);
-    const pathGroup = classifyGroup(pathname);
-    const pathRed = matchesConfiguredZone(pathname, redPatterns);
-    const pathYellow = matchesConfiguredZone(pathname, yellowPatterns);
-    const pathHigh = HIGH_PATHS.some((pattern) => pattern.test(pathname)) || pathRed;
-    const pathPublicContract = detail.publicContract || detail.api || detail.schema || detail.dynamicDependency;
-    const pathCommentsOnly = detail.commentsOnly || detail.docsOnly || detail.formatOnly;
-    if (pathHigh || pathPublicContract) return 'high';
-    if (pathGroup === 'unknown') return 'high';
-    if (pathCommentsOnly && !pathYellow) return 'quick';
-    if (pathGroup === 'docs' && !pathYellow) return 'quick';
-    if (pathGroup === 'tests' && !pathYellow) return 'quick';
-    if (LOW_IMPACT_CONFIG.test(pathname) && !pathYellow) return 'quick';
-    if (pathYellow || ['rules', 'tests', 'eval', 'skills', 'scripts', 'templates', 'config'].includes(pathGroup)) return 'standard';
-    return 'standard';
-  });
-  const riskOrder = ['quick', 'standard', 'high'];
-  const riskLevel = paths.length === 0
-    ? 'standard'
-    : riskOrder[Math.max(...pathRisk.map((value) => riskOrder.indexOf(value)))];
-  const publicContract = details.some((item) => item?.publicContract || item?.api || item?.schema || item?.dynamicDependency);
-  const commentsOnly = details.length > 0 && details.every((item) => item?.commentsOnly || item?.docsOnly || item?.formatOnly);
-  return {
-    changedPaths: paths,
-    impactGroups: groups,
-    riskLevel,
-    configuredZones: { red, yellow },
-    lifecycle,
-    publicContract,
-    commentsOnly,
-    fallbackUsed: groups.includes('unknown'),
-  };
-}
 
 async function projectScripts(targetDir) {
   try {
@@ -325,7 +174,7 @@ function focusedRunner(scriptName, files, scripts) {
 }
 
 /**
- * @param {{changedPaths?: string[], changedDetails?: Array<object>, commandStatus?: object, config?: any, targetDir?: string, full?: boolean, tier?: 'quick'|'standard'|'deep'|null, tierExplicit?: boolean, tiers?: {quick?: string[], standard?: string[], deep?: string[]}|null, tierSource?: string|null, covers?: Record<string, string[]>|null, scope?: 'affected'|'layer'|'full', only?: string[]|null}} options
+ * @param {{changedPaths?: string[], changedDetails?: Array<object>, commandStatus?: object, config?: any, targetDir?: string, full?: boolean, delivery?: boolean, tier?: 'quick'|'standard'|'deep'|null, tierExplicit?: boolean, tiers?: {quick?: string[], standard?: string[], deep?: string[]}|null, tierSource?: string|null, covers?: Record<string, string[]>|null, scope?: 'affected'|'layer'|'full', only?: string[]|null}} options
  */
 export async function buildVerificationPlan({
   changedPaths = [],
@@ -341,7 +190,9 @@ export async function buildVerificationPlan({
   covers = undefined,
   scope = null,
   only = null,
+  delivery = false,
 } = {}) {
+  if (delivery) return buildDeliveryVerificationPlan({ changedPaths, config, projectDir: targetDir, tier, full });
   const verificationScope = normalizeVerificationScope(
     scope ?? config?.verification?.defaultScope ?? DEFAULT_VERIFICATION_SCOPE,
   );
@@ -588,6 +439,8 @@ export async function buildVerificationPlan({
       // and the focused entrypoint would execute it twice.
       cwd: configured.cwd ?? item.cwd ?? '.',
       deterministic: configured.deterministic,
+      resources: configured.resources,
+      writesDependencies: configured.writesDependencies,
       cacheScope: configured.cacheScope,
       ...(configured.subsumes !== undefined ? { subsumes: configured.subsumes } : {}),
       ...(configured.estimatedDurationMs !== undefined ? { estimatedDurationMs: configured.estimatedDurationMs } : {}),
@@ -621,6 +474,9 @@ export async function buildVerificationPlan({
   const escalationRequired = deferredChecks.length > 0 || deferredMicroChecks.length > 0 || scopeConfidence !== 'complete';
   return {
     ...risk,
+    deliveryRisk: deliveryRiskPolicy(paths, { config, tier }),
+    requiredChecks: buildDeliveryVerificationPlan({ changedPaths, config, projectDir: targetDir }).requiredChecks,
+    missingRequiredEvidence: [],
     deferredChecks,
     subsumedChecks,
     executionTier: resolved?.tier ?? null,

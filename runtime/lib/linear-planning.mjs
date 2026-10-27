@@ -3,7 +3,7 @@ export const EXECUTION_MODES = Object.freeze(['auto', 'single', 'parallel']);
 export const CONFIDENCE_LEVELS = Object.freeze(['low', 'medium', 'high']);
 export const LINEAR_PLAN_SCHEMA = 'vibe-harness.linear-plan/v2';
 export const WALL_CLOCK_DEFAULTS = Object.freeze({ planningBudgetMinutes: 30,
-  minimumSavingsMinutes: 45, minimumSavingsRatio: 0.25, uncertaintyBufferRatio: 0.2,
+  minimumSavingsMinutes: 10, minimumSavingsRatio: 0.15, uncertaintyBufferRatio: 0.2,
   maxWriteAgents: 2, maxReadAgents: 4 });
 export const LINEAR_PLAN_BLOCK_PATTERN = /```(?:json[ \t]+)?linear-plan[ \t]*\r?\n([\s\S]*?)```/u;
 const minutes = (n) => Number.isFinite(n) && n >= 0;
@@ -16,7 +16,7 @@ const compareId = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 export function estimateWallClock(options = {}) {
   const { units, sharedPreparationMinutes = 0, externalWaitBlockMinutes = 0,
     finalIntegrationMinutes = 0, coordinationMinutes = 0, fanInMinutes = 0,
-    uncertaintyBufferRatio = 0.2, maxWriteAgents, maxReadAgents, maxAgents } = options;
+    uncertaintyBufferRatio = WALL_CLOCK_DEFAULTS.uncertaintyBufferRatio, maxWriteAgents, maxReadAgents, maxAgents } = options;
   for (const [key, value] of Object.entries({ sharedPreparationMinutes, externalWaitBlockMinutes,
     finalIntegrationMinutes, coordinationMinutes, fanInMinutes, uncertaintyBufferRatio })) {
     if (!minutes(value)) throw new TypeError(`${key} must be a non-negative finite number`);
@@ -94,7 +94,8 @@ export function estimateWallClock(options = {}) {
 /** @param {any} options */
 export function chooseExecutionMode({ estimate, candidateUnitCount = 0, isolationProven = false,
   sharedContractFrozen = false, availableWriteAgents = 1, availableReadAgents = 1,
-  availableAgents = 1, minimumSavingsMinutes = 45, minimumSavingsRatio = 0.25 } = {}) {
+  availableAgents = 1, minimumSavingsMinutes = WALL_CLOCK_DEFAULTS.minimumSavingsMinutes,
+  minimumSavingsRatio = WALL_CLOCK_DEFAULTS.minimumSavingsRatio } = {}) {
   if (!estimate) throw new TypeError('estimate is required');
   const reasons = [];
   if (candidateUnitCount < 2 || estimate.peakAgents < 2) reasons.push('fewer-than-two-ready-units');
