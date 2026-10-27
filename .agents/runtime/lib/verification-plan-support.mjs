@@ -31,6 +31,16 @@ export function timeoutValue(value) {
     ? value
     : DEFAULT_TIMEOUT_MS;
 }
+/**
+ * A check declaration may carry its own `timeoutMs` (分层超时): a long backend
+ * verify should not be bounded by the quick tier's budget, and a lint should
+ * not inherit a 50-minute global. Values outside the same bounds as the
+ * global timeout are ignored, so a mistyped declaration can never silently
+ * replace the budget with the default.
+ */
+export function declaredCheckTimeoutMs(value) {
+  return Number.isInteger(value) && value >= MIN_TIMEOUT_MS && value <= MAX_TIMEOUT_MS ? value : null;
+}
 export function configuredChecks(config, projectDir = undefined) {
   const raw = config?.validationCommands;
   if (raw === undefined) return { commands: {}, error: null };

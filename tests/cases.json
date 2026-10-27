@@ -8030,6 +8030,32 @@
       "addedAt": "2026-10-14"
     },
     {
+      "id": "I-delivery-lifecycle-032",
+      "layer": "integration",
+      "file": "tests/integration/delivery-lifecycle.test.js",
+      "ordinal": 32,
+      "name": "逐检查 timeoutMs 用声明预算终止挂起检查而不是等全局默认",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-27"
+    },
+    {
+      "id": "I-delivery-lifecycle-033",
+      "layer": "integration",
+      "file": "tests/integration/delivery-lifecycle.test.js",
+      "ordinal": 33,
+      "name": "越界的逐检查 timeoutMs 被忽略并回退全局预算",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-27"
+    },
+    {
       "id": "I-enforcement-gate-001",
       "layer": "integration",
       "file": "tests/integration/enforcement-gate.test.js",

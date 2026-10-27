@@ -999,3 +999,55 @@ test('工作区在运行中变化时完成草稿判为 blocked 而不是缺证�
   assert.equal(draft('unknown').status, 'unverified');
   assert.equal(draft('unavailable').status, 'unverified');
 });
+
+async function makeVerifyTimeoutFixture(checks, tierCommand = 'node slow.mjs') {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-verify-timeout-'));
+  spawnSync('git', ['init', '-q'], { cwd: target });
+  spawnSync('git', ['-C', target, '-c', 'user.email=fixture@example.invalid', '-c', 'user.name=Fixture', 'commit', '-q', '--allow-empty', '-m', 'fixture'], { cwd: target });
+  await writeFile(path.join(target, 'slow.mjs'), 'setTimeout(() => { process.exit(0); }, 30_000);\n', 'utf8');
+  await writeFile(path.join(target, 'vibe-harness.config.json'), `${JSON.stringify({
+    validationCommands: {
+      checks,
+      tiers: { quick: [tierCommand], standard: [], deep: [] },
+    },
+  }, null, 2)}\n`, 'utf8');
+  return target;
+}
+
+test('逐检查 timeoutMs 用声明预算终止挂起检查而不是等全局默认', async () => {
+  const target = await makeVerifyTimeoutFixture([
+    { id: 'slow', command: 'node slow.mjs', timeoutMs: 1500 },
+  ]);
+  try {
+    const result = await runCommand(['verify', '--project', target, '--tier', 'quick', '--json'], { cwd: target });
+    assert.equal(result.exitCode, 1, JSON.stringify(result.report));
+    const check = result.report.checks.slow;
+    assert.equal(check.status, 'blocked');
+    assert.equal(check.code, 'TIMEOUT');
+    // The receipt must name the budget that actually fired, and it has to be
+    // the declared 1.5s — the run must not have waited for the 120s default.
+    assert.equal(check.timeoutMs, 1500);
+    assert.ok(check.durationMs < 10_000, `check took ${check.durationMs}ms`);
+  } finally {
+    await rm(target, { recursive: true, force: true });
+  }
+});
+
+test('越界的逐检查 timeoutMs 被忽略并回退全局预算', async () => {
+  // 250ms is below MIN_TIMEOUT_MS: honoring or clamping it would time the 2s
+  // command out; only a genuine fallback to the global budget lets it pass.
+  const target = await makeVerifyTimeoutFixture([
+    { id: 'slow', command: 'node slow2.mjs', timeoutMs: 250 },
+  ], 'node slow2.mjs');
+  try {
+    await writeFile(path.join(target, 'slow2.mjs'), 'setTimeout(() => { process.exit(0); }, 2_000);\n', 'utf8');
+    const result = await runCommand(['verify', '--project', target, '--tier', 'quick', '--json'], { cwd: target });
+    assert.equal(result.exitCode, 0, JSON.stringify(result.report));
+    const check = result.report.checks.slow;
+    assert.equal(check.status, 'passed');
+    assert.equal('timeoutMs' in check, false);
+    assert.ok(check.durationMs >= 1_500, `check took ${check.durationMs}ms`);
+  } finally {
+    await rm(target, { recursive: true, force: true });
+  }
+});

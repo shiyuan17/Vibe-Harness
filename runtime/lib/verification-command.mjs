@@ -31,7 +31,7 @@ import {
 import { boundedOutput } from './cli-output.mjs';
 import { CHECK_ORDER, CONFIG_FILE, assertSafeCommand, probeExecutable, readJsonIfExists } from './cli-runtime.mjs';
 import { findReusableVerification, readTaskAnchor, taskPlanCheckReport, validateTaskId, verificationCommandSet } from './task-command.mjs';
-import { VERIFY_ENGINE, VERIFY_SCHEMA_VERSION, configuredChecks, displayCommand, executeCommand, manualCommand, parseVerifyScope, parseVerifyTier, resolveReviewedChecks, resolveVerifyTierPlan, timeoutValue, verificationAcceptance, verificationReview } from './verification-plan-support.mjs';
+import { VERIFY_ENGINE, VERIFY_SCHEMA_VERSION, configuredChecks, declaredCheckTimeoutMs, displayCommand, executeCommand, manualCommand, parseVerifyScope, parseVerifyTier, resolveReviewedChecks, resolveVerifyTierPlan, timeoutValue, verificationAcceptance, verificationReview } from './verification-plan-support.mjs';
 
 /**
  * The task and plan association a verification receipt carries. A receipt that
@@ -430,10 +430,14 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       stopped = true;
       continue;
     }
-    const effectiveTimeoutMs = remainingBudgetMs === null ? timeoutMs : Math.max(1, Math.min(timeoutMs, remainingBudgetMs));
+    // A declared per-check timeout replaces the global for this check only;
+    // the remaining whole-run budget still caps everything.
+    const declaredTimeoutMs = declaredCheckTimeoutMs(checkMetadata.get(name)?.timeoutMs);
+    const checkTimeoutMs = declaredTimeoutMs ?? timeoutMs;
+    const effectiveTimeoutMs = remainingBudgetMs === null ? checkTimeoutMs : Math.max(1, Math.min(checkTimeoutMs, remainingBudgetMs));
     verificationProgress(args, 'check-start', { check: name, timeoutMs: effectiveTimeoutMs, ...(budgetMs === null ? {} : { budgetMs }) });
     const heartbeat = args.onProgress ? setInterval(() => verificationProgress(args, 'heartbeat', {
-      check: name, elapsedMs: Date.now() - checkStartedAt, timeoutMs,
+      check: name, elapsedMs: Date.now() - checkStartedAt, timeoutMs: checkTimeoutMs,
     }), 30_000) : null;
     heartbeat?.unref();
     try {
@@ -452,6 +456,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       cwd: cwd.relative,
       exitCode: result.exitCode,
       durationMs,
+      ...(declaredTimeoutMs ? { timeoutMs: effectiveTimeoutMs } : {}),
       ...(result.stdout ? { stdout: result.stdout } : {}),
       ...(result.stderr ? { stderr: result.stderr } : {}),
       ...(result.status === 'passed' ? verificationCheckEvidence(result.stdout, result.stderr) : {}),
