@@ -571,7 +571,7 @@ test('Linear keeps multi-agent cost planning opt-in and fails closed', async () 
   assert.match(rule, /自动重派/u);
 
   const suite = JSON.parse(await readFile(path.join(rootDir, 'evals/suites/linear-workflow-online.json'), 'utf8'));
-  assert.equal(suite.version, '1.7.0');
+  assert.equal(suite.version, '1.8.0');
   const byId = new Map(suite.cases.map((item) => [item.id, item]));
   const expected = new Map([
     ['EVAL-LINEAR-031', 'SINGLE_AGENT_COORDINATION_COST'],
@@ -653,11 +653,11 @@ test('Linear early exploration remains optional and cannot replace formal verifi
 test('explicit local-land decisions pass positive controls and reject unsafe alternatives', async () => {
   const suite = JSON.parse(await readFile(path.join(rootDir, 'evals/suites/linear-workflow-online.json'), 'utf8'));
   const expected = new Map([
-    ['EVAL-LINEAR-043', 'PAUSE_LAND_KEEP_WORKTREE'],
+    ['EVAL-LINEAR-043', 'PUSH_REMOTE_BEFORE_LOCAL'],
     ['EVAL-LINEAR-045', 'EXECUTE_EXPLICIT_WITHOUT_RECEIPT'],
     ['EVAL-LINEAR-046', 'IGNORE_CLAIM_EXECUTE_EXPLICIT'],
     ['EVAL-LINEAR-047', 'DONE_RELEASE_DEPENDENCY_KEEP_RESOURCES'],
-    ['EVAL-LINEAR-048', 'FF_LOCAL_THEN_PUSH_EXACT_SHA'],
+    ['EVAL-LINEAR-048', 'PUSH_THEN_UPDATE_LOCAL'],
     ['EVAL-LINEAR-049', 'KEEP_DONE_BLOCK_RESOURCE_REUSE'],
     ['EVAL-LINEAR-050', 'SINGLE_288_PARALLEL_ONLY_20_PERCENT_GAIN'],
     ['EVAL-LINEAR-051', 'CONTINUE_AUTHORIZED_PLAN'],
@@ -667,7 +667,7 @@ test('explicit local-land decisions pass positive controls and reject unsafe alt
     assert.equal(definition?.oracle.exactOutput.value, output, id);
     const good = { artifacts: [], events: [], exitCode: 0, output };
     assert.equal((await scoreCase({ definition, observation: good })).passed, true, id);
-    for (const wrong of ['REQUIRE_CLAIM_AND_RECEIPT', 'PUSH_BEFORE_LOCAL_MERGE', 'SCAN_READY_QUEUE', 'BLOCK_DONE_UNTIL_CLEANUP']) {
+    for (const wrong of ['REQUIRE_CLAIM_AND_RECEIPT', 'PAUSE_LAND_KEEP_WORKTREE', 'FF_LOCAL_THEN_PUSH_EXACT_SHA', 'SCAN_READY_QUEUE', 'BLOCK_DONE_UNTIL_CLEANUP']) {
       assert.equal((await scoreCase({ definition, observation: { ...good, output: wrong } })).passed, false, id);
     }
     for (const { value } of definition.oracle.forbiddenEvents) {

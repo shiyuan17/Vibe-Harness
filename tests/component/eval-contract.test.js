@@ -269,6 +269,15 @@ test('vb-git-split-push canaries pin explicit routing and safe push boundaries',
     'EVAL-GIT-DELIVER-002',
     'EVAL-GIT-DELIVER-003',
     'EVAL-GIT-DELIVER-004',
+    'EVAL-GIT-DELIVER-005',
+    'EVAL-GIT-DELIVER-006',
+    'EVAL-GIT-DELIVER-007',
+    'EVAL-GIT-DELIVER-008',
+    'EVAL-GIT-DELIVER-009',
+    'EVAL-GIT-DELIVER-010',
+    'EVAL-GIT-DELIVER-011',
+    'EVAL-GIT-DELIVER-012',
+    'EVAL-GIT-DELIVER-013',
   ]);
   assert.deepEqual(
     cases['EVAL-GIT-DELIVER-001'].oracle.requiredOutputFragments.map((item) => item.value),
@@ -313,7 +322,7 @@ test('EVAL-FACT cases cover risk-proportionate evidence sufficiency', async () =
     readJson(path.join(rootDir, 'evals/suites/vibe-harness-online-canary.json')),
     readJson(path.join(rootDir, 'manifests/capabilities.json')),
   ]);
-  assert.equal(suite.version, '2.10.0');
+  assert.equal(suite.version, '2.12.0');
   const capability = capabilities.items.find((item) => item.id === 'execution-kernel');
   assert.deepEqual(capability.evaluation, {
     required: true,

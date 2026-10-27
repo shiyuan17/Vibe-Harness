@@ -29,20 +29,16 @@ test('CI 阻断 offline eval 漂移且夜间 workflow 对 harness eval 失败置
   assert.match(ci, /pnpm runtime:audit/u);
   assert.match(ci, /pnpm pack:contract/u);
   assert.match(ci, /supply-chain:/u);
-  assert.match(ci, /risk-evidence:/u);
+  assert.match(ci, /run: pnpm verify:plan/u);
   assert.match(ci, /merge-gate:/u);
-  assert.match(ci, /needs:\s*\[change-plan, product, supply-chain, security, risk-evidence, branch-policy, independent-review, high-risk-approval\]/u);
+  assert.match(ci, /needs:\s*\[change-plan, product, supply-chain, security, branch-policy\]/u);
   assert.match(ci, /docsOnly: \$\{\{ steps\.plan\.outputs\.docsOnly \}\}/u);
   assert.match(ci, /if: needs\.change-plan\.outputs\.docsOnly != 'true'\s*\n\s*run: pnpm lint:eslint/u);
   assert.match(ci, /if: needs\.change-plan\.outputs\.docsOnly != 'true'\s*\n\s*run: pnpm check:fast/u);
   assert.match(ci, /branch-policy:\n\s+name: branch policy\n\s+if: github\.event_name == 'pull_request'/u);
   assert.match(ci, /node scripts\/branch-policy\.js/u);
-  assert.match(ci, /node scripts\/independent-review\.js/u);
-  assert.match(ci, /node scripts\/check-pull-request-approval\.js/u);
   assert.match(ci, /BRANCH_POLICY_RESULT: \$\{\{ needs\.branch-policy\.result \}\}/u);
   assert.match(ci, /REQUIRED_BRANCH_POLICY_RESULT: \$\{\{ github\.event_name == 'pull_request' \}\}/u);
-  assert.match(ci, /HIGH_RISK_REVIEW_RESULT: \$\{\{ needs\.independent-review\.result \}\}/u);
-  assert.match(ci, /HIGH_RISK_APPROVAL_RESULT: \$\{\{ needs\.high-risk-approval\.result \}\}/u);
   assert.match(online, /schedule:/u);
   assert.match(online, /workflow_dispatch:/u);
   assert.match(online, /environment:\s*Production/u);
@@ -132,7 +128,11 @@ test('online canary suite contains critical product scenarios', async () => {
     assert.match(scenarios, new RegExp(fragment, 'iu'));
   }
   const demands = suite.cases.map((item) => item.reporting?.workflowDemand).filter(Boolean);
-  assert.deepEqual(demands.map((item) => item.expectedOwner.kind).sort(), ['builtin', 'builtin', 'skill', 'skill', 'skill', 'skill', 'skill']);
+  assert.deepEqual(
+    demands.map((item) => item.expectedOwner.kind).sort(),
+    ['builtin', 'builtin', 'skill', 'skill', 'skill', 'skill', 'skill', 'skill',
+      'skill', 'skill', 'skill', 'skill', 'skill', 'skill', 'skill', 'skill'],
+  );
 });
 
 test('离线路由评测覆盖浏览器和外部代码图边界', async () => {
@@ -175,11 +175,11 @@ test('EDD documentation documents reference baselines and offline/online lifecyc
 // reviewer and context-independence fields must surface as a contract violation
 // in the step summary and machine-readable report, blocking the aggregate gate,
 // while one reviewer with attested context independence clears it.
-test('CI 独立复审以 required 模式消费 v2 单复审契约', async () => {
+test('CI 不要求本地独立复审收据，显式审查工具保留兼容契约', async () => {
   const ci = await readFile(path.join(rootDir, '.github/workflows/ci.yml'), 'utf8');
-  assert.match(ci, /VIBE_HARNESS_INDEPENDENT_REVIEW_MODE: required/u);
-  assert.match(ci, /node scripts\/independent-review\.js/u);
-  assert.match(ci, /HIGH_RISK_REVIEW_RESULT: \$\{\{ needs\.independent-review\.result \}\}/u);
+  assert.doesNotMatch(ci, /VIBE_HARNESS_INDEPENDENT_REVIEW_MODE|HIGH_RISK_REVIEW_RESULT|HIGH_RISK_APPROVAL_RESULT/u);
+  assert.doesNotMatch(ci, /node scripts\/(?:independent-review|check-pull-request-approval)\.js/u);
+  assert.match(ci, /branches: \[main\]/u);
 
   const fixture = await mkdtemp(path.join(os.tmpdir(), 'vibe-harness-independent-review-'));
   // The event payload lives outside the fixture repository: a file inside it

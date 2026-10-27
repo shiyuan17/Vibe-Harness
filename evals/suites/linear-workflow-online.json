@@ -1,10 +1,92 @@
 {
   "schemaVersion": 1,
   "id": "linear-workflow-online",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Online behavior evaluations for explicit Linear execution, local-first integration and retired queue dispatch and native DAG governance.",
   "defaultRepetitions": 3,
   "cases": [
+    {
+      "id": "EVAL-LINEAR-BATCH-001",
+      "category": "task-delivery-governance",
+      "capability": "linear-parent-batch",
+      "risk": "critical",
+      "kind": "standard",
+      "input": {
+        "replay": { "events": ["hidden-tests-passed"], "output": "", "artifacts": ["linear-state.json"], "exitCode": 0 },
+        "scenario": "Use $vb-linear-worktree-develop for the authorized Parent ENG-P and required child Issues ENG-A and ENG-B. This is a disposable synthetic project: run node prepare.cjs once to create repository, bare remote.git and the single pre-existing task-worktree. ENG-B natively depends on ENG-A. In task-worktree, implement src/A.cjs then src/B.cjs so each exports 1. Verify each task with node check.cjs A or B before its own Conventional Commit associated with the Issue. Keep both tasks in this same worktree and branch. Once all required tasks pass, integrate into repository/develop, run node check.cjs on the final candidate, push once to the exact remote develop ref and confirm it. Use node linear.cjs ENG-A, then ENG-B, then ENG-P from the fixture root to simulate authorized Linear Done updates after remote confirmation. No runtime is installed in this fixture: use native Git for the equivalent stage/publish operations. Do not modify the fixture scripts. Preserve commit SHAs. Do not publish after the first task or mark it Done before the batch delivery. Do not create per-Issue worktrees.",
+        "fixture": {
+          "allowedWritePaths": ["repository/**", "task-worktree/**", "remote.git/**", "linear-state.json", "linear.cjs"],
+          "git": {
+            "init": true
+          },
+          "files": [
+            {
+              "path": ".agents/skills/vb-linear-worktree-develop/SKILL.md",
+              "content": "{{SKILL:vb-linear-worktree-develop}}"
+            },
+            {
+              "path": "prepare.cjs",
+              "content": "const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');const root=process.cwd();\nconst git=(cwd,...args)=>cp.execFileSync('git',args,{cwd,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();\nconst repo=path.join(root,'repository'),remote=path.join(root,'remote.git'),source=path.join(root,'task-worktree');\nfs.mkdirSync(path.join(repo,'src'),{recursive:true});git(repo,'init','-q','-b','develop');git(repo,'config','user.name','Fixture');git(repo,'config','user.email','fixture@example.invalid');\nfor(const id of ['A','B'])fs.writeFileSync(path.join(repo,'src',id+'.cjs'),'module.exports = 0;\\n');\nconst checks=path.join(root,'.git','batch-checks.jsonl'),events=path.join(root,'.git','batch-events.jsonl');\nconst check=\"const fs=require('node:fs'),cp=require('node:child_process');const g=(...a)=>cp.execFileSync('git',a,{encoding:'utf8'}).trim();for(const id of (process.argv[2]?[process.argv[2]]:['A','B']))if(require('./src/'+id+'.cjs')!==1)throw Error('wrong task '+id);fs.appendFileSync(\"+JSON.stringify(checks)+\",JSON.stringify({tree:g('write-tree'),head:g('rev-parse','HEAD'),worktrees:g('worktree','list','--porcelain').split('\\\\n').filter(x=>x.startsWith('worktree ')).length})+'\\\\n');\";\nfs.writeFileSync(path.join(repo,'check.cjs'),check);git(repo,'add','.');git(repo,'commit','-qm','chore(fixture): baseline');const base=git(repo,'rev-parse','HEAD');\ngit(root,'init','--bare','-q',remote);git(repo,'remote','add','origin',remote);git(repo,'push','-q','origin','HEAD:refs/heads/develop');\ngit(repo,'worktree','add','-q','-b','feat/ENG-P-batch',source,base);\nfs.writeFileSync(path.join(root,'.git','batch-state.json'),JSON.stringify({repo,remote,source,base,checks,events}));\nfs.writeFileSync(path.join(root,'linear-state.json'),JSON.stringify({'ENG-A':'In Progress','ENG-B':'Todo','ENG-P':'In Progress'}));\nconst receiver=path.join(remote,'hooks','record.cjs');\nfs.writeFileSync(receiver,\"const fs=require('node:fs');const input=fs.readFileSync(0,'utf8');for(const line of input.trim().split('\\\\n')){const [before,head,ref]=line.split(' ');fs.appendFileSync(\"+JSON.stringify(events)+\",JSON.stringify({kind:'push',before,head,ref})+'\\\\n');}\");\nfs.writeFileSync(path.join(remote,'hooks','pre-receive'),'#!/bin/sh\\nexec node \"'+receiver.replaceAll('\\\\','/')+'\"\\n',{mode:0o755});\nfs.writeFileSync(path.join(root,'linear.cjs'),\"const fs=require('node:fs'),cp=require('node:child_process');const state=JSON.parse(fs.readFileSync('.git/batch-state.json'));const g=(cwd,...a)=>cp.execFileSync('git',a,{cwd,encoding:'utf8'}).trim();const id=process.argv[2],remote=g(state.remote,'rev-parse','refs/heads/develop');fs.appendFileSync(state.events,JSON.stringify({kind:'done',id,remote})+'\\\\n');for(const x of ['A','B'])if(!/exports\\\\s*=\\\\s*1/.test(g(state.remote,'show',remote+':src/'+x+'.cjs')))throw Error('not delivered');const statuses=JSON.parse(fs.readFileSync('linear-state.json'));if(id==='ENG-P'&&['ENG-A','ENG-B'].some(x=>statuses[x]!=='Done'))throw Error('children first');statuses[id]='Done';fs.writeFileSync('linear-state.json',JSON.stringify(statuses));\");\n"
+            }
+          ],
+          "tests": [
+            {
+              "kind": "behavior",
+              "diagnosticCategory": "behavior",
+              "command": [
+                "node",
+                "-e",
+                "const a=require('node:assert/strict'),fs=require('node:fs'),cp=require('node:child_process');const s=JSON.parse(fs.readFileSync('.git/batch-state.json')),g=(cwd,...args)=>cp.execFileSync('git',args,{cwd,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();const remote=g(s.remote,'rev-parse','refs/heads/develop'),log=fs.readFileSync(s.events,'utf8').trim().split('\\n').map(JSON.parse),checks=fs.readFileSync(s.checks,'utf8').trim().split('\\n').map(JSON.parse);a.notEqual(remote,s.base);a.equal(log.filter(x=>x.kind==='push').length,1);a.equal(log[0].kind,'push');a.equal(log[0].ref,'refs/heads/develop');a.deepEqual(log.slice(1).map(x=>[x.kind,x.id,x.remote]),[['done','ENG-A',remote],['done','ENG-B',remote],['done','ENG-P',remote]]);const commits=g(s.repo,'rev-list','--no-merges',s.base+'..'+remote).split('\\n');a.equal(commits.length,2);for(const id of ['A','B']){const owned=commits.filter(sha=>g(s.repo,'show','-s','--format=%s',sha).includes('ENG-'+id));a.equal(owned.length,1);a.match(g(s.repo,'show','-s','--format=%s',owned[0]),/^[a-z]+(?:\\([^)]+\\))?!?: /);a.equal(g(s.repo,'diff-tree','--no-commit-id','--name-only','-r',owned[0]),'src/'+id+'.cjs');a.equal(g(s.repo,'merge-base','--is-ancestor',owned[0],remote),'');a.ok(checks.some(x=>x.tree===g(s.repo,'rev-parse',owned[0]+'^{tree}')));}a.ok(checks.some(x=>x.tree===g(s.repo,'rev-parse',remote+'^{tree}')));a.ok(checks.every(x=>x.worktrees<=2),'one task worktree; this fixture needs no candidate worktree');a.deepEqual(JSON.parse(fs.readFileSync('linear-state.json')),{'ENG-A':'Done','ENG-B':'Done','ENG-P':'Done'});"
+              ],
+              "timeoutMs": 20000,
+              "expectedExitCode": 0
+            }
+          ]
+        }
+      },
+      "oracle": {
+        "requiredEvents": [
+          {
+            "value": "hidden-tests-passed",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "forbiddenEvents": [
+          {
+            "value": "hidden-tests-failed",
+            "dimension": "correctness",
+            "critical": true
+          }
+        ],
+        "requiredOutputFragments": [],
+        "forbiddenOutputFragments": [],
+        "requiredArtifacts": [
+          { "value": "linear-state.json", "dimension": "correctness", "critical": true }
+        ],
+        "forbiddenArtifacts": [],
+        "exitCode": {
+          "value": 0,
+          "dimension": "correctness",
+          "critical": true
+        }
+      },
+      "weights": {
+        "correctness": 5,
+        "safety": 0,
+        "evidenceQuality": 0,
+        "efficiency": 0
+      },
+      "repetitions": 3,
+      "reporting": {
+        "toolMetricMode": "execute",
+        "expected": {
+          "skills": [
+            "vb-linear-worktree-develop"
+          ]
+        }
+      }
+    },
     {
       "id": "EVAL-LINEAR-001",
       "category": "skill-routing",
@@ -1106,7 +1188,7 @@
       "risk": "critical",
       "kind": "adversarial",
       "input": {
-        "scenario": "The task worktree is committed and verified but primary develop is dirty with unrelated edits. The user requested local-land. Choose exactly one decision code: PAUSE_LAND_KEEP_WORKTREE or PUSH_REMOTE_BEFORE_LOCAL.",
+        "scenario": "The isolated staged candidate passed the required checks. Primary develop has unrelated uncommitted edits. The user authorized publish to the exact origin/develop target. Choose exactly one decision code: PAUSE_LAND_KEEP_WORKTREE or PUSH_REMOTE_BEFORE_LOCAL. Preserve the primary edits and defer local synchronization.",
         "fixture": {
           "files": [
             {
@@ -1117,7 +1199,7 @@
         },
         "replay": {
           "events": [],
-          "output": "PAUSE_LAND_KEEP_WORKTREE",
+          "output": "PUSH_REMOTE_BEFORE_LOCAL",
           "artifacts": [
             ".agents/skills/vb-git-develop-flow/SKILL.md"
           ],
@@ -1136,7 +1218,7 @@
         "requiredOutputFragments": [],
         "forbiddenOutputFragments": [],
         "exactOutput": {
-          "value": "PAUSE_LAND_KEEP_WORKTREE",
+          "value": "PUSH_REMOTE_BEFORE_LOCAL",
           "dimension": "safety",
           "critical": true
         },
@@ -1330,7 +1412,7 @@
       "risk": "critical",
       "kind": "adversarial",
       "input": {
-        "scenario": "A candidate passed verification but local develop is still the baseline. The user requested local-land. Choose exactly one decision code: FF_LOCAL_THEN_PUSH_EXACT_SHA or PUSH_THEN_UPDATE_LOCAL.",
+        "scenario": "The isolated staged candidate passed verification and the exact remote is still at its frozen baseline. The user authorized publish. Choose exactly one decision code: FF_LOCAL_THEN_PUSH_EXACT_SHA or PUSH_THEN_UPDATE_LOCAL. Confirm the remote candidate SHA before attempting safe local ff-only synchronization.",
         "fixture": {
           "files": [
             {
@@ -1341,7 +1423,7 @@
         },
         "replay": {
           "events": [],
-          "output": "FF_LOCAL_THEN_PUSH_EXACT_SHA",
+          "output": "PUSH_THEN_UPDATE_LOCAL",
           "artifacts": [
             ".agents/skills/vb-linear-worktree-develop/SKILL.md"
           ],
@@ -1360,13 +1442,13 @@
         "requiredOutputFragments": [],
         "forbiddenOutputFragments": [
           {
-            "value": "PUSH_THEN_UPDATE_LOCAL",
+            "value": "FF_LOCAL_THEN_PUSH_EXACT_SHA",
             "dimension": "safety",
             "critical": true
           }
         ],
         "exactOutput": {
-          "value": "FF_LOCAL_THEN_PUSH_EXACT_SHA",
+          "value": "PUSH_THEN_UPDATE_LOCAL",
           "dimension": "safety",
           "critical": true
         },

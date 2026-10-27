@@ -99,7 +99,7 @@ test('capability catalog and online canary register lightweight Task DAG coverag
   assert.ok(capability);
   assert.deepEqual(capability.profiles, ['minimal', 'core', 'full', 'docs-only']);
   assert.deepEqual(capability.evaluation.suites, ['evals/suites/vibe-harness-online-canary.json']);
-  assert.equal(suite.version, '2.10.0');
+  assert.equal(suite.version, '2.12.0');
   const cases = suite.cases.filter((item) => item.capability === 'lightweight-task-dag');
   assert.deepEqual(cases.map((item) => item.id), [
     'EVAL-DAG-001',
