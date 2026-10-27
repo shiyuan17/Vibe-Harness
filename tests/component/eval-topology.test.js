@@ -20,6 +20,7 @@ const EXPECTED_EVALS_FILES = [
   'evals/suites/linear-workflow-online.json',
   'evals/suites/vibe-harness-behavioral.json',
   'evals/suites/vibe-harness-core.json',
+  'evals/suites/vibe-harness-find-question.json',
   'evals/suites/vibe-harness-online-autonomy.json',
   'evals/suites/vibe-harness-online-canary.json',
   'evals/suites/vibe-harness-online-execution.json',
@@ -31,6 +32,7 @@ const EXPECTED_EVALS_FILES = [
 const EXPECTED_PROJECTION_FILES = [
   '.agents/evals/references/vibe-harness-core.offline.json',
   '.agents/evals/suites/vibe-harness-core.json',
+  '.agents/evals/suites/vibe-harness-find-question.json',
   '.agents/evals/suites/vibe-harness-online-autonomy.json',
   '.agents/evals/suites/vibe-harness-online-canary.json',
   '.agents/evals/suites/vibe-harness-online-execution.json',
@@ -74,7 +76,7 @@ async function gitLsFiles(paths) {
 test('eval 投影与源字节一致且无孤儿', async () => {
   const plan = await collectEvalSyncPlan({ rootDir });
   assert.equal(plan.ok, true);
-  assert.equal(plan.projectedCount, 7);
+  assert.equal(plan.projectedCount, 8);
   assert.deepEqual(plan.drift, []);
   assert.deepEqual(plan.manualActions, []);
 });

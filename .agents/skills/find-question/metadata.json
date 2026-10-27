@@ -1,0 +1,1 @@
+{"id":"find-question","kind":"core","entry":"SKILL.md","triggers":["find-question","$find-question","Vb Find Question","vb find question","跨层一致性审查","字段逻辑审查","数据一致性审查","配置授权生命周期审查"],"outputs":["证据化 finding 报告","问题整改计划","未验证边界清单"]}

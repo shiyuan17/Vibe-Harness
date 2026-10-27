@@ -8,6 +8,7 @@
 // identity, frozen base ref/SHA, mode effect ceiling) and reports the fields
 // that only the host may supply. It never fabricates host proof.
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
@@ -36,7 +37,7 @@ export const HOST_PROOF_FIELDS = Object.freeze(['source', 'filesystem', 'approva
 // than five minutes; the same bound is reused here so a draft can be checked
 // before it reaches the hook.
 export const HOST_PROOF_MAX_AGE_MS = 5 * 60 * 1000;
-export const HOST_OWNED_FIELDS = Object.freeze(['requestId', 'sessionId', 'hostContext']);
+export const HOST_OWNED_FIELDS = Object.freeze(['sessionId', 'hostContext']);
 export const WORKSPACE_IDENTITY_FIELDS = Object.freeze(['canonicalCwd', 'worktreeRoot', 'gitCommonDir', 'gitDir', 'branch']);
 
 const ENVELOPE_SCHEMA_URLS = new Map([
@@ -139,11 +140,10 @@ export function modeEffectCeiling(mode, version = 2) {
   return [];
 }
 
-function missingHostFields({ hostContext, requestId, sessionId, version }) {
+function missingHostFields({ hostContext, sessionId, version }) {
   const present = {
     // v1 carries no host proof at all, so it is not a missing field there.
     hostContext: version === 2 ? isObject(hostContext) : true,
-    requestId: isNonEmptyString(requestId),
     sessionId: isNonEmptyString(sessionId),
   };
   return HOST_OWNED_FIELDS.filter((field) => !present[field]);
@@ -184,6 +184,9 @@ function semanticProblems(value, version, { cwd, now, workspace }) {
 
   if (version === 2) {
     const host = value.hostContext;
+    if (value.riskClass === 'high') {
+      push('HOST_PROOF_UNVERIFIED', 'structural hostContext is not authenticated; the hook requires a host broker ticket or an explicitly enabled legacy migration window', 'error', 'hostContext');
+    }
     if (!isObject(host)) {
       push('HOST_PROOF_ABSENT', 'hostContext is missing; only the host may supply filesystem/approval/process/network proof', 'error', 'hostContext');
     } else if (host.source !== 'host') {
@@ -312,10 +315,9 @@ function finishCheck({ problems, value, version }) {
 /**
  * Build an Execution Envelope draft for the current workspace.
  *
- * Everything derivable from the workspace is filled in; `requestId`,
- * `sessionId` and `hostContext` are echoed as null unless the host supplied
- * them, and the returned problems say so. A draft is only `valid` once
- * `parseExecutionEnvelope` accepts it.
+ * Workspace identity and a random requestId are filled in; sessionId and
+ * hostContext remain host-owned. Structural validity alone never authenticates
+ * high-risk host proof.
  *
  * @param {Record<string, any>} options
  */
@@ -334,7 +336,7 @@ export function buildEnvelopeDraft({
   linearTeams = [],
   mode = 'inspect',
   now = new Date(),
-  requestId = null,
+  requestId = randomUUID(),
   riskClass = 'standard',
   sessionId = null,
   targetIssueIds = [],
@@ -401,18 +403,20 @@ export function buildEnvelopeDraft({
     allowedEffects,
     forbiddenEffects,
     mode,
-    requestId,
+    requestId: requestId ?? randomUUID(),
     sessionId,
     targetIssueIds,
     terminalCondition,
-    ...(expiresAt === null ? {} : { expiresAt }),
+    ...(expiresAt === null && version === 2
+      ? { expiresAt: new Date(now.getTime() + 5 * 60 * 1000).toISOString() }
+      : expiresAt === null ? {} : { expiresAt }),
     ...(checkpoint === null ? {} : { checkpoint }),
   };
   const envelope = version === 1
     ? { schema: EXECUTION_ENVELOPE_SCHEMA, ...shared }
     : { schema: EXECUTION_ENVELOPE_SCHEMA_V2, ...shared, hostContext, riskClass, scope };
 
-  const missing = missingHostFields({ hostContext, requestId, sessionId, version });
+  const missing = missingHostFields({ hostContext, sessionId, version });
   for (const field of missing) {
     if (field === 'hostContext') {
       push('HOST_PROOF_ABSENT', 'hostContext must be injected by the host (source=host); this command never invents host proof');
@@ -435,9 +439,9 @@ export function buildEnvelopeDraft({
     hostInjectedFields: missing,
     hostProof: {
       fields: [...HOST_PROOF_FIELDS],
-      note: 'hostContext is host-owned evidence; a draft stays invalid until the host injects it',
+      note: 'hostContext is host-declared data, not authenticated proof; high-risk execution needs a trusted broker',
       required: version === 2,
-      status: isObject(hostContext) ? 'provided' : 'absent',
+      status: isObject(hostContext) ? 'declared-unverified' : 'absent',
     },
     modeCeiling: modeEffectCeiling(mode, version),
     problems: problems.sort((left, right) => left.code.localeCompare(right.code)),

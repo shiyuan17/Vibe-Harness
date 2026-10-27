@@ -243,6 +243,7 @@ async function main() {
         // reviewed would make the acceptance gate attest its own relevance.
         // `--reviewed` is the caller's declaration.
         commands: commands.map((item) => ({ ...item })),
+        deferredChecks,
         reviewedIds,
         notes,
         impactMapping,
@@ -269,17 +270,6 @@ async function main() {
       fallbackUsed: plan.fallbackUsed,
       selectionReasons: [...plan.selectionReasons],
     };
-    if (deferredChecks.length > 0 && report.verification.acceptance) {
-      report.verification.acceptance = {
-        ...report.verification.acceptance,
-        status: 'blocked',
-        reasonCode: 'DEFERRED_CHECKS',
-      };
-      // A receipt blocked for deferred layers cannot be the completion evidence,
-      // so the exit status reports the same verdict as the receipt instead of
-      // letting a caller read `ok` as "this run completed the change".
-      report.ok = false;
-    }
     if (json) console.log(JSON.stringify(report, null, 2));
     if (!report.ok) process.exitCode = 1;
     if (json) return;
@@ -316,12 +306,14 @@ async function main() {
       if (result.stderr) process.stderr.write(result.stderr + (result.stderr.endsWith('\n') ? '' : '\n'));
       if (result.status !== 'passed') throw result;
     } catch (error) {
-      console.error(`\nFocused verification failed at: ${item.command}`);
+      console.error(`\nFocused verification ${error.status ?? 'failed'} at: ${item.command}`);
       console.error('Recovery: ' + (error.next?.command ?? 'pnpm verify:focused --run'));
       process.exit(typeof error.exitCode === 'number' ? error.exitCode : 1);
     }
   }
-  console.log('\nFocused verification passed.');
+  console.log(report.ok
+    ? '\nFocused verification passed.'
+    : '\nFocused verification selected checks passed; the receipt remains blocked by deferred evidence.');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

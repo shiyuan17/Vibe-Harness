@@ -52,7 +52,7 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 2. 长任务（预计执行超过 60 分钟，或发生第一次上下文压缩）先用 `node .agents/runtime/commands/run.mjs task init --project <path> --write` 建立状态锚点（收据在 `.vibe-harness/tasks/`，复验用 `run.mjs verify --reuse`）；再次压缩前必须先更新锚点；命中 Skill 触发场景时先读该 Skill 的 `SKILL.md` 再行动。
 3. 仅当需要恢复项目状态且已获授权时读 Memory body，从 `.agents/memory/CURRENT.md` 唯一入口恢复；治理真值按它引用的 `docs/memory/PROJECT_STATE.md` 读取，不复制其内容。 专项 Skill 限制 Memory 证据边界时，只确认路径存在与元数据，不读正文。
 4. 编辑前运行 `git status --short`，保护用户未归属改动。
-5. 先按问题类型选工具：跨文件上下文先用 code-navigation Skill 建立；宿主提供 codebase-memory-mcp 时，用 list_projects 匹配项目根、index_status 检查状态，并用 check_index_coverage 核对证据路径；已索引范围内的文本检索先用 search_code，索引外、配置和日志使用 rg 与直接文件阅读。工具缺失或覆盖不足时回退当前源码；不自动安装、升级或全量重建索引，不把 ready 或空结果当成完整覆盖证据。 只有发生架构决策、独立验证或安全审查等角色触发场景时才按 docs/rules/role-routing.md 选择一个能力匹配的角色并只读其角色文件；普通只读、局部实现与聚焦验证不加载角色文件。
+5. 先按问题类型选工具：跨文件上下文先用 code-navigation Skill 建立；宿主提供 codebase-memory-mcp 时，用 list_projects 匹配项目根、index_status 检查状态，并用 check_index_coverage 核对证据路径；单文件文本、配置和日志使用 rg 与直接文件阅读。工具缺失或覆盖不足时回退当前源码；不自动安装、升级或全量重建索引，不把 ready 或空结果当成完整覆盖证据。 只有发生架构决策、独立验证或安全审查等角色触发场景时才按 docs/rules/role-routing.md 选择一个能力匹配的角色并只读其角色文件；普通只读、局部实现与聚焦验证不加载角色文件。
 6. 将任务归为快速、轻量或完整，并选择与主张匹配的验证。
 7. 使用“获取可信事实 → 判定并执行 → 聚焦验证 → 简洁交付”的单一路径；宿主按 description 直接选择领域 Skill。
 ## 硬边界
@@ -74,7 +74,7 @@ TypeScript 配置、类型声明、JSDoc 类型契约，或完成主张涉及类
 - 需求澄清姿态：`balanced`（action-leaning 偏向采用最小可逆默认值直接推进；balanced 按规则判断；conservative 对尚未解决的高影响分歧更谨慎）。
 - 表达模式位于 `docs/rules/response-modes.md`：按任务类型自动选择，或消息内显式 `/模式名` 并可组合；模式只控制思考深度、表达方式与输出粒度，不改变任务目标、验证范围或安全边界。
 - codebase-memory-mcp 使用规范位于 `docs/rules/codebase-memory-mcp.md`；仅使用宿主已提供的工具，不负责安装、配置、版本、索引或缓存管理。
-- 规则位于 `docs/rules/`。命中索引（⚡ 先读该规则顶部的 Fast Path 卡片）：治理 governance-core（Vibe-Harness 执行内核）⚡、agent-skill-routing（Skill 编写与路由规则）、eval-driven-development（评测驱动开发）、role-routing（多角色路由规则）、git-rules（Git 规则）⚡、test-rules（测试规则）⚡、ai-collab-rules（AI 协作规则）⚡、review-report（审查报告规则）、response-modes（表达模式规则）；工程 api-rules（API 规则）、coding-rules（编码规则）、frontend-rules（前端规则）、log-management（可观测性与日志管理规则）、project-directory（项目目录规则）、project-specific-rules（项目专属规则）、db-rules（DB 规则）；工具与集成 codebase-memory-mcp⚡；发布与排障 release-rules（发布规则）、troubleshooting（排障规则）。 多角色索引位于 .agents/roles/index.md。
+- 规则位于 `docs/rules/`。命中索引（⚡ 先读该规则顶部的 Fast Path 卡片）：治理 governance-core（Vibe-Harness 执行内核）⚡、agent-skill-routing（Skill 编写与路由规则）⚡、eval-driven-development（评测驱动开发）、role-routing（多角色路由规则）、git-rules（Git 规则）⚡、test-rules（测试规则）⚡、ai-collab-rules（AI 协作规则）⚡、review-report（审查报告规则）、response-modes（表达模式规则）⚡；工程 api-rules（API 规则）、coding-rules（编码规则）、frontend-rules（前端规则）、log-management（可观测性与日志管理规则）、project-directory（项目目录规则）、project-specific-rules（项目专属规则）、db-rules（DB 规则）；工具与集成 codebase-memory-mcp⚡；发布与排障 release-rules（发布规则）、troubleshooting（排障规则）。 多角色索引位于 .agents/roles/index.md。
 - 模板位于 `docs/templates/`。
 - Skills 位于 `.agents/skills/`。
 - Codex hook 配置位于 `.codex/hooks.json`。

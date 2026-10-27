@@ -26,7 +26,7 @@ export const NODE_RESULTS = Object.freeze(['pending', 'ready', 'running', 'unver
 // blocked, because that would report a failure as a settled input.
 export const TERMINAL_RESULTS = Object.freeze(['succeeded', 'failed', 'skipped', 'cancelled']);
 export const SUCCESSFUL_RESULTS = Object.freeze(['succeeded']);
-export const DAG_NODE_KEYS = Object.freeze(['id', 'kind', 'output', 'dependsOn', 'trigger', 'writeScope', 'resourceLocks', 'verification', 'result']);
+export const DAG_NODE_KEYS = Object.freeze(['id', 'kind', 'output', 'dependsOn', 'trigger', 'writeScope', 'resourceLocks', 'verification', 'result', 'cleanupPending']);
 
 const idPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u;
 const globCharacters = /[*?[\]{}!]/u;
@@ -170,6 +170,9 @@ function normalizeNode(raw, index, push) {
   if (!NODE_KINDS.includes(raw.kind)) push('TASK_DAG_KIND_INVALID', `${id} kind must be one of ${NODE_KINDS.join(', ')}`);
   if (!isNonEmptyString(raw.output)) push('TASK_DAG_OUTPUT_MISSING', `${id} must declare an output`);
   if (!NODE_RESULTS.includes(raw.result)) push('TASK_DAG_RESULT_INVALID', `${id} result must be one of ${NODE_RESULTS.join(', ')}`);
+  if (raw.cleanupPending !== undefined && typeof raw.cleanupPending !== 'boolean') {
+    push('TASK_DAG_CLEANUP_INVALID', `${id} cleanupPending must be boolean`);
+  }
   const trigger = raw.trigger ?? 'all_success';
   if (!NODE_TRIGGERS.includes(trigger)) push('TASK_DAG_TRIGGER_INVALID', `${id} trigger must be one of ${NODE_TRIGGERS.join(', ')}`);
   if (trigger === 'all_done' && raw.kind !== 'aggregate') {
@@ -203,6 +206,7 @@ function normalizeNode(raw, index, push) {
     output: typeof raw.output === 'string' ? raw.output : '',
     resourceLocks,
     result: raw.result,
+    cleanupPending: raw.cleanupPending === true,
     trigger,
     verification,
     writeScope,
@@ -333,7 +337,17 @@ function scheduleNodes(byId, conflicts) {
     }
     if (failed.length > 0) blocked.push({ code: 'TASK_DAG_PREDECESSOR_FAILED', id: node.id, reason: failed.join(', ') });
     else if (waiting.length > 0) blocked.push({ code: 'TASK_DAG_WAIT', id: node.id, reason: waiting.join(', ') });
-    else ready.push(node.id);
+    else {
+      const occupied = [...byId.values()].filter((other) => other.id !== node.id
+        && (other.cleanupPending || ['running', 'unverified'].includes(other.result)))
+        .filter((other) => {
+          const hit = writeConflict(node, other);
+          return hit.locks.length > 0 || hit.scopes.length > 0;
+        });
+      if (occupied.length) blocked.push({ code: 'TASK_DAG_RESOURCE_OCCUPIED', id: node.id,
+        reason: `resources retained by ${occupied.map((other) => other.id).sort().join(', ')}` });
+      else ready.push(node.id);
+    }
   }
   const readySet = new Set(ready);
   for (const conflict of conflicts) {

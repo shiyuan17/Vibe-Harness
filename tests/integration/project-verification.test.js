@@ -36,7 +36,8 @@ async function initializeGitProject(target) {
   await execFileAsync('git', ['config', 'user.email', 'verification@example.test'], { cwd: target });
   await execFileAsync('git', ['config', 'user.name', 'Verification Fixture'], { cwd: target });
   await writeFile(path.join(target, 'tracked.txt'), 'initial\n', 'utf8');
-  await execFileAsync('git', ['add', 'tracked.txt'], { cwd: target });
+  await writeFile(path.join(target, '.gitignore'), '.vibe-harness/\n', 'utf8');
+  await execFileAsync('git', ['add', 'tracked.txt', '.gitignore'], { cwd: target });
   await execFileAsync('git', ['commit', '-m', 'test: initialize verification fixture'], { cwd: target });
 }
 
@@ -183,7 +184,7 @@ test('verify --project blocks missing and manual commands by default', { timeout
       execFileAsync(process.execPath, [cliPath, 'verify', '--project', target]),
       (error) => {
         const payload = JSON.parse(error.stderr);
-        assert.equal(payload.error.code, 'PROJECT_VERIFICATION_FAILED');
+        assert.equal(payload.error.code, 'PROJECT_VERIFICATION_BLOCKED');
         assert.match(payload.error.message, /lint is missing/u);
         return true;
       },
@@ -258,9 +259,9 @@ test('verify --project terminates a hanging command and returns a structured tim
       (error) => {
         const payload = JSON.parse(error.stderr);
         assert.equal(payload.ok, false);
-        assert.equal(payload.error.code, 'PROJECT_VERIFICATION_FAILED');
+        assert.equal(payload.error.code, 'PROJECT_VERIFICATION_BLOCKED');
         assert.match(payload.error.message, /lint timed out after 1000ms/u);
-        assert.equal(payload.results.lint.status, 'failed');
+        assert.equal(payload.results.lint.status, 'blocked');
         assert.equal(payload.results.lint.code, 'PROJECT_VERIFICATION_TIMEOUT');
         assert.equal(payload.results.lint.category, 'lint');
         assert.equal(payload.results.lint.timedOut, true);
@@ -330,6 +331,7 @@ test('project verification cancellation terminates the command and preserves rec
 
     assert.equal(report.ok, false);
     assert.match(report.error.message, /lint was cancelled/u);
+    assert.equal(report.results.lint.status, 'blocked');
     assert.equal(report.results.lint.code, 'PROJECT_VERIFICATION_CANCELLED');
     assert.equal(report.results.lint.category, 'lint');
     assert.equal(report.results.lint.cancelled, true);
@@ -341,27 +343,120 @@ test('project verification cancellation terminates the command and preserves rec
   }
 });
 
-test('verify --project returns bounded installation drift diagnostics', async () => {
-  const target = await createProject({ lint: null, typecheck: null, test: null, eval: null });
+test('verification.budgetMs limits only the selected command run and reports not-run checks', { timeout: 30_000 }, async () => {
+  const target = await createProject({
+    lint: null,
+    typecheck: null,
+    test: null,
+    eval: null,
+    tiers: {
+      quick: ['node budget-first.mjs', 'node budget-second.mjs', 'node budget-third.mjs'],
+      standard: [],
+      deep: [],
+    },
+  }, { timeoutMs: 1000, budgetMs: 1200 });
   try {
-    const managedPath = path.join(target, 'docs', 'rules', 'governance-core.md');
-    const managedContent = await readFile(managedPath, 'utf8');
-    await writeFile(managedPath, managedContent + '\nlocal drift\n', 'utf8');
-
+    await writeFile(path.join(target, 'budget-first.mjs'),
+      "import { setTimeout as sleep } from 'node:timers/promises'; await sleep(800); console.log('first');\n");
+    await writeFile(path.join(target, 'budget-second.mjs'),
+      "import { setTimeout as sleep } from 'node:timers/promises'; await sleep(800); console.log('second');\n");
+    await writeFile(path.join(target, 'budget-third.mjs'), "console.log('must-not-run');\n");
     await assert.rejects(
-      execFileAsync(process.execPath, [cliPath, 'verify', '--project', target]),
+      execFileAsync(process.execPath, [cliPath, 'verify', '--project', target, '--tier', 'quick']),
       (error) => {
         const payload = JSON.parse(error.stderr);
-        assert.equal(payload.error.code, 'PROJECT_VERIFICATION_FAILED');
-        assert.equal(payload.error.details.stage, 'installation');
-        assert.equal(payload.error.details.summary.changedCount > 0, true);
-        assert.equal(payload.error.details.samples.changed.includes('docs/rules/governance-core.md'), true);
-        assert.equal(payload.error.details.samples.changed.length <= 3, true);
-        assert.equal(payload.error.details.next.command, 'vibe-harness validate --project .');
-        assert.equal(JSON.stringify(payload).includes(target), false);
+        assert.equal(payload.ok, false);
+        assert.equal(payload.error.code, 'PROJECT_VERIFICATION_BUDGET_EXHAUSTED');
+        const resultFor = (script) => Object.values(payload.results)
+          .find((item) => item.command?.includes(script));
+        assert.equal(resultFor('budget-first.mjs').status, 'passed');
+        assert.equal(resultFor('budget-second.mjs').status, 'blocked');
+        assert.equal(resultFor('budget-third.mjs').status, 'not_run');
+        assert.equal(payload.verification.budget.configuredMs, 1200);
+        assert.equal(payload.verification.budget.exhausted, true);
+        assert.equal(
+          payload.verification.budget.notRunChecks.some((item) => String(item).includes('budget-third')),
+          true,
+          JSON.stringify(payload.verification.budget),
+        );
+        assert.match(payload.error.message, /retry with: vibe-harness verify --project \./u);
         return true;
       },
     );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('verification has no implicit whole-run deadline when budgetMs is absent', { timeout: 30_000 }, async () => {
+  const target = await createProject({
+    lint: null,
+    typecheck: null,
+    test: null,
+    eval: null,
+    tiers: {
+      quick: ['node no-budget-first.mjs', 'node no-budget-second.mjs'],
+      standard: [],
+      deep: [],
+    },
+  }, { timeoutMs: 1000 });
+  try {
+    const slow = "import { setTimeout as sleep } from 'node:timers/promises'; await sleep(650);\n";
+    await writeFile(path.join(target, 'no-budget-first.mjs'), slow);
+    await writeFile(path.join(target, 'no-budget-second.mjs'), slow);
+    const report = await runCli(['verify', '--project', target, '--tier', 'quick']);
+    assert.equal(report.ok, true);
+    assert.equal(report.verification.budget, null);
+    assert.deepEqual(
+      report.verification.selectedChecks.map((check) => report.results[check.id ?? check.command].status),
+      ['passed', 'passed'],
+    );
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('matching verification receipts reuse by default and --no-reuse forces a run', { timeout: 30_000 }, async () => {
+  const target = await createProject({
+    lint: null,
+    typecheck: null,
+    test: 'node reusable-check.mjs',
+    eval: null,
+  });
+  try {
+    await writeFile(path.join(target, 'reusable-check.mjs'), "console.log('reusable');\n");
+    await initializeGitProject(target);
+    const first = await runCli(['verify', '--project', target]);
+    const second = await runCli(['verify', '--project', target]);
+    const forced = await runCli(['verify', '--project', target, '--no-reuse']);
+    assert.equal(first.ok, true);
+    assert.equal(first.verification.status, 'passed');
+    assert.equal(second.verification.cache.status, 'hit', JSON.stringify(second.verification.cache));
+    assert.equal(second.verification.status, 'passed');
+    assert.equal(forced.verification.cache.status, 'not_requested');
+    assert.equal(forced.verification.status, 'passed');
+  } finally {
+    await rm(target, { force: true, recursive: true });
+  }
+});
+
+test('verify --project does not run installation or pack preflight', async () => {
+  const target = await createProject({
+    lint: 'node verification-only.mjs',
+    typecheck: null,
+    test: null,
+    eval: null,
+  });
+  try {
+    await writeFile(path.join(target, 'verification-only.mjs'), "console.log('verification-only');\n", 'utf8');
+    const managedPath = path.join(target, 'docs', 'rules', 'governance-core.md');
+    const managedContent = await readFile(managedPath, 'utf8');
+    await writeFile(managedPath, managedContent + '\nlocal drift\n', 'utf8');
+    const report = await runCli(['verify', '--project', target]);
+    assert.equal(report.ok, true);
+    assert.equal(report.results.lint.status, 'passed');
+    assert.match(report.results.lint.stdout, /verification-only/u);
+    assert.equal(report.error, undefined);
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -379,7 +474,7 @@ test('project verification rejects a project with no configured checks', async (
     const report = await runProjectVerification({ commandStatus, targetDir: target });
     assert.equal(report.ok, false);
     assert.equal(report.error.code, 'PROJECT_VERIFICATION_NO_CHECKS');
-    assert.equal(report.verification.evidence.commandExecution.status, 'failed');
+    assert.equal(report.verification.evidence.commandExecution.status, 'unverified');
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -627,6 +722,7 @@ test('verification receipts reject a project that changes during checks', async 
     assert.equal(report.ok, false);
     assert.equal(report.error.code, 'PROJECT_VERIFICATION_STALE');
     assert.equal(report.results.lint.status, 'passed');
+    assert.equal(report.status, 'stale');
     assert.equal(report.verification.snapshotComparison, 'changed');
     assert.deepEqual(report.verification.evidence.commandExecution, { status: 'passed' });
     assert.deepEqual(report.verification.evidence.snapshotComparison, {

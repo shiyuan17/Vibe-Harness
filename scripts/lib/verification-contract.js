@@ -40,8 +40,19 @@ export function normalizeValidationChecks(value) {
       && (!Number.isInteger(item.estimatedDurationMs) || item.estimatedDurationMs < 0)) {
       throw new Error(`validationCommands.checks[${index}].estimatedDurationMs must be a non-negative integer`);
     }
+    if (item.resourceClass !== undefined && item.resourceClass !== 'repo-heavy') {
+      throw new Error(`validationCommands.checks[${index}].resourceClass must be repo-heavy`);
+    }
     if (item.deterministic !== undefined && typeof item.deterministic !== 'boolean') {
       throw new Error(`validationCommands.checks[${index}].deterministic must be boolean`);
+    }
+    const cacheScope = item.cacheScope ?? 'selection';
+    if (!['selection', 'tree'].includes(cacheScope)) {
+      throw new Error(`validationCommands.checks[${index}].cacheScope must be selection or tree`);
+    }
+    const subsumes = item.subsumes ?? [];
+    if (!Array.isArray(subsumes) || subsumes.some((value) => typeof value !== 'string' || !value.trim())) {
+      throw new Error(`validationCommands.checks[${index}].subsumes must contain non-empty check ids`);
     }
     return {
       id,
@@ -50,8 +61,11 @@ export function normalizeValidationChecks(value) {
       costTier,
       scopes,
       deterministic: item.deterministic === true,
+      cacheScope,
+      subsumes: [...new Set(subsumes.map((value) => value.trim()))],
       cwd: item.cwd ?? '.',
       ...(Number.isInteger(item.estimatedDurationMs) ? { estimatedDurationMs: item.estimatedDurationMs } : {}),
+      ...(item.resourceClass === 'repo-heavy' ? { resourceClass: 'repo-heavy' } : {}),
     };
   });
 }

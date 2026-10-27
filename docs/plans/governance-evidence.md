@@ -17,7 +17,7 @@
 
 ## 已定方案
 
-受管计划通过 `task init --plan-file` 绑定，以 SHA-256 摘要识别漂移；`task update`、`verify --task` 和 `worktree land` 在漂移时阻塞。单元状态中的 `failed` 是停止位：`task check <task-id> --unit <unit-id> --dispatch` 在派发前回答前驱是否就绪（失败或阻塞的前驱返回 `VIBE_HARNESS_UNIT_PREDECESSOR_FAILED`，未完成的前驱返回 `VIBE_HARNESS_UNIT_PREDECESSOR_UNMET`），`worktree land` 复用同一判定。缺陷冻结只接受真实失败的验证收据，并机器校验红灯来源与覆盖范围；重建基线需要外部受保护评审/CI 收据的结构化证明。`verify --task` 写出的收据自带任务与计划关联，记回锚点时跨任务收据被拒绝。评审回执 v1 保持可读，v2 为高风险变更在 Schema 层要求双复审与上下文独立性字段。
+受管计划通过 `task init --plan-file` 绑定，以 SHA-256 摘要识别漂移；`task update`、`verify --task` 和 `worktree stage` 预检在漂移时阻塞。单元状态中的 `failed` 是停止位：`task check <task-id> --unit <unit-id> --dispatch` 在派发前回答前驱是否就绪（失败或阻塞的前驱返回 `VIBE_HARNESS_UNIT_PREDECESSOR_FAILED`，未完成的前驱返回 `VIBE_HARNESS_UNIT_PREDECESSOR_UNMET`）。缺陷冻结只接受真实失败的验证收据，并机器校验红灯来源与覆盖范围；重建基线需要外部受保护评审/CI 收据的结构化证明。`verify --task` 写出的收据自带任务与计划关联，记回锚点时跨任务收据被拒绝。评审回执 v1 保持可读，v2 为高风险变更在 Schema 层要求双复审与上下文独立性字段。
 
 ## 实施顺序
 

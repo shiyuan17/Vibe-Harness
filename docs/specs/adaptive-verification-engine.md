@@ -36,7 +36,27 @@ CLI 与安装运行时共用档位选择器，以命令和项目相对 `cwd` 去
 
 聚焦入口先按变更选择相关检查，再按同一成本层解析结果筛选；显式命令归属优先于缺失层推导，显式空层保持禁用，未声明时沿用保守推导。文件级收窄继承原检查的成本层，不因命令重写而降到 quick。预览与执行收据记录同一实际执行集合、延迟检查、选择理由及升级方向；unknown 仍保留 high 风险回退。
 
-收据核心写 v3、兼容读取旧收据，外层引擎标识保留。`--reuse` 从被 Git 忽略的 `.vibe-harness/verification/receipts/` 查找，不要求任务锚点；只复用显式 `deterministic: true`、快照一致且全部选中检查实际通过的结果。代码、配置、锁文件、工具链、环境、工作区或验证实现变化均使缓存失效；旧收据和未证明的 warm 环境不进入此复用路径。缓存只保存摘要，不保存 stdout、stderr 或环境值。
+收据核心写 schema v5、兼容读取旧收据，外层引擎标识保留。完整运行收据仍写入被 Git 忽略的 `.vibe-harness/verification/receipts/`；`--reuse` 的检查级缓存写入 Git common dir 下的本机共享 store，因此同一仓库的不同 worktree、分支或空提交 HEAD 可按代码树内容复用。旧版检查收据可以读取，但 v4 及更早记录不能作为自动命中。所有记录都以本机用户密钥认证，缓存只保存摘要，不保存 stdout、stderr 或环境明文。
+
+默认 `verification.reuse.mode` 为 `workspace`，保持工作区指纹内的保守复用。显式 opt-in `tree-content` 后，检查键包含提交树、未提交/未跟踪内容、锁文件、验证命令、`cwd`、平台/架构、工具链版本、验证实现版本和 allowlist 环境摘要；绝对 worktree 路径、HEAD 与分支名只进入 provenance。`envAllowlist` 未声明时绑定完整环境；声明后环境变化只按列表内变量失效。TTL 到期、记录不可读、认证失败、符号链接、worktree 歧义或工具链不可探测时一律 cache miss。
+
+逐检查缓存与 `cacheScope` 决定复用粒度：
+
+- `tree`：全仓 lint、typecheck、全量单测和后端全量检查；同一代码树内容可在不同 worktree/HEAD 间命中。
+- `selection`：`*:changed`、`*:affected` 等依赖 base 或 `changedPaths` 的检查，默认值；额外绑定 base tree 与变更上下文，禁止跨基线复用。
+- 每个检查独立 lookup/store；一个非确定性检查 miss 不影响其他已命中的确定性检查。只有全部选中检查都有有效证据才能形成整体通过。
+- 执行过程中改动跟踪或未跟踪文件时，后续预计算命中失效并重新取快照；最终快照或写指纹不一致仍判为 `FINAL_SNAPSHOT_MISMATCH`。
+- 未显式 `deterministic: true` 的检查不能自动复用。`backend-unit` 与 `backend-verify` 保持非确定性声明，直到同一代码内容上连续两次 clean、无缓存运行通过且树内容前后一致。
+
+### 检查覆盖与选择报告
+
+`validationCommands.checks[].subsumes` 表达同一 `cwd` 下高层检查覆盖低层检查。覆盖关系只能引用同一 `checks` 列表中的 ID，拒绝未知 ID、自引用、循环、跨 `cwd` 和低层覆盖高层。覆盖只裁剪默认 tier；`--only`、`--full` 与风险派生矩阵不裁剪。CLI 与 runtime 共用同一覆盖图实现。
+
+计划和收据必须输出 `subsumedChecks`（含 ID 与 `subsumedBy`）、`subsumedBy` 以及逐检查 `selectionReasons`（被覆盖项为 `subsumed-by:<id>`），使选择结果可审计而不是静默消失。
+
+### 重任务锁
+
+重型验证不再用仓库级互斥锁串行化。候选验证在交付 FIFO 外运行，持有 Git common dir 下的候选活动租约（nonce、PID、心跳与 TTL），心跳持续续约，持有者退出或心跳过期后才可回收，不因等待时间长而强删活跃租约；被后续发布取代的候选收到协作 CANCEL sidecar，下一次轮询在检查之间中止，进程树终止后租约被强制释放。并发验证的资源争用以明确的失败原因报告，不以测试失败掩盖。
 
 项目检查可在 stdout 或 stderr 输出一行 `[VIBE_HARNESS_CHECK] {"status":"not_applicable","reason":"..."}` 表示未执行适用验证，也可声明 `blocked` 或 `failed`；该协议不能把失败退出码提升为通过，后续跳过标记不能覆盖失败。所有检查均不适用时返回 unverified；部分检查跳过时记录覆盖缺口，不缓存整组通过。affected 范围确实没有变化时可无操作结束，但不产生通过收据。
 
@@ -47,7 +67,7 @@ CLI 与安装运行时共用档位选择器，以命令和项目相对 `cwd` 去
 - `checks` 仅带 ID 时必须能关联命令，关联失败视为配置错误；`--only` 保留旧插槽兼容，但不会靠显示名称去重。计划仍区分成本、影响范围和行为证据，命令通过不表示所有层已验收。
 - 新安装与升级必须同时安装运行入口、`verification-plan.mjs`、`verification-receipt.mjs` 及其依赖。先在临时项目验证 dry-run、新安装、升级和用户文件拒写，再迁移业务项目；不使用全目录覆盖或 `--force` 绕过漂移。
 - 收据仓库必须已被 Git 忽略，否则本轮执行仍可产出报告但不会落盘缓存。命令目录中的锁文件、项目配置、工具版本和环境身份只以摘要绑定；版本探测不可用时拒绝复用。
-- 同一状态后续执行失败会清除对应旧通过缓存。旧 v2 收据可用于历史展示，不能进入 v3 跨引擎复用；回滚时成套还原配置、运行入口和共享模块，停用新缓存并重新验证，不将 v3 降格为旧版通过证据。
+- 同一状态后续执行失败会清除对应旧通过缓存。旧回执可用于历史展示，不能进入 v5 跨引擎复用；回滚时成套还原配置、运行入口和共享模块，移除 `tree-content`/`subsumes` 后回到完整矩阵，重新验证，不将旧版收据升格为当前通过证据。
 
 ## 环境与回滚
 

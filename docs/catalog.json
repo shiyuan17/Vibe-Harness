@@ -1423,6 +1423,120 @@
         "maintainer",
         "auditor"
       ]
+    },
+    {
+      "path": "docs/adr/ADR-0017-worktree-lifecycle-local-verification.md",
+      "kind": "architecture",
+      "status": "superseded",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ],
+      "supersededBy": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md"
+    },
+    {
+      "path": "docs/adr/ADR-0018-explicit-linear-claim-boundary.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/inventory/governance-enhancement-2025.md",
+      "kind": "inventory",
+      "status": "reference",
+      "language": "zh-CN",
+      "audiences": [
+        "auditor",
+        "maintainer"
+      ]
+    },
+    {
+      "path": "docs/specs/risk-tier-quantified.md",
+      "kind": "spec",
+      "status": "implemented",
+      "language": "zh-CN",
+      "audiences": [
+        "maintainer",
+        "auditor"
+      ]
+    },
+    {
+      "path": "docs/adr/ADR-0019-local-first-explicit-delivery.md",
+      "kind": "architecture",
+      "status": "superseded",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ],
+      "supersededBy": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md"
+    },
+    {
+      "path": "docs/adr/ADR-0020-lightweight-delivery-blocking-and-verification-limits.md",
+      "kind": "architecture",
+      "status": "superseded",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ],
+      "supersededBy": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md"
+    },
+    {
+      "path": "docs/adr/ADR-0021-staged-local-publish-delivery.md",
+      "kind": "architecture",
+      "status": "superseded",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ],
+      "supersededBy": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md"
+    },
+    {
+      "path": "docs/adr/ADR-0022-repository-delivery-fifo.md",
+      "kind": "architecture",
+      "status": "superseded",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ],
+      "supersededBy": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md"
+    },
+    {
+      "path": "docs/adr/ADR-0023-worktree-delivery-recovery.md",
+      "kind": "architecture",
+      "status": "superseded",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ],
+      "supersededBy": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md"
+    },
+    {
+      "path": "docs/adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md",
+      "kind": "architecture",
+      "status": "current",
+      "language": "zh-CN",
+      "audiences": [
+        "contributor",
+        "maintainer",
+        "auditor"
+      ]
     }
   ]
 }

@@ -4,6 +4,8 @@ import { lstat, readdir, readFile, readlink, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { gitTimeoutMs } from './git-timeouts.mjs';
+
 const execFileAsync = promisify(execFile);
 // Nested gitlinks are followed to this depth and no further: past it the write
 // surface cannot be bounded any more, so the whole write fingerprint is dropped
@@ -19,7 +21,7 @@ async function git(args, projectDir) {
       // megabytes of NUL-separated names; a truncated read would silently turn
       // into "no write evidence", which validateCompletion() reads as a new write.
       maxBuffer: 64 * 1024 * 1024,
-      timeout: 15_000,
+      timeout: gitTimeoutMs(),
       windowsHide: true,
     });
     return { ok: true, stdout: result.stdout };
@@ -41,7 +43,7 @@ async function gitBytes(args, projectDir) {
       cwd: projectDir,
       encoding: 'buffer',
       maxBuffer: 64 * 1024 * 1024,
-      timeout: 15_000,
+      timeout: gitTimeoutMs(),
       windowsHide: true,
     });
     return { ok: true, stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? '') };
@@ -469,4 +471,39 @@ export async function gitFingerprint(projectDir) {
     }
   }
   return { snapshot, fingerprint: hash.digest('hex'), writeFingerprint, latestWriteAt };
+}
+
+/**
+ * Content identity of the worktree independent of checkout path, branch name,
+ * and commit sha. The committed tree object and every uncommitted/untracked
+ * content change are part of the digest; a different commit with the same tree
+ * therefore addresses the same code.
+ *
+ * An unreadable path returns null instead of hashing a placeholder: a cache hit
+ * against content this process could not observe would be fabricated evidence.
+ */
+export async function gitTreeFingerprint(projectDir) {
+  const snapshot = await gitSnapshot(projectDir);
+  if (!snapshot.available || !snapshot.head) return null;
+  const tree = await git(['rev-parse', 'HEAD^{tree}'], projectDir);
+  if (!tree.ok || !/^[0-9a-f]{40,64}$/u.test(tree.stdout.trim())) return null;
+  const repositoryRoot = snapshot.root ?? projectDir;
+  const hash = createHash('sha256').update(tree.stdout.trim()).update('\0');
+  const changes = [...snapshot.changes].sort((left, right) => left.path.localeCompare(right.path));
+  for (const change of changes) {
+    hash.update(change.status).update('\0').update(change.path).update('\0');
+    if (change.newPath) hash.update(change.newPath).update('\0');
+  }
+  const paths = new Set(changes.flatMap((change) => [change.path, change.newPath].filter(Boolean)));
+  for (const relativePath of [...paths].sort()) {
+    hash.update(relativePath).update('\0');
+    try {
+      hash.update(await readFile(path.join(repositoryRoot, relativePath)));
+    } catch (error) {
+      if (error.code !== 'ENOENT') return null;
+      hash.update('<missing>');
+    }
+    hash.update('\0');
+  }
+  return hash.digest('hex');
 }

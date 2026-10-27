@@ -9,7 +9,8 @@ import { createServer } from 'node:net';
 import test from 'node:test';
 import { runCommand } from '../../runtime/commands/run.mjs';
 import { gitFingerprint } from '../../runtime/lib/git-fingerprint.mjs';
-import { deliveryProfiles, completionReceipt, resolveDelivery, validateCompletion, validateDeliveryConfig, overrideWarnings } from '../../runtime/lib/delivery.mjs';
+import { deliveryProfiles, completionReceipt, isReviewRequired, resolveDelivery, validateCompletion, validateDeliveryConfig, overrideWarnings } from '../../runtime/lib/delivery.mjs';
+import { verificationAcceptance, verificationReview } from '../../runtime/lib/verification-plan-support.mjs';
 import { processStartIdentity, releaseServiceTeardown, serviceEndpoint, serviceOwnership, serviceSocketDirectory, startIdentityToken, teardownServices, treeGone, windowsConfirmedMembers, windowsTreeProbeCommand } from '../../runtime/lib/services.mjs';
 
 function git(project, ...args) {
@@ -109,7 +110,7 @@ test('交付配置兼容旧项目并拒绝未知模式和不安全服务', () =>
 });
 
 test('完成收据四态不将 blocked 或缺字段转换为通过', () => {
-  const delivery = resolveDelivery({}, 'managed-mr');
+  const delivery = { ...resolveDelivery({}, 'managed-mr'), requireReceipt: true };
   const receipt = completionReceipt({ status: 'blocked', selectedChecks: ['browser'], checks: { browser: { status: 'blocked', command: 'browser check' } } }, delivery);
   assert.equal(receipt.acceptance[0].status, 'blocked');
   assert.equal(validateCompletion(receipt, delivery).status, 'blocked');
@@ -132,7 +133,7 @@ test('完成收据四态不将 blocked 或缺字段转换为通过', () => {
 });
 
 test('完成收据不接受自证的验收证据', () => {
-  const delivery = resolveDelivery({}, 'managed-mr');
+  const delivery = { ...resolveDelivery({}, 'managed-mr'), requireReceipt: true };
   // The provenance gate is exercised on its own below; here the receipt shapes
   // are compared on their internal consistency, so the attestation that the
   // cited verification resolves to the tool's record is supplied directly.
@@ -214,8 +215,136 @@ test('完成收据不接受自证的验收证据', () => {
   assert.equal(validateCompletion(consistent, delivery, null, attested).status, 'passed');
 });
 
+test('local-land 未声明 reviewPolicy 时默认 none，显式 required 和其他分支仍阻断', () => {
+  const config = {
+    delivery: {
+      default: 'local-land',
+      profiles: { 'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: true, reviewPolicy: 'none' } },
+    },
+  };
+  const delivery = { ...resolveDelivery(config), requireReceipt: true };
+  assert.equal(delivery.reviewPolicy, 'none');
+  assert.equal(isReviewRequired({ reviewPolicy: 'none', targetBranch: 'develop' }), false);
+  assert.equal(isReviewRequired({ reviewPolicy: 'none', targetBranch: 'main' }), true);
+  assert.equal(isReviewRequired({ reviewPolicy: 'required', targetBranch: 'develop' }), true);
+
+  const receipt = () => ({
+    delivery: { profile: 'local-land', stage: 'complete', targetBranch: 'develop' },
+    status: 'passed',
+    acceptance: [{ id: 'test', status: 'passed', command: 'node --version', scope: 'layer' }],
+    unverified: [],
+    remainingRisks: [],
+    rollback: 'git revert HEAD',
+    source: { head: 'head', fingerprint: 'fingerprint' },
+    target: { head: 'base' },
+    verification: {
+      id: 'verification',
+      finishedAt: new Date().toISOString(),
+      snapshotComparison: 'match',
+      status: 'passed',
+      fingerprint: 'fingerprint',
+      acceptance: {
+        status: 'accepted',
+        selectedCheckIds: ['test'],
+        finalFingerprint: 'fingerprint',
+      },
+      review: {
+        status: 'not_required',
+        reasonCode: 'REVIEW_NOT_REQUIRED',
+        reviewPolicy: 'none',
+        targetBranch: 'develop',
+        selectedCheckIds: ['test'],
+        reviewedCheckIds: [],
+      },
+    },
+  });
+  const attested = { provenance: { ok: true, reason: 'recorded-verification-matched' } };
+  assert.equal(validateCompletion(receipt(), delivery, null, { ...attested, targetBranch: 'develop' }).status, 'passed');
+
+  const main = receipt();
+  main.delivery.targetBranch = 'main';
+  const mainGate = validateCompletion(main, delivery, null, { ...attested, targetBranch: 'main' });
+  assert.equal(mainGate.status, 'blocked');
+  assert.ok(mainGate.errors.some((line) => /does not cite a reviewed relevant check/u.test(line)), mainGate.errors.join('; '));
+
+  const forged = receipt();
+  forged.verification.review.targetBranch = 'main';
+  forged.delivery.targetBranch = 'main';
+  const forgedGate = validateCompletion(forged, delivery, null, { ...attested, targetBranch: 'main' });
+  assert.equal(forgedGate.status, 'blocked');
+
+  const implicitNone = { ...resolveDelivery({ delivery: { default: 'local-land', profiles: { 'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: true } } } }), requireReceipt: true };
+  assert.equal(implicitNone.reviewPolicy, 'none');
+  assert.equal(validateCompletion(receipt(), implicitNone, null, { ...attested, targetBranch: 'develop' }).status, 'passed');
+
+  const explicitRequired = { ...resolveDelivery({ delivery: { default: 'local-land', profiles: { 'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: true, reviewPolicy: 'required' } } } }), requireReceipt: true };
+  assert.equal(validateCompletion(receipt(), explicitRequired, null, { ...attested, targetBranch: 'develop' }).status, 'blocked');
+});
+
+test('免审验证据记录 not_required 而不是伪装的 relevant', () => {
+  const review = verificationReview({
+    changedPaths: ['src/app.js'],
+    selectedNames: ['lint', 'test'],
+    checks: { lint: { status: 'passed' }, test: { status: 'passed' } },
+    reviewed: [],
+    reviewPolicy: 'none',
+    targetBranch: 'develop',
+  });
+  assert.equal(review.status, 'not_required');
+  assert.equal(review.reasonCode, 'REVIEW_NOT_REQUIRED');
+  assert.equal(review.reviewPolicy, 'none');
+  assert.equal(review.targetBranch, 'develop');
+  const accepted = verificationAcceptance({
+    review,
+    status: 'verified',
+    snapshotComparison: 'match',
+    inputsStable: true,
+    fingerprint: 'fingerprint',
+    selectedNames: ['lint', 'test'],
+    deferredCount: 0,
+  });
+  assert.equal(accepted.status, 'accepted');
+  assert.equal(accepted.reasonCode, 'ACCEPTED');
+
+  const otherBranch = verificationReview({
+    selectedNames: ['lint'], checks: { lint: { status: 'passed' } },
+    reviewPolicy: 'none', targetBranch: 'main',
+  });
+  assert.equal(otherBranch.status, 'unreviewed');
+  const blocked = verificationAcceptance({
+    review: { ...review, targetBranch: 'main' },
+    status: 'verified',
+    snapshotComparison: 'match',
+    inputsStable: true,
+    fingerprint: 'fingerprint',
+    selectedNames: ['lint', 'test'],
+    deferredCount: 0,
+  });
+  assert.equal(blocked.status, 'accepted');
+  assert.equal(blocked.reasonCode, 'ACCEPTED');
+});
+
+test('deferred 只缩小完成主张，空选集与候选变化仍不可通过', () => {
+  const input = {
+    review: { status: 'unreviewed' },
+    status: 'verified',
+    snapshotComparison: 'match',
+    inputsStable: true,
+    fingerprint: 'stable-tree',
+    selectedNames: ['affected-unit'],
+    deferredCount: 2,
+  };
+  const partial = verificationAcceptance(input);
+  assert.equal(partial.status, 'accepted');
+  assert.equal(partial.coverageStatus, 'partial');
+  assert.equal(verificationAcceptance({ ...input, selectedNames: [] }).status, 'blocked');
+  assert.equal(verificationAcceptance({ ...input, snapshotComparison: 'changed' }).status, 'blocked');
+  assert.equal(verificationAcceptance({ ...input, inputsStable: false }).status, 'blocked');
+  assert.equal(verificationAcceptance({ ...input, status: 'running' }).status, 'blocked');
+});
+
 test('完成收据必须能对上工具自己写的验证记录', () => {
-  const delivery = resolveDelivery({}, 'managed-mr');
+  const delivery = { ...resolveDelivery({}, 'managed-mr'), requireReceipt: true };
   const consistent = {
     delivery: { profile: 'managed-mr', stage: 'complete' },
     status: 'passed',
@@ -263,12 +392,14 @@ test('checkpoint dry-run 无写入且恢复报告 HEAD 和工作区漂移', asyn
     assert.equal((await command(project, 'task', 'status', 'demo')).report.recovery.status, 'passed');
     await writeFile(path.join(project, 'example.txt'), 'changed\n');
     assert.ok((await command(project, 'task', 'status', 'demo')).report.recovery.drift.includes('fingerprint'));
-    const blocked = await command(project, 'task', 'check', 'demo', '--complete', '--delivery', 'managed-mr');
-    assert.equal(blocked.report.status, 'blocked');
+    const incomplete = await command(project, 'task', 'check', 'demo', '--complete', '--delivery', 'managed-mr');
+    assert.equal(incomplete.report.status, 'failed');
+    assert.equal(incomplete.report.code, 'VIBE_HARNESS_TASK_NOT_READY');
+    assert.equal(incomplete.report.deliveryGate, undefined);
   } finally { await remove(project); }
 });
 
-test('squash 清理拒绝缺证据、漂移、脏目录和 patch 不一致后接受有效证据', async () => {
+test('squash 清理不要求完成收据，仍拒绝缺合并证据、漂移、脏目录和 patch 不一致', async () => {
   const { project, config } = await fixture();
   const worktree = `${project}-trees/demo`;
   try {
@@ -284,32 +415,9 @@ test('squash 清理拒绝缺证据、漂移、脏目录和 patch 不一致后接
     const diff = git(project, 'diff', '--binary', sourceBase, sourceHead);
     const patchId = spawnSync('git', ['patch-id', '--stable'], { input: diff, cwd: project, encoding: 'utf8', windowsHide: true }).stdout.trim().split(/\s/u)[0];
     const evidence = { sourceBase, sourceHead, targetRef: 'target', targetBefore: sourceBase, targetAfter, mergeMethod: 'squash', mergeCommit: targetAfter, patchId, taskId: 'demo' };
-    // A completion receipt is only accepted with an explicit relevance review:
-    // the selection reasons the planner emits are not review evidence.
-    const unreviewed = (await command(worktree, 'verify', '--delivery', 'managed-mr')).report;
-    // `verify` emits a draft: this caller never supplied the review, so nothing
-    // refutes the run — the draft is `unverified` while the acceptance evidence
-    // it cites is blocked and the review is unreviewed. Only `passed` completes
-    // a delivery.
-    assert.equal(unreviewed.completion.status, 'unverified');
-    assert.equal(unreviewed.completion.verificationAcceptance.status, 'blocked');
-    assert.equal(unreviewed.completion.review.status, 'unreviewed');
-    assert.deepEqual(unreviewed.completion.review.reviewedCheckIds ?? [], []);
-    const verification = (await command(worktree, 'verify', '--delivery', 'managed-mr', '--reviewed', 'all')).report;
-    const receipt = verification.completion;
-    assert.equal(receipt.status, 'passed');
-    assert.equal(receipt.review.status, 'relevant');
-    // The write evidence a completion receipt is validated against has to be the
-    // state verification ended in, which is what `gitFingerprint` reports now.
-    assert.equal(typeof receipt.verification.writeFingerprint, 'string');
-    assert.equal(receipt.verification.writeFingerprint, (await gitFingerprint(worktree)).writeFingerprint);
-    receipt.delivery.stage = 'complete';
-    receipt.target.head = targetAfter;
-    const receiptFile = path.join(project, '.vibe-harness/receipt.json');
     const evidenceFile = path.join(project, '.vibe-harness/evidence.json');
     await command(project, 'task', 'init', 'holder', '--title', 'Holder', '--goal', 'Receipt files', '--write');
-    await writeFile(receiptFile, JSON.stringify(receipt));
-    const options = ['worktree', 'cleanup', '--task', 'demo', '--delivery', 'managed-mr', '--receipt', receiptFile];
+    const options = ['worktree', 'cleanup', '--task', 'demo', '--delivery', 'managed-mr'];
     assert.equal((await command(project, ...options)).report.status, 'blocked');
     await writeFile(evidenceFile, JSON.stringify({ ...evidence, patchId: 'incorrect' }));
     assert.equal((await command(project, ...options, '--merge-evidence', evidenceFile)).report.status, 'blocked');
@@ -320,13 +428,6 @@ test('squash 清理拒绝缺证据、漂移、脏目录和 patch 不一致后接
     git(project, 'commit', '--allow-empty', '-qm', 'target drift');
     assert.equal((await command(project, ...options, '--merge-evidence', evidenceFile)).report.status, 'blocked');
     git(project, 'reset', '--hard', targetAfter);
-    // Creating and removing the dirty file is itself a write the receipt gate
-    // can see — the worktree directory carries the timestamps of both — so the
-    // accepted receipt has to be the one verification ends in, after the probe.
-    const refreshed = (await command(worktree, 'verify', '--delivery', 'managed-mr', '--reviewed', 'all')).report.completion;
-    refreshed.delivery.stage = 'complete';
-    refreshed.target.head = targetAfter;
-    await writeFile(receiptFile, JSON.stringify(refreshed));
     const result = await command(project, ...options, '--merge-evidence', evidenceFile, '--write');
     assert.equal(result.report.status, 'passed', JSON.stringify(result.report));
     assert.equal(git(project, 'rev-parse', 'feature'), sourceHead);

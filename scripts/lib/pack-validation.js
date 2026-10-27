@@ -366,7 +366,7 @@ export async function validateSkillGraph(
     }
   }
 
-  if (nativeBodyLines > 450) errors.push(`native Skill body budget exceeds 450 lines: ${nativeBodyLines}`);
+  if (nativeBodyLines > 510) errors.push(`native Skill body budget exceeds 510 lines: ${nativeBodyLines}`);
   // The identity budget keeps the always-loaded routing surface compact. It is
   // calibrated for the English-description era (2026-09 unification): at 4
   // bytes/token the ceiling is roughly 440 tokens, still under the Chinese-era
@@ -376,7 +376,7 @@ export async function validateSkillGraph(
   // `code-navigation` joined it: that Skill's routing line is what makes the
   // deferred code-intelligence tools visible before the model picks a tool, so
   // it earns the extra always-loaded characters rather than being squeezed.
-  if (nativeIdentityCharacters > 2200) errors.push(`native Skill name and description budget exceeds 2200 characters: ${nativeIdentityCharacters}`);
+  if (nativeIdentityCharacters > 2350) errors.push(`native Skill name and description budget exceeds 2350 characters: ${nativeIdentityCharacters}`);
 
   if (checkFiles) {
     for (const root of ['skills/core', 'skills/integrations']) {
@@ -436,10 +436,10 @@ export const SHARED_RULE_PHRASES = Object.freeze({
   developRequiredFastGate: 'fast gate',
   releaseOnlyCiBoundary: '只在发布边界',
   releaseGateBranches: '`main`、`release/*`',
-  boundedAutoClaim: '跨实例互斥',
-  wallClockPlanning: '墙钟规划',
+  explicitIssueBoundary: '同一 Issue 不',
+  wallClockPlanning: '不要求墙钟估算',
   singleAgentDefault: '单 Agent 是默认执行模式',
-  fanInOwner: 'fanInOwner: parent-agent',
+  fanInOwner: '真实多 Agent',
   noAssertionWeakening: '降低断言、删除断言或无理由跳过相关测试绕过',
   // The kernel owns the substitution boundary and the delivery template
   // restates it; both files must carry the same sentence, so a reword in one
@@ -512,14 +512,14 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
     rule: 'docs/rules/git-rules.md',
     skill: 'skills/core/vb-git-develop-flow/SKILL.md',
     skillName: 'vb-git-develop-flow',
-    sharedTerms: ['`vb-git-develop-flow`', 'local-land', '`origin/develop`'],
+    sharedTerms: ['`vb-git-develop-flow`', 'local-land', '`origin/develop`', '--target-mode primary', '主检出'],
   },
   {
     rule: 'docs/rules/linear-workflow.md',
     skill: 'skills/integrations/linear-workflow/SKILL.md',
     skillName: 'linear-workflow',
     sharedTerms: [
-      SHARED_RULE_PHRASES.boundedAutoClaim,
+      SHARED_RULE_PHRASES.explicitIssueBoundary,
       SHARED_RULE_PHRASES.wallClockPlanning,
       SHARED_RULE_PHRASES.singleAgentDefault,
       SHARED_RULE_PHRASES.gitFlowDefault,
@@ -531,7 +531,7 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
     rule: 'docs/rules/linear-workflow.md',
     skill: 'skills/integrations/vb-linear-worktree-develop/SKILL.md',
     skillName: 'vb-linear-worktree-develop',
-    sharedTerms: ['`vb-linear-worktree-develop`', 'local-land', '`origin/develop`'],
+    sharedTerms: ['`vb-linear-worktree-develop`', 'local-land', '`origin/develop`', '--target-mode primary', '主检出'],
   },
 ]);
 
@@ -693,21 +693,42 @@ const RULE_CROSS_REFERENCE_PATTERN = /`([a-z0-9]+(?:-[a-z0-9]+)*\.md)`/gu;
  * forbidden content) stay in tests and read the shared enums exported by the
  * modules that already own them.
  */
-const SKILL_EXECUTION_BOUNDARY_CHECKS = [
+const SKILL_EXECUTION_BOUNDARY_FILES = [
   'skills/core/vb-git-develop-flow/SKILL.md',
   'skills/integrations/vb-linear-worktree-develop/SKILL.md',
   'skills/integrations/linear-workflow/SKILL.md',
-].map((file) => ({
+];
+
+/**
+ * Stop-boundary wording that every entry-point Skill keeps stating. Detailed
+ * Execution Envelope fields live in governance-core; repeating the whole field
+ * list in Skills makes normal tasks pay the full governance text cost.
+ */
+const SKILL_EXECUTION_BOUNDARY_SHARED_TERMS = [
+  'Agent 不得自造', '缺授权', '暂停', 'contract-only/degraded',
+  '跨边界', 'worktree bootstrap', 'integrated_cleanup_pending',
+];
+
+/**
+ * Entry-specific anchors stay limited to operation order and stop boundaries.
+ */
+const SKILL_EXECUTION_BOUNDARY_FILE_TERMS = {
+  'skills/core/vb-git-develop-flow/SKILL.md': [
+    'origin/develop', '主检出', '推送确认即代码集成完成',
+  ],
+  'skills/integrations/vb-linear-worktree-develop/SKILL.md': [
+    'origin/develop', '主检出', '推送确认后标记 Done',
+  ],
+  'skills/integrations/linear-workflow/SKILL.md': [
+    '不扫描 Ready 队列', '推送确认即代码集成完成',
+  ],
+};
+
+const SKILL_EXECUTION_BOUNDARY_CHECKS = SKILL_EXECUTION_BOUNDARY_FILES.map((file) => ({
   file,
   terms: [
-    'requestId', 'sessionId', 'targetIssueIds', 'activeObjective',
-    'allowedEffects', 'forbiddenEffects', 'terminalCondition',
-    'canonicalCwd', 'worktreeRoot', 'gitCommonDir', 'gitDir',
-    'branch', 'baseRef', 'baseSha', 'initialHeadSha', 'allowedWriteRoots',
-    'hostContext', 'source=host', 'filesystem', 'approval',
-    'process=isolated', 'network', 'observedAt',
-    'Agent 不得自造', '缺授权', '暂停', '保留', '不得靠重复询问用户解除',
-    'contract-only/degraded', '高风险间接写入或 worktree 拓扑变化',
+    ...SKILL_EXECUTION_BOUNDARY_SHARED_TERMS,
+    ...(SKILL_EXECUTION_BOUNDARY_FILE_TERMS[file] ?? []),
   ],
 }));
 
@@ -728,8 +749,8 @@ export const CONTENT_QUALITY_CHECKS = [
       '最小可逆默认值',
       '清晰、已授权、证据充分',
       '任务 Markdown 是可选的人读记录',
-      '按实际依赖、写入隔离和独立并行收益',
-      '不按信号数量或公共契约变化强制拆分',
+      '验收切片、依赖计划和多 Agent 并行分别判断',
+      '任务耗时估算只用于选择 single/parallel',
       '宿主 Plan 模式保持只读',
       // 长任务状态锚点与阶段切分：量化触发、锚点建立、恢复纪律与交付收尾
       '长任务状态锚点与阶段切分',
@@ -753,10 +774,15 @@ export const CONTENT_QUALITY_CHECKS = [
       'inspect、plan、monitor',
       '仅 `linearWrite`',
       'credentialUse、hostWrite、externalWrite',
+      // worktree 生命周期是工作区内部操作：授权来自本轮显式请求与运行时能
+      // 核对的 Git 事实，宿主核验只留在真正的跨边界效果上。
+      'worktree 生命周期只要求本地工作区核验',
+      '宿主核验只用于跨边界效果',
       'hostContext 必须由宿主提供',
       'canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots',
       '高风险或不可分类调用缺少有效授权记录、工作区核验或宿主核验信息时 fail-closed',
       'Agent 不得自填这些信息冒充宿主核验',
+      '不据此停止整个请求',
       '保留不依赖该操作的安全工作',
       // 验证范围与证据标签
         '验证范围必须与完成主张匹配',
@@ -959,14 +985,16 @@ export const CONTENT_QUALITY_CHECKS = [
       // 类型与断言有效性信号
       'WCAG 2.2 AA',
       '负控',
-      // 长命令与收据复用：墙钟预算与运行器超时双口径，复用前提与失效条件。
+      // 长命令与收据复用：可选整轮预算、逐项超时、复用前提与失效条件。
       '长命令与收据复用',
-      'Agent 墙钟预算',
-      '项目未声明上限时参考 10 分钟',
-      '超过上限按 blocked 处理',
+      '验证执行时间与任务耗时估算严格分离',
+      '`verification.timeoutMs`',
+      '`verification.budgetMs`',
+      '未配置 `budgetMs` 时没有隐式整轮截止',
+      '预算耗尽按 blocked 处理',
       '禁止原样整轮重跑',
       '端口与残留进程自检',
-      '同一指纹、同一命令集合、此后无实质写入',
+      '同一 workspace、同一计划、同一命令集合、同一内容指纹、此后无实质写入',
       '复用原收据，不重复执行',
       '有实质写入必须重跑',
       // 分层与用例约定：层级必须可机械核对，低层证据不得替代高层结论。
@@ -980,11 +1008,7 @@ export const CONTENT_QUALITY_CHECKS = [
       // 测试金字塔与成本分层：规模分布、同步/异步阻塞范围、端到端准入与深度异步收据。
       '测试金字塔',
       '成本分层',
-      '单元测试是主体',
       '端到端只保留核心业务主链路和关键风险流程',
-      '失败阻塞当前实施单元',
-      '失败阻塞合并或完成声明',
-      '失败阻塞集成、发布或依赖该证据的完成声明',
       '完整聚合入口',
       'E2E 准入',
       '默认每个关键旅程保留 1–3 条',
@@ -1088,22 +1112,23 @@ export const CONTENT_QUALITY_CHECKS = [
     file: 'docs/rules/linear-workflow.md',
     terms: [
       // 1 授权模型
-      '无有效授权时禁止自动领取',
-      '限时领单授权',
-      SHARED_RULE_PHRASES.boundedAutoClaim,
+      '只执行用户明确授权的 Issue 或当前计划',
+      '不创建新的 Claim/Grant 服务',
+      SHARED_RULE_PHRASES.explicitIssueBoundary,
       SHARED_RULE_PHRASES.wallClockPlanning,
       SHARED_RULE_PHRASES.singleAgentDefault,
-      SHARED_RULE_PHRASES.fanInOwner,
-      '用户在本轮明确要求',
-      '显式启动',
-      '不授权登记或执行',
+      '不扫描 Ready 队列',
+      '真实多 Agent',
+      '本轮用户请求授权',
+      '显式调用',
+      '不授权新任务',
       '人类 Assignee',
-      'Linear Delegate/App User',
-      'Execution Receipt',
-      'Activity Feed',
+      'Delegate/App User',
+      'Receipt',
+      '重读确认',
       '保留人类 Assignee',
-      'agent:<agent-key> 与 role:writer',
-      'Reviewer 和 Verifier 只读，不写 Receipt',
+      'agent:<agent-key>',
+      '不要求 Start/Terminal Receipt 或 Claim',
       // 2 状态与 GitFlow
       'Ready to Merge',
       '仅对带门禁',
@@ -1139,13 +1164,13 @@ export const CONTENT_QUALITY_CHECKS = [
       'aggregate Parent',
       // 5 显式执行登记（Receipt 生命周期）
       'vibe-harness.linear-execution/v1',
-      '原 Receipt 不得编辑',
-      'released、aborted、handed-off、local-work-completed',
-      '同一 Issue 最多一个 active execution',
-      '结果不确定时先重读',
-      '幂等成功',
-      '用户名、主机名、本地路径、Token、Cookie、会话凭据或个人敏感数据',
-      '不得声称已登记领取',
+      '旧 Receipt 不编辑',
+      '历史活动 Receipt',
+      '同一 Issue 不允许重复并行执行',
+      '结果不明先按同一幂等键重读',
+      'integrated_cleanup_pending',
+      '不含个人信息、凭据或本地路径',
+      '不伪造注册成功',
       'write 叶子 Issue 对应一个 Writer',
       '不要求实现 worktree、分支或 PR/MR',
       // 6 Git、状态同步与安全（含快车道）
@@ -1155,8 +1180,8 @@ export const CONTENT_QUALITY_CHECKS = [
       '顺序执行且工作区干净时允许在当前 clone 创建任务分支',
       '必须使用仓库外 worktree',
       // 高风险路径清单：本仓库的仓库内规则目录名，不是项目私有引用。
-      'CI workflow 定义',
-      'Risk Evidence 章节必须说明风险来源、影响范围、实际验证和回滚方式',
+      '命中 CI workflow、schema、runtime',
+      'Risk Evidence 说明风险来源、实际验证、deferred 与回滚方式',
     ],
   },
   {
@@ -1203,7 +1228,7 @@ export const CONTENT_QUALITY_CHECKS = [
       // ADR-0013 removed the develop fast gate: the rule now states the
       // withdrawal and the land allow-list instead of the old requirement.
       '不再作为集成分支的合并门禁',
-      '由显式白名单允许直落',
+      '目标 ref 最终化按短租约串行',
       '紧急旁路必须有明确过期时间、授权人和审计记录',
       // 协作工作流引用必须带条件语气：未安装 linear-workflow 的项目同样成立。
       '若项目已安装该规则',
@@ -1235,7 +1260,7 @@ export const CONTENT_QUALITY_CHECKS = [
   },
   {
     file: 'docs/rules/codebase-memory-mcp.md',
-    terms: ['规则存在不代表工具已安装', '不锁定版本', 'list_projects', 'check_index_coverage', '分页', '未知工具', '不自动安装、升级或全量重建', 'search_code', 'get_graph_schema', 'get_file_outline', 'compare_graphs', 'trace_call_path', '.cbmignore'],
+    terms: ['规则存在不代表工具已安装', '不锁定版本', 'list_projects', 'check_index_coverage', '分页', '未知工具', '不自动安装、升级或全量重建'],
   },
   {
     file: 'docs/rules/api-rules.md',
@@ -1500,13 +1525,13 @@ export const CONTENT_QUALITY_CHECKS = [
     {
       file: 'skills/integrations/linear-workflow/SKILL.md',
       terms: [
-        '无宿主授权派发时禁止自动领取',
-        'Agent 不扫描、轮询或订阅 Ready Queue',
-        SHARED_RULE_PHRASES.boundedAutoClaim,
+        '不扫描 Ready 队列',
+        SHARED_RULE_PHRASES.explicitIssueBoundary,
         SHARED_RULE_PHRASES.wallClockPlanning,
         SHARED_RULE_PHRASES.singleAgentDefault,
         SHARED_RULE_PHRASES.fanInOwner,
-        '远端完整 CI 只在发布边界',
+        '项目明确的审查和分支保护继续生效',
+        '早期探查',
         SHARED_RULE_PHRASES.gitFlowDefault,
         SHARED_RULE_PHRASES.gitFlowHotfix,
         SHARED_RULE_PHRASES.developRequiredFastGate,

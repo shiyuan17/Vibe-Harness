@@ -28,7 +28,7 @@ test('manifests expose adapters, profiles, rules, and skills', async () => {
   assert.deepEqual(Object.keys(manifests).sort(), ['adapters', 'profiles', 'roles', 'rules', 'skills']);
   assert.equal(manifests.rules.items.some((item) => item.id === 'governance-core'), true);
   assert.equal(manifests.rules.items.some((item) => item.id === 'chrome-devtools-mcp'), true);
-  assert.equal(manifests.skills.items.filter((item) => item.kind === 'native').length, 14);
+  assert.equal(manifests.skills.items.filter((item) => item.kind === 'native').length, 16);
   assert.deepEqual(manifests.profiles.items.map((item) => item.id), ['minimal', 'core', 'full', 'docs-only']);
 });
 
@@ -104,7 +104,7 @@ test('adapter manifest v5 requires execution authority and the fixed Hook contra
   const manifest = await readJson(path.join(rootDir, 'manifests/adapters.json'));
   const schema = await readJson(path.join(rootDir, 'schemas/adapter-pack.schema.json'));
   const expected = {
-    codex: ['stable', 'stable', 'not-projected', 'manual-trust'],
+    codex: ['stable', 'not-projected', 'not-projected', 'manual-trust'],
     claude: ['stable', 'stable', 'not-projected', 'config-file'],
     gemini: ['unsupported', 'unsupported', 'unsupported', 'unsupported'],
     cursor: ['stable', 'unsupported', 'unsupported', 'config-file'],
@@ -606,15 +606,60 @@ test('Skill 授权、工作区核验、宿主信息和受阻处理缺失时仍�
       await writeFile(path.join(target, file), content);
     }
     assert.deepEqual(await validateSkillExecutionBoundaries(target), []);
+    // Entry Skills keep only the shared stop boundary and their operation-specific
+    // anchors. Full envelope fields and host proof remain in the resident rules.
+    const sharedTerms = [
+      'Agent 不得自造',
+      '缺授权',
+      '暂停',
+      'contract-only/degraded',
+      '跨边界',
+      'worktree bootstrap',
+      'integrated_cleanup_pending',
+    ];
+    const perFileTerms = new Map([
+      ['skills/core/vb-git-develop-flow/SKILL.md', [
+        ...sharedTerms,
+        'origin/develop',
+        '主检出',
+        '推送确认即代码集成完成',
+      ]],
+      ['skills/integrations/vb-linear-worktree-develop/SKILL.md', [
+        ...sharedTerms,
+        'origin/develop',
+        '主检出',
+        '推送确认后标记 Done',
+      ]],
+      ['skills/integrations/linear-workflow/SKILL.md', [
+        ...sharedTerms,
+        '不扫描 Ready 队列',
+        '推送确认即代码集成完成',
+      ]],
+    ]);
     for (const file of files) {
-      for (const term of ['allowedEffects', 'allowedWriteRoots', 'source=host', 'process=isolated', 'Agent 不得自造', '缺授权', '暂停', '不得靠重复询问用户解除', 'contract-only/degraded']) {
+      for (const term of perFileTerms.get(file)) {
         await writeFile(path.join(target, file), originals.get(file).replaceAll(term, 'REMOVED'));
         const errors = await validateSkillExecutionBoundaries(target);
         assert.ok(errors.some((error) => error.includes(file) && error.endsWith(term)), `${file}: must reject missing ${term}`);
       }
       await writeFile(path.join(target, file), originals.get(file));
     }
+    // Positive control: the workspace-internal flow no longer needs a
+    // host-issued isolation proof, so dropping that wording there is not a
+    // violation — otherwise creating a worktree would stay blocked.
+    const flowSkill = 'skills/core/vb-git-develop-flow/SKILL.md';
+    await writeFile(path.join(target, flowSkill), originals.get(flowSkill).replaceAll('process=isolated', 'REMOVED'));
+    assert.deepEqual(await validateSkillExecutionBoundaries(target), []);
+    await writeFile(path.join(target, flowSkill), originals.get(flowSkill));
   } finally {
     await rm(target, { force: true, recursive: true });
   }
+});
+
+test('vb-linear-worktree-develop does not advertise a user-facing Claim provider prerequisite', async () => {
+  const manifest = JSON.parse(await readFile(path.join(rootDir, 'manifests/skills.json'), 'utf8'));
+  const item = manifest.items.find((entry) => entry.id === 'vb-linear-worktree-develop');
+  assert.ok(item);
+  assert.equal(item.requiresTools.some((tool) => /persistent atomic Claim provider/iu.test(tool)), false);
+  assert.ok(item.requiresTools.some((tool) => /Linear MCP|Linear issue context/iu.test(tool)));
 });

@@ -1,10 +1,12 @@
 # AI 协作规则
 
+仅在本轮确实使用两个以上协作单元时加载本规则。普通单 Agent 任务、顺序实施和固定步骤不读取本文件。
+
 ## Fast Path 卡片
 
-- **默认方式**：单 Agent 完成获取事实、实现、验证与交付；协作与 worktree 隔离只在明确需求或可独立并行的工作单元存在时触发，成本触发条件见 `governance-core.md` 的「成本与升级」。
+- **默认方式**：单 Agent 完成获取事实、实现、验证与交付；只有用户明确要求协作，或真实协作单元可独立执行时，才进入本规则。
 - **三档判据**：写路径单 Agent（默认）；只读探查可 fan-out，需显式声明；并行写仅当跨模块且 `writeScope` 不重叠，共享契约永远唯一写者。
-- **轻量 Task DAG**：仅在实际使用两个以上协作单元时声明节点字段 `id`、`kind`、`output`、`dependsOn`、`writeScope`、`resourceLocks`、`verification`、`result`；不由 Vibe-Harness 解析，也不形成固定完成门禁。
+- **轻量 Task DAG**：已有 Linear DAG 必须遵循；普通固定步骤不强制完整 DAG，实际使用两个以上协作单元时声明节点字段 `id`、`kind`、`output`、`dependsOn`、`writeScope`、`resourceLocks`、`verification`、`result`；不由 Vibe-Harness 解析，也不形成固定完成门禁。
 - **结果语义**：只有全部直接前驱 `succeeded` 才满足 all_success；失败不得改判为成功，未终结节点不得视为已终结。
 - **继续读全文的信号**：节点状态与触发、ready 与冲突判定、派发失败与交接、Linear 投影或事实与安全边界。
 
@@ -20,13 +22,54 @@
 | 只读探查、证据收集 | 可 fan-out，需显式声明 |
 | 并行写 | 仅当跨模块且 `writeScope` 不重叠时允许，需显式声明；共享契约永远唯一写者 |
 
-单 Agent 默认完成获取事实、实现、验证和交付。协作只由明确需求或可独立并行的工作单元触发。多 Agent 与 worktree 隔离属于 governance-core「成本与升级」列出的高成本动作：不满足该节触发条件时不得创建子 Agent 或隔离工作区，满足也不自动创建。
+单 Agent 默认完成获取事实、实现、验证和交付。协作只由明确需求或真实可独立执行的工作单元触发；容量、隔离门槛和并行收益算法以 task-decomposition 的按需 reference 为准，不进入普通任务主路径。
+
+**关键约束**：
+- 有依赖或共享资源的写入按 DAG 串行；隔离且 ready 的写单元可受限并行，最终集成由父 Agent 串行负责
+- 父 Agent 保持唯一编排和最终验证责任
+- 共享契约（API、数据模型、安装器）永远唯一写者
 
 仅在用户明确要求协作，或存在边界独立且能显著缩短墙钟时间的工作单元时使用宿主原生子 Agent。只读探查的检索面超出单个上下文窗口，或来源彼此独立且数量可观时才 fan-out；一个上下文窗口内可覆盖的多文件定位、顺序依赖或简单任务由主 Agent 直接完成。父 Agent 负责限定范围、核对实际结果并决定是否采纳；子 Agent 输出不是完成证据的替代品。
 
 派发子 Agent 时给出明确目标、期望输出格式、可用工具或来源、任务边界和判定标准（什么构成有效发现、什么不算，如纯风格偏好不算）。只读探查类子 Agent 默认限定宿主提供的只读检索、读取与只读网络访问能力，不授予写入、命令执行、包管理或外部写入能力；写类子 Agent 的工具不得超出父 Agent 当前范围。模糊指令导致重复劳动或误解。
 
 派发写节点时，除任务简报外还传递父 Agent 已冻结的共享决策与契约快照（接口、命名、错误语义与边界），避免并行写者各自隐含决策；子 Agent 回传须列出新增或修订的决策及受影响节点。
+
+#### 节点状态转移规则
+
+```
+pending → ready：
+  - 所有前驱已 satisfied
+  - 无 writeScope 冲突
+  - 无 resourceLocks 冲突
+
+ready → running：
+  - 派发前验证 DAG 完整性
+  - 核对依赖与工作区隔离
+  - 确认资源可用
+
+running → unverified：
+  - 快速层失败（blocked/failed）
+  - 未获得完整验证收据
+
+unverified → succeeded/failed/blocked：
+  - 深度验证完成
+  - 必须有实际命令或人工判据
+  - 关键路径必须 passed
+
+failed → 不转移：
+  - 失败仅阻塞依赖该节点且使用 all_success 的后继
+  - 独立节点可继续执行
+  - 已隔离的无依赖写节点仍可派发
+
+skipped：
+  - 仅用于无任何后继依赖其成功的节点
+  - 阻塞后继的节点不得标记为 skipped
+
+cancelled：
+  - 用户或系统主动取消
+  - 阻塞后继节点
+```
 
 ## 轻量 Task DAG
 
@@ -49,6 +92,7 @@
 | `resourceLocks` | 逻辑与基础设施级共享资源：API、schema、manifest、迁移、版本或发布状态，包管理器 store 与 lockfile、构建与测试缓存、端口与容器、测试数据库、外部 API 配额，以及同一 clone 的 Git 操作；端口与容器这类基础设施锁以项目登记表为事实 |
 | `verification` | 聚焦验证：命令或人工判据、责任方（child 或 parent）与通过标准 |
 | `result` | 统一状态，见下 |
+| `cleanupPending` | 可选布尔值，默认 false；true 保留残留资源占用，不改变成功节点的 result |
 
 模板中留空的字段写 `None`；写范围一律使用 `writeScope` 的写法。
 
@@ -75,10 +119,9 @@
 - 节点失败只阻塞依赖它且使用 all_success 的后继；已隔离且无失败依赖的独立节点可以继续。失败仅暂停受影响写节点及其依赖，已隔离的独立写节点仍可派发。共享契约冲突或工作区完整性受损时才停止全部写节点。
 - 瞬时网络、限流或无副作用工具故障最多尝试三次，并遵守可用的 Retry-After；权限和安全拒绝不得重试绕过；契约歧义先查明，确定性测试失败先修复再验证，非幂等外部写入结果不明时先重读状态。
 - 长任务可选声明节点超时、最大尝试次数、取消、退避和资源与 token 预算，普通单 Agent 任务不要求填写。
-- Parent 计划必须声明 `executionMode`、`wallClock` 和 `agentPlan`：记录 budget、单/并行估算、协调与 fan-in 成本、关键路径、置信度、并行写/读上限和 fan-in owner；规划必须区分 active work、external wait/block、coordination/fan-in、verification。
+- 实际派发多个 Agent 时才声明 `executionMode` 与 `agentPlan`；普通单 Agent 或普通 Parent 不要求墙钟估算。
 - 入口、数据或环境存在实质不确定性时，可在共享准备或单元 active work 内一次性计入限时早期探查，记录问题、方法、分钟数、退出条件和对应正式验证；首轮规划默认限时 30 分钟，超时仍不确定则记录风险并重新估算。无不确定性时不要求 REPL。普通 REPL、临时脚本和人工观察不是完成收据；仅已声明的受管 Micro 可提供局部 L1 收据，不能取代单元聚焦验证和 Parent fan-in，`unknown/lower-bound` 或环境异常不视为通过。
-- 单 Agent 是默认执行模式。只有至少两个 ready 单元、共享契约已有唯一 owner、writeScope 与 Resource Lock 完全隔离、真实 Agent/workspace 容量可用且预计净节省至少 45 分钟和 25% 时，才允许 `parallel`；否则 `auto` 必须降级为 `single`。
-- 并行默认最多 2 个写 Agent、4 个只读 Agent；共享 API、Schema、迁移、公共模板和最终集成保持单 owner。无容量、隔离证据、契约冻结或 fan-in 条件时不得声称并行已发生。
+- 单 Agent 是默认执行模式。只有真实并行容量、隔离证据、唯一共享契约 owner 和净收益都成立时才允许 `parallel`；具体容量与收益算法只在 task-decomposition reference 中按需计算。无容量、隔离证据、契约冻结或 fan-in 条件时不得声称并行已发生。
 - 只读记录预计墙钟与实际墙钟、Active Time、Blocked Time、Coordination Time、Fan-out 节省、Fan-in 返工、WIP Age、Cycle Time、Lead Time、重试/冲突/返工率；指标只用于调整后续规划，不自动重派、取消、释放、降级或改变优先级。
 - 每次派发 write 节点前重新确认 DAG 版本或 hash、依赖、writeScope、Resource Lock、HEAD 和工作区身份未变化；发生变化时暂停后继并重新计算 ready 集合。
 - 仅派发实际声明或使用端口/容器的 write 节点时，以登记表为端口/容器锁事实：读取主检出 `.vibe-harness/worktree-ports.json`（连同 `.vibe-harness/worktree-ports.lock`）确认端口块与容器不与其它 running 节点重叠，端口值从分配出的 env 文件读取而不是硬编码；此时登记表缺失、锁不可用或声明冲突才 fail-closed，不凭 `netstat`/`lsof` 输出或猜测推断；无关节点不创建空登记表。
@@ -103,7 +146,7 @@ Linear 状态到本地 `result` 的映射固定如下，只作本地解释，不
 | Todo（已通过 Definition of Ready） | `ready` | Ready 门禁、依赖与资源条件满足 |
 | Todo（未通过 Ready） | `pending` 或 `blocked` | 按依赖与冲突事实判定 |
 | In Progress / In Review / Ready to Merge | `running` | 已开始但未完成验证 |
-| Done（有对应 kind 的 closing PR/MR、输出或 fan-in 证据） | `succeeded` | 合并、输出或 fan-in 证据 |
+| Done（有对应 kind 的 closing PR/MR、local-land、输出或 fan-in 证据） | `succeeded` | closing 合并，或显式 local-land 的 stage 候选验证、publish 最新基线重建验证与精确远端确认；read 输出或 aggregate fan-in 证据 |
 | Done（缺证据） | `unverified` | 结论存在但缺完成证据，需要补证或改判；只按事实报告，不回写平台状态 |
 | Canceled / Won't Fix | `cancelled` | 外部终态 |
 | Duplicate | `skipped` | 外部终态；替代 Issue 成功不自动使原节点 `succeeded` |
@@ -112,11 +155,11 @@ Linear 状态到本地 `result` 的映射固定如下，只作本地解释，不
 - 超时、预算耗尽或瞬时失败重试耗尽且工作未完成时记为 blocked 并报告原因，不自动续派；确认的行为失败记为 failed，明确取消记为 cancelled，均非成功。取消和超时后先确认原调用是否仍在运行及副作用状态，不释放未知状态的写入归属或重复非幂等写入。长任务可设更小的尝试上限；宿主预算和权限仍是硬边界，默认瞬时尝试上限为三次。退避遵守 Retry-After，未提供时使用有界退避；不新增后台重试或自动回收服务。
 - 本地并发计算实际 running 的读写节点，而非 ready 队列长度；软上限可按项目策略调整，但不得突破宿主容量、限流或明确预算，能力不明时不自动提高。两个消费方读取同一已稳定契约并不等于两个共享契约写入者，可在上游已成功、writeScope 和资源隔离后并行。
 
-已有 Linear DAG 是外部工作真值，不受“仅在本地协作时创建轻量 DAG”的限制。映射时，顶层 Parent 是 DAG Root，Sub-issue 是节点，Parent/Sub-issue 只表示分解；dependsOn 只能从原生 blocked-by / blocks 关系派生，related 不是执行边，描述中的依赖清单也不是第二真值。执行者由 Delegate + Execution Receipt 表示，Scope 投影为 writeScope，DAG Metadata 可提供 kind、trigger 和 resourceLocks。
+已有 Linear DAG 是外部工作真值，不受“仅在本地协作时创建轻量 DAG”的限制。映射时，顶层 Parent 是 DAG Root，Sub-issue 是节点，Parent/Sub-issue 只表示分解；dependsOn 只能从原生 blocked-by / blocks 关系派生，related 不是执行边，描述中的依赖清单也不是第二真值。执行者由必要 Delegate/身份表示，Execution Receipt 可选，Scope 投影为 writeScope，DAG Metadata 可提供 kind、trigger 和 resourceLocks。
 
-Agent 必须检测环、不可见或未解决依赖，以及 writeScope（Linear 的 Scope）与 Resource Lock 冲突，但不得在没有授权时创建、删除或修改 Linear relations。存在子 Issue 的 Parent 是 aggregate；write 叶子由 closing PR 合并证明成功，read 叶子由输出与 Verification 证据证明成功。Parent 只有在全部必需后代成功且 Fan-in Verification 通过后才 Done；Linear 的 Parent/Sub-issue 自动关闭必须禁用，all_done 报告节点成功也不能掩盖必需后代失败。
+Agent 必须检测环、不可见或未解决依赖，以及 writeScope（Linear 的 Scope）与 Resource Lock 冲突，但不得在没有授权时创建、删除或修改 Linear relations。存在子 Issue 的 Parent 是 aggregate；write 叶子由 closing PR 合并，或显式 local-land 的 stage 候选验证、publish 最新基线重建验证及精确远端推送确认共同证明成功；清理失败 `integrated_cleanup_pending` 不阻塞 succeeded 和后继，但残留资源继续占用，冲突资源不得复用，read 叶子由输出与 Verification 证据证明成功。Parent 只有在全部必需后代成功且 Fan-in Verification 通过后才 Done；Linear 的 Parent/Sub-issue 自动关闭必须禁用，all_done 报告节点成功也不能掩盖必需后代失败。
 
-轻量 Task DAG 默认建议同一时刻 ready 写节点并发不超过 2、只读探查不超过 4；这是可由宿主并发能力、API 限流、项目资源和任务预算覆盖的软上限，不等同于 Linear 活跃 Issue 上限；并行度实际上限由可复核的 diff 规模、人类复核带宽与 token 预算决定，默认值是上限而不是目标，多 Agent 的 token 成本显著高于单 Agent。Linear 工作流另建议 Writer In Progress 不超过 3、In Review 不超过 2。子 Agent 默认不再派生子 Agent（最大派生深度 1），确需进一步拆分时回传 blocked 与拆分请求，由父 Agent 决定是否创建兄弟节点。fan-in 多个子 Agent 后若父 Agent 上下文接近压缩边界，先压缩已采纳子 Agent 的原始证据指针，保留结论、已定决策及其理由与未决项再继续派发，压缩不得丢弃未完成依赖或未验证假设。
+实际并行的读写容量、Agent 上限和净收益判据由 task-decomposition reference 按宿主容量计算；默认值是可降低上限而不是必须达到的目标。子 Agent 默认不再派生子 Agent，确需进一步拆分时回传 blocked 与拆分请求，由父 Agent 决定是否创建兄弟节点。fan-in 多个子 Agent 后若父 Agent 上下文接近压缩边界，先压缩已采纳子 Agent 的原始证据指针，保留结论、已定决策及其理由与未决项再继续派发，压缩不得丢弃未完成依赖或未验证假设。
 
 ## 事实与安全
 
@@ -131,3 +174,5 @@ Agent 必须检测环、不可见或未解决依赖，以及 writeScope（Linear
 ## 验证与交付
 
 验证与主张匹配：局部改动运行聚焦检查，跨模块或高风险改动扩大到集成与回滚验证。使用子 Agent 时，父 Agent 在交付报告中说明分工与各单元回传结果，以便复核指向。独立验证者必须使用宿主真实支持的 fresh context：不得继承实施会话、实施者自评或另一复审者结论；仅创建新的 `contextId` 不能证明独立。用户显式要求独立复审时，可派发只读、独立上下文的复审子 Agent（限定只读工具集）对照验收标准与 diff 核验，其结论是辅助证据而非完成门禁，父 Agent 仍负最终交付责任；完整档涉及安全、红区或公共契约时可派发两个独立复审子 Agent 并对账分歧，先用事实和验证消解分歧，仅对仍需用户决定的产品或授权问题请求澄清，不以多数票覆盖证据。最终交付报告结果、实际变更和本轮验证；仅在存在时报告未验证项、风险或后续动作。
+
+本地 DAG 投影可用可选 `cleanupPending: true` 标记残留，节点 result 仍为 succeeded；task-dag check 据此保留 writeScope/resourceLocks 占用，阻止冲突资源复用，独立后继和 Parent fan-in 不受清理状态阻塞。清理确认后改为 false；该字段是工作区事实投影，不是第二依赖真值。

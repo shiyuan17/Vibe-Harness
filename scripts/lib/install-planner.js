@@ -107,13 +107,8 @@ function toolDiscoveryLine({ hasCodebaseMemoryMcp = false, hasCodeNavigationSkil
   const graphRoute = hasCodebaseMemoryMcp
     ? '宿主提供 codebase-memory-mcp 时，用 list_projects 匹配项目根、index_status 检查状态，并用 check_index_coverage 核对证据路径；'
     : '';
-  // The index-aware sentence may only ship with the rule that defines those
-  // tools; a minimal install still gets a tool-independent text route.
-  const textRoute = hasCodebaseMemoryMcp
-    ? '已索引范围内的文本检索先用 search_code，索引外、配置和日志使用 rg 与直接文件阅读。'
-    : '单文件文本、配置和日志使用 rg 与直接文件阅读。';
-  return '先按问题类型选工具：' + skillLead + graphRoute + textRoute
-    + '工具缺失或覆盖不足时回退当前源码；'
+  return '先按问题类型选工具：' + skillLead + graphRoute
+    + '单文件文本、配置和日志使用 rg 与直接文件阅读。工具缺失或覆盖不足时回退当前源码；'
     + '不自动安装、升级或全量重建索引，不把 ready 或空结果当成完整覆盖证据。';
 }
 
@@ -145,7 +140,7 @@ export function createInstalledSurface({ clarificationPosture = 'balanced', cust
   const profileLines = {
     core: '- 当前安装方式：通用安装（不包含扩展 MCP 或 hooks 安装面）。',
     'docs-only': '- 当前安装方式：仅文档安装。',
-    full: '- 当前安装方式：完整能力安装（包含十三个原生 Skills、可选 Eval 和 Codex 安全 hooks；memory 与外部工具仅通过 `--plugin` 显式启用）。',
+    full: '- 当前安装方式：完整能力安装（包含十五个原生 Skills、可选 Eval 和 Codex 安全 hooks；memory 与外部工具仅通过 `--plugin` 显式启用）。',
     minimal: '- 当前安装方式：最小安装。',
   };
 
@@ -403,7 +398,7 @@ async function planAdapterConfigActions(ctx) {
   return actions;
 }
 
-/** @param {{adapterId?: string, allowPreview?: boolean, configUpdate?: any, dryRun?: boolean, enforcementPolicy?: string, force?: boolean, managedAgentsBlock?: boolean, preserveRetired?: boolean, profile?: string, requestedModules?: string[], requestedPlugins?: any, renderData?: Record<string, any>, rootDir: string, ruleIndex?: Array<{ id: string, source: string, title: string }>, targetDir: string, upgrade?: boolean}} options */
+/** @param {{adapterId?: string, allowPreview?: boolean, configUpdate?: any, dryRun?: boolean, enforcementPolicy?: string, force?: boolean, managedAgentsBlock?: boolean, preserveRetired?: boolean, preserveUserModified?: boolean, profile?: string, requestedModules?: string[], requestedPlugins?: any, renderData?: Record<string, any>, rootDir: string, ruleIndex?: Array<{ id: string, source: string, title: string }>, targetDir: string, upgrade?: boolean}} options */
 export async function createInstallPlan({
   adapterId = 'codex',
   allowPreview = false,
@@ -413,6 +408,7 @@ export async function createInstallPlan({
   force = false,
   managedAgentsBlock = false,
   preserveRetired = false,
+  preserveUserModified = false,
   profile = 'core',
   requestedModules,
   requestedPlugins,
@@ -422,6 +418,13 @@ export async function createInstallPlan({
   targetDir,
   upgrade = false,
 }) {
+  if (preserveUserModified && !upgrade) {
+    throw new Error('--preserve-user-modified requires --upgrade.');
+  }
+  if (preserveUserModified && force) {
+    throw new Error('--preserve-user-modified cannot be combined with --force.');
+  }
+
   const { adapter, installMap, selectedProfile, skillRoots, hookTargets } = await loadProfileInstallMap({ adapterId, allowPreview, profile, rootDir });
   const moduleSelection = resolveModuleSelection({
     profile,
@@ -448,6 +451,7 @@ export async function createInstallPlan({
     managedAgentsBlock,
     moduleSelection,
     preserveRetired,
+    preserveUserModified,
     renderData,
     rootDir,
     skillRoots,
@@ -587,6 +591,7 @@ export async function createInstallPlan({
     missingCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'unsupported').map(([name]) => name),
     profile,
     preserveRetired,
+    preserveUserModified,
     previewCapabilities: Object.entries(adapter.capabilities).filter(([, status]) => status === 'preview').map(([name]) => name),
     requestedModules: moduleSelection.requestedModules,
     requestedPlugins: moduleSelection.requestedPlugins,
@@ -1576,10 +1581,17 @@ function retirementTargets(actions = []) {
 }
 
 function validatePlanGuards(plan) {
+  if (plan.preserveUserModified && !plan.upgrade) {
+    throw new Error('--preserve-user-modified requires --upgrade.');
+  }
+  if (plan.preserveUserModified && plan.force) {
+    throw new Error('--preserve-user-modified cannot be combined with --force.');
+  }
+
   // Project-owned seeds are reported as retained instead of blocking the plan;
   // every other managed target that drifted still fails closed here.
   const userModified = plan.actions.find((action) => action.kind === 'user-modified' && !action.projectOwned);
-  if (userModified) {
+  if (userModified && !plan.preserveUserModified) {
     throw new Error(`Refusing to upgrade user-modified file: ${userModified.target}`);
   }
 

@@ -258,12 +258,13 @@ export function checkIdForCommand(command, commandStatus = {}) {
 /**
  * Select the commands a tier run executes and the checks it defers.
  *
- * @param {{tier: 'quick'|'standard'|'deep', tiers: any, commandStatus?: Record<string, any>, metadata?: any[], projectDir?: string, only?: string[]|null}} options
+ * @param {{tier: 'quick'|'standard'|'deep', tiers: any, commandStatus?: Record<string, any>, metadata?: any[], projectDir?: string, only?: string[]|null, pruneSubsumed?: boolean}} options
  */
 export function selectTierChecks({
   tier, tiers, commandStatus = {}, metadata = [], projectDir = undefined, only = null,
+  pruneSubsumed = true,
 }) {
   return selectVerificationChecks({
-    tier, tiers: normalizeValidationTiers(tiers), commandStatus, metadata, projectDir, only,
+    tier, tiers: normalizeValidationTiers(tiers), commandStatus, metadata, projectDir, only, pruneSubsumed,
   });
 }

@@ -14,6 +14,42 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "skills-core",
+      "source": "skills/core/find-question/SKILL.md",
+      "target": ".agents/skills/find-question/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/find-question/metadata.json",
+      "target": ".agents/skills/find-question/metadata.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/find-question/agents/openai.yaml",
+      "target": ".agents/skills/find-question/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/find-question/references/check-matrix.md",
+      "target": ".agents/skills/find-question/references/check-matrix.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/find-question/references/industry-practices.md",
+      "target": ".agents/skills/find-question/references/industry-practices.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "schemas-core",
+      "source": "schemas/find-question-packet.schema.json",
+      "target": "docs/schemas/find-question-packet.schema.json",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "rules-minimal",
       "source": "docs/rules/agent-skill-routing.md",
       "target": "docs/rules/agent-skill-routing.md",
@@ -378,6 +414,72 @@
       "contentStrategy": "replace"
     },
     {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/cli-output.mjs",
+      "target": ".agents/runtime/lib/cli-output.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/cli-runtime.mjs",
+      "target": ".agents/runtime/lib/cli-runtime.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/review-command.mjs",
+      "target": ".agents/runtime/lib/review-command.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/git-timeouts.mjs",
+      "target": ".agents/runtime/lib/git-timeouts.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/verification-plan-support.mjs",
+      "target": ".agents/runtime/lib/verification-plan-support.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/task-command.mjs",
+      "target": ".agents/runtime/lib/task-command.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/verification-command.mjs",
+      "target": ".agents/runtime/lib/verification-command.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/file-edit-command.mjs",
+      "target": ".agents/runtime/lib/file-edit-command.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/worktree-command.mjs",
+      "target": ".agents/runtime/lib/worktree-command.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/worktree-delivery-queue.mjs",
+      "target": ".agents/runtime/lib/worktree-delivery-queue.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/lease-lock.mjs",
+      "target": ".agents/runtime/lib/lease-lock.mjs",
+      "contentStrategy": "replace"
+    },
+    {
       "group": "runtime-eval-online",
       "source": "runtime/evals/codex-runner.mjs",
       "target": ".agents/runtime/evals/codex-runner.mjs",
@@ -442,6 +544,12 @@
       "group": "evals-online",
       "source": "evals/suites/vibe-harness-response-modes.json",
       "target": ".agents/evals/suites/vibe-harness-response-modes.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "evals-online",
+      "source": "evals/suites/vibe-harness-find-question.json",
+      "target": ".agents/evals/suites/vibe-harness-find-question.json",
       "contentStrategy": "replace"
     },
     {
@@ -663,6 +771,42 @@
       "group": "skills-core",
       "source": "skills/core/systematic-debugging/find-polluter.sh",
       "target": ".agents/skills/systematic-debugging/find-polluter.sh",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/performance-optimization/SKILL.md",
+      "target": ".agents/skills/performance-optimization/SKILL.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/performance-optimization/metadata.json",
+      "target": ".agents/skills/performance-optimization/metadata.json",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/performance-optimization/agents/openai.yaml",
+      "target": ".agents/skills/performance-optimization/agents/openai.yaml",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/performance-optimization/references/command-budget.md",
+      "target": ".agents/skills/performance-optimization/references/command-budget.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/performance-optimization/references/cache-and-receipts.md",
+      "target": ".agents/skills/performance-optimization/references/cache-and-receipts.md",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "skills-core",
+      "source": "skills/core/performance-optimization/references/verification-strategy.md",
+      "target": ".agents/skills/performance-optimization/references/verification-strategy.md",
       "contentStrategy": "replace"
     },
     {
@@ -1082,6 +1226,13 @@
       "group": "hooks",
       "source": "runtime/hooks/lib/execution-envelope.mjs",
       "target": ".agents/runtime/hooks/lib/execution-envelope.mjs",
+      "contentStrategy": "replace",
+      "redZone": true
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/lib/legacy-envelope-compat.mjs",
+      "target": ".agents/runtime/hooks/lib/legacy-envelope-compat.mjs",
       "contentStrategy": "replace",
       "redZone": true
     },

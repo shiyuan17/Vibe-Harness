@@ -1,0 +1,1 @@
+{"id":"performance-optimization","kind":"core","entry":"SKILL.md","triggers":["任务耗时","执行慢","优化验证","命令太多","缓存复用","Hook 开销","worktree 慢","p95 延迟"],"outputs":["基线对比","优化方案","复测证据"]}

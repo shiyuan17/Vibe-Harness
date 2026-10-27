@@ -1,1 +1,1 @@
-{"id":"vb-git-develop-flow","kind":"core","entry":"SKILL.md","triggers":["vb-git-develop-flow","$vb-git-develop-flow","Vb Git Develop Flow","gd-flow","$gd-flow"],"outputs":["develop 本地合并与推送证据","worktree 清理结果"]}
+{"id":"vb-git-develop-flow","kind":"core","entry":"SKILL.md","triggers":["vb-git-develop-flow","$vb-git-develop-flow","Vb Git Develop Flow","gd-flow","$gd-flow"],"outputs":["local_staged 候选与 publish 远端确认证据","worktree 清理结果"]}

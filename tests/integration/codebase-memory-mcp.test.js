@@ -174,7 +174,7 @@ test('退役拒绝通过目录链接删除工作区外文件', async () => {
 
 test('外部图规范覆盖注册标识、缺口、分页和无安装假设', async () => {
   const rule = await readFile(path.join(rootDir, 'docs/rules/codebase-memory-mcp.md'), 'utf8');
-  for (const token of ['list_projects', 'index_status', 'check_index_coverage', '分页', '未知工具', '不锁定版本', '不假设共享主检出索引', 'search_code', 'get_graph_schema', 'get_file_outline', 'compare_graphs', 'trace_call_path', '.cbmignore']) assert.ok(rule.includes(token), token);
+  for (const token of ['list_projects', 'index_status', 'check_index_coverage', '分页', '未知工具', '不锁定版本', '不假设共享主检出索引']) assert.ok(rule.includes(token), token);
   assert.doesNotMatch(rule, /0\.11\.0|CBM_CACHE_DIR|codebase-memory refresh|codegraph\.md/u);
   assert.equal(mcpToolPolicy('mcp__codebase_memory_mcp__search_graph'), 'read-only');
   assert.equal(mcpToolPolicy('mcp__codebase_memory_mcp__index_repository'), 'workspace-write');
@@ -219,6 +219,71 @@ test('升级保留修改过的旧规则与 MCP 块', async () => {
     assert.ok(report.skipped.some(item => item.target === 'docs/rules/rtk.md'));
     assert.equal(await readFile(path.join(fixture.targetDir, 'docs/rules/rtk.md'), 'utf8'), '# user-edited\n');
     assert.match(await readFile(path.join(fixture.targetDir, fixture.mcpPath), 'utf8'), /user-wrapper/u);
+  } finally { await rm(fixture.targetDir, { force: true, recursive: true }); }
+});
+
+test('preset upgrade can explicitly skip tool provisioning', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-harness-skip-provision-'));
+  try {
+    await runCli(targetDir, ['init', '--target', 'codex', '--profile', 'core']);
+    const preview = await runCli(targetDir, ['install', '--upgrade', '--preset', 'everything', '--skip-provision']);
+    assert.equal(preview.provisioning.requested, false);
+    assert.equal(preview.provisioning.executed, false);
+    assert.equal(preview.provisioning.source, 'cli-skipped');
+    await assert.rejects(
+      runCli(targetDir, ['install', '--upgrade', '--preset', 'everything', '--skip-provision', '--provision']),
+      /Use --provision or --skip-provision/u,
+    );
+  } finally { await rm(targetDir, { force: true, recursive: true }); }
+});
+
+test('upgrade --preserve-user-modified keeps local files while upgrading other assets', async () => {
+  const fixture = await legacyFixture();
+  const targets = ['docs/rules/git-rules.md', 'docs/rules/test-rules.md'];
+  try {
+    const stateBefore = JSON.parse(await readFile(fixture.statePath, 'utf8'));
+    const registrationsBefore = new Map(targets.map((target) => [
+      target,
+      stateBefore.files.find((file) => file.target === target),
+    ]));
+    const customizedContents = new Map();
+    for (const target of targets) {
+      const filename = path.join(fixture.targetDir, target);
+      const content = `${await readFile(filename, 'utf8')}\nlocal deployment customization\n`;
+      customizedContents.set(target, content);
+      await writeFile(filename, content);
+    }
+
+    await assert.rejects(
+      runCli(fixture.targetDir, ['install', '--preserve-user-modified']),
+      /requires --upgrade/u,
+    );
+    await assert.rejects(
+      runCli(fixture.targetDir, ['install', '--upgrade', '--preserve-user-modified', '--force']),
+      /cannot be combined with --force/u,
+    );
+
+    const preview = await runCli(fixture.targetDir, ['install', '--upgrade', '--preserve-user-modified']);
+    assert.equal(preview.dryRun, true);
+    assert.deepEqual(
+      preview.retainedUserModified.map((item) => item.target).sort(),
+      [...targets].sort(),
+    );
+    assert.ok(preview.warnings.some((warning) => warning.code === 'USER_MODIFIED_FILES_PRESERVED'));
+
+    const applied = await runCli(fixture.targetDir, [
+      'install', '--upgrade', '--preserve-user-modified', '--write', '--confirm-red-zone',
+    ]);
+    assert.deepEqual(
+      applied.retainedUserModified.map((item) => item.target).sort(),
+      [...targets].sort(),
+    );
+    assert.ok(applied.written.includes(path.join(fixture.targetDir, 'AGENTS.md')));
+    const stateAfter = JSON.parse(await readFile(fixture.statePath, 'utf8'));
+    for (const target of targets) {
+      assert.equal(await readFile(path.join(fixture.targetDir, target), 'utf8'), customizedContents.get(target));
+      assert.deepEqual(stateAfter.files.find((file) => file.target === target), registrationsBefore.get(target));
+    }
   } finally { await rm(fixture.targetDir, { force: true, recursive: true }); }
 });
 

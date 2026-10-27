@@ -88,9 +88,6 @@
           "type": "object",
           "additionalProperties": {
             "type": "object",
-            "required": [
-              "requireReceipt"
-            ],
             "properties": {
               "merge": {
                 "enum": [
@@ -106,6 +103,13 @@
               },
               "requireReceipt": {
                 "type": "boolean"
+              },
+              "reviewPolicy": {
+                "type": "string",
+                "enum": [
+                  "required",
+                  "none"
+                ]
               },
               "write": {
                 "type": "boolean"
@@ -269,8 +273,29 @@
                 "type": "integer",
                 "minimum": 0
               },
+              "resourceClass": {
+                "type": "string",
+                "enum": [
+                  "repo-heavy"
+                ]
+              },
               "deterministic": {
                 "type": "boolean"
+              },
+              "cacheScope": {
+                "type": "string",
+                "enum": [
+                  "selection",
+                  "tree"
+                ]
+              },
+              "subsumes": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
               }
             },
             "additionalProperties": false
@@ -442,6 +467,32 @@
           ],
           "minimum": 0
         },
+        "reuse": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "workspace",
+                "tree-content"
+              ]
+            },
+            "envAllowlist": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]*$"
+              }
+            },
+            "ttlMs": {
+              "type": "integer",
+              "minimum": 60000,
+              "maximum": 7776000000
+            }
+          },
+          "additionalProperties": false
+        },
         "environment": {
           "type": "object",
           "properties": {
@@ -504,6 +555,22 @@
           "type": "string",
           "enum": [
             "advisory",
+            "strict"
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "observe",
+            "guarded"
+          ]
+        },
+        "profile": {
+          "type": "string",
+          "enum": [
+            "minimal",
+            "standard",
             "strict"
           ]
         },

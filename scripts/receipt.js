@@ -22,8 +22,6 @@ import {
   buildTerminalEvent,
   HANDOFF_STATUSES,
   RECEIPT_SOURCES,
-  START_RECEIPT_SCHEMA_V2,
-  START_RECEIPT_SCHEMA_V3,
   summarizeReceiptLedger,
   TERMINAL_EVENT_TYPES,
   validateHandoffPayload,
@@ -48,13 +46,11 @@ function printUsage() {
   console.log('Every subcommand is read-only unless --write names an explicit --out path, and none of them');
   console.log('posts to Linear: the caller does that and re-reads the field values afterwards.');
   console.log();
-  console.log('start   Build a Start Receipt (v1, v2 auto-claim, or v3 atomically claimed execution).');
+  console.log('start   Build an explicit v1 Start Receipt; Claim-bearing v3 requires a host provider.');
   console.log('  --issue <ID>                 current Issue (dagNodeIssue); required');
   console.log('  --agent <key> --host <kind>  stable product keys, e.g. codex / codex-desktop; required');
   console.log(`  --source <value>             ${[...RECEIPT_SOURCES, AUTO_CLAIM_RECEIPT_SOURCE].join(' | ')} (default explicit-user-request)`);
-  console.log('  --grant-id <uuid>            host-held grant reference; required with authorized-auto-claim');
-  console.log('  --claim-id <uuid> --lease-expires-at <RFC3339Z>');
-  console.log('  --fencing-token <value> --claim-provider <key>  required for v3 claims');
+  console.log('  Claim/Grant options are not accepted: CLI text cannot prove provider ownership.');
   console.log('  --delegate <id>              native Delegate/App User id; omit or null for fallback labels');
   console.log('  --dag-root <ID>              top-level parent Issue; omit for a standalone Issue');
   console.log('  --execution-id <uuid> --runtime-instance-id <uuid> --started-at <RFC3339Z>');
@@ -160,10 +156,8 @@ async function runStart(argv) {
   const grantId = options.values.get('--grant-id');
   const claimFields = ['--claim-id', '--lease-expires-at', '--fencing-token', '--claim-provider']
     .some((key) => options.values.has(key));
-  if (grantId !== undefined && source !== AUTO_CLAIM_RECEIPT_SOURCE) usageError('--grant-id requires --source authorized-auto-claim');
-  if (claimFields && ['--claim-id', '--lease-expires-at', '--fencing-token', '--claim-provider']
-    .some((key) => options.values.get(key) === undefined)) {
-    usageError('v3 claims require --claim-id, --lease-expires-at, --fencing-token and --claim-provider');
+  if (claimFields || grantId !== undefined || source === AUTO_CLAIM_RECEIPT_SOURCE) {
+    usageError('Claim-bearing v3 requires a trusted host provider; user or CLI fields cannot establish a Claim');
   }
   const receipt = buildStartReceipt({
     agentKey: requireValue(options, '--agent', '--agent <key>'),
@@ -171,16 +165,6 @@ async function runStart(argv) {
     ...(options.values.get('--delegate') === undefined ? {} : { delegateId: options.values.get('--delegate') }),
     dagNodeIssue: requireValue(options, '--issue', '--issue <ISSUE-ID>'),
     ...(options.values.get('--execution-id') === undefined ? {} : { executionId: options.values.get('--execution-id') }),
-    ...(source === AUTO_CLAIM_RECEIPT_SOURCE ? { grantId } : {}),
-    ...(claimFields
-      ? {
-        claimId: options.values.get('--claim-id'),
-        leaseExpiresAt: options.values.get('--lease-expires-at'),
-        fencingToken: options.values.get('--fencing-token'),
-        claimProvider: options.values.get('--claim-provider'),
-        schema: START_RECEIPT_SCHEMA_V3,
-      }
-      : source === AUTO_CLAIM_RECEIPT_SOURCE ? { schema: START_RECEIPT_SCHEMA_V2 } : {}),
     hostKind: requireValue(options, '--host', '--host <kind>'),
     ...(options.values.get('--role') === undefined ? {} : { role: options.values.get('--role') }),
     ...(options.values.get('--runtime-instance-id') === undefined ? {} : { runtimeInstanceId: options.values.get('--runtime-instance-id') }),
@@ -256,7 +240,7 @@ async function runCheck(argv) {
   const analysis = analyzeReceiptLedger(ledger, { issue: options.values.get('--issue') ?? null });
   if (options.json) console.log(JSON.stringify(analysis, null, 2));
   else console.log(summarizeReceiptLedger(analysis));
-  if (!analysis.ok) process.exitCode = 1;
+  if (analysis.status !== 'passed') process.exitCode = 1;
 }
 
 async function main() {

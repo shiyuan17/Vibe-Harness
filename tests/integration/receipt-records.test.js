@@ -11,17 +11,19 @@ import {
   analyzeReceiptLedger,
   buildHandoffPayload,
   buildStartReceipt,
+  buildVerifiedClaimReceipt,
   buildTerminalEvent,
   handoffClaimsComplete,
   scanSensitiveFields,
   summarizeReceiptLedger,
+  START_RECEIPT_SCHEMA,
   START_RECEIPT_SCHEMA_V2,
   START_RECEIPT_SCHEMA_V3,
   validateHandoffPayload,
   validateStartReceipt,
   validateTerminalEvent,
 } from '../../scripts/lib/receipt-records.js';
-import { atomicClaim, createClaimRequest, releaseClaim, renewClaim } from '../../scripts/lib/linear-claim.js';
+import { atomicClaim, createClaimRequest, releaseClaim, renewClaim, verifyProviderClaim } from '../../scripts/lib/linear-claim.js';
 import { removeTemporaryDirectory } from '../../scripts/lib/temp-cleanup.js';
 
 const execFileAsync = promisify(execFile);
@@ -44,6 +46,17 @@ function receipt(overrides = {}) {
     startedAt: '2026-09-13T00:00:00.000Z',
     ...overrides,
   });
+}
+
+// Historical comments remain readable; this fixture is deliberately not a
+// signing API and bypasses no provider check for a live execution.
+function historicalReceipt({ schema, source, grantId, claimId, leaseExpiresAt, fencingToken, claimProvider, ...core }) {
+  return {
+    ...buildStartReceipt(core),
+    schema, source: source ?? 'explicit-user-request',
+    ...(grantId === undefined ? {} : { grantId }),
+    ...(claimId === undefined ? {} : { claimId, leaseExpiresAt, fencingToken, claimProvider }),
+  };
 }
 
 function event(overrides = {}) {
@@ -295,7 +308,7 @@ test('receipt CLI builds records, returns a verdict and refuses unsupported clai
 });
 
 test('auto-claim v2 receipts require a grant reference and preserve v1 validation', () => {
-  const claimed = buildStartReceipt({
+  const claimed = historicalReceipt({
     agentKey: 'codex',
     dagNodeIssue: 'ENG-123',
     grantId: GRANT_A,
@@ -315,7 +328,7 @@ test('auto-claim v2 receipts require a grant reference and preserve v1 validatio
 });
 
 test('ledger checks auto-claim and v1 executions for the same Issue together', () => {
-  const claimed = buildStartReceipt({
+  const claimed = historicalReceipt({
     agentKey: 'codex',
     dagNodeIssue: 'ENG-123',
     executionId: EXECUTION_B,
@@ -334,18 +347,45 @@ test('ledger checks auto-claim and v1 executions for the same Issue together', (
   assert.deepEqual(conflict.activeByIssue, { 'ENG-123': [EXECUTION_A, EXECUTION_B] });
 });
 
-test('receipt CLI emits v2 only with an explicit auto-claim source and grant ID', async () => {
+test('receipt CLI generates only v1; user-supplied Claim fields cannot mint a v3 Receipt', async () => {
   const args = ['start', '--issue', 'ENG-123', '--agent', 'codex', '--host', 'codex-desktop'];
-  const claimed = await runCli([...args, '--source', AUTO_CLAIM_RECEIPT_SOURCE, '--grant-id', GRANT_A]);
-  assert.equal(claimed.code, 0, claimed.stderr);
-  assert.equal(JSON.parse(claimed.stdout).schema, START_RECEIPT_SCHEMA_V2);
-  assert.equal(JSON.parse(claimed.stdout).grantId, GRANT_A);
+  const explicit = await runCli([...args, '--source', 'explicit-user-request']);
+  assert.equal(explicit.code, 0, explicit.stderr);
+  assert.equal(JSON.parse(explicit.stdout).schema, START_RECEIPT_SCHEMA);
+  assert.equal(JSON.parse(explicit.stdout).source, 'explicit-user-request');
+  assert.equal(Object.hasOwn(JSON.parse(explicit.stdout), 'claimId'), false);
+  assert.equal((await runCli([...args, '--source', AUTO_CLAIM_RECEIPT_SOURCE, '--grant-id', GRANT_A])).code, 1);
   assert.equal((await runCli([...args, '--source', AUTO_CLAIM_RECEIPT_SOURCE])).code, 1);
+  assert.equal((await runCli([...args, '--claim-id', CLAIM_A])).code, 1);
+
+  const explicitClaim = await runCli([
+    ...args,
+    '--source', 'explicit-user-request',
+    '--claim-id', CLAIM_A,
+    '--lease-expires-at', '2999-01-01T00:00:00.000Z',
+    '--fencing-token', 'fence-explicit',
+    '--claim-provider', 'linear-host-provider',
+  ]);
+  assert.equal(explicitClaim.code, 1);
+  assert.match(explicitClaim.stderr, /trusted host provider/u);
+
+  const claimed = await runCli([
+    ...args,
+    '--source', AUTO_CLAIM_RECEIPT_SOURCE,
+    '--grant-id', GRANT_A,
+    '--claim-id', CLAIM_A,
+    '--lease-expires-at', '2999-01-01T00:00:00.000Z',
+    '--fencing-token', 'fence-17',
+    '--claim-provider', 'linear-host-provider',
+  ]);
+  assert.equal(claimed.code, 1);
+  assert.match(claimed.stderr, /trusted host provider/u);
   assert.equal((await runCli([...args, '--grant-id', GRANT_A])).code, 1);
 });
 
-test('v3 receipts preserve legacy reads and require atomic claim metadata', () => {
-  const claimed = buildStartReceipt({
+test('v3 receipts preserve legacy reads and require atomic claim metadata', async () => {
+  const schema = JSON.parse(await readFile(path.join(repositoryRoot, 'schemas/linear-execution-v3.schema.json'), 'utf8'));
+  const claimed = historicalReceipt({
     agentKey: 'codex',
     dagNodeIssue: 'ENG-123',
     hostKind: 'codex-desktop',
@@ -357,11 +397,36 @@ test('v3 receipts preserve legacy reads and require atomic claim metadata', () =
     claimProvider: 'linear-provider',
   });
   assert.equal(validateStartReceipt(claimed).ok, true, JSON.stringify(validateStartReceipt(claimed).problems));
+  const autoClaimBranch = schema.oneOf.find((branch) => branch.properties?.source?.const === AUTO_CLAIM_RECEIPT_SOURCE);
+  assert.deepEqual(autoClaimBranch?.required, ['grantId']);
   assert.equal(analyzeReceiptLedger([claimed]).activeExecutions.length, 1);
+  assert.equal(analyzeReceiptLedger([claimed]).status, 'incomplete');
+  assert.equal(analyzeReceiptLedger([claimed]).pendings.some((entry) => entry.code === 'RECEIPT_CLAIM_UNVERIFIED'), true);
+  const activeLedger = await mkdtemp(path.join(tmpdir(), 'receipt-unverified-'));
+  try {
+    const ledgerFile = path.join(activeLedger, 'comments.json');
+    await writeFile(ledgerFile, `${JSON.stringify([claimed])}\n`);
+    const check = await runCli(['check', '--file', ledgerFile, '--json']);
+    assert.equal(check.code, 1);
+    assert.equal(JSON.parse(check.stdout).status, 'incomplete');
+  } finally {
+    await removeTemporaryDirectory(activeLedger);
+  }
   assert.equal(validateStartReceipt({ ...claimed, claimId: undefined }).ok, false);
+  assert.equal(validateStartReceipt({ ...claimed, claimId: 'not-a-uuid' }).ok, false);
+  assert.equal(validateStartReceipt({ ...claimed, leaseExpiresAt: '2026-09-27T19:00:00+08:00' }).ok, false);
+  assert.equal(validateStartReceipt({ ...claimed, fencingToken: null }).ok, false);
+  assert.equal(validateStartReceipt({ ...claimed, claimProvider: null }).ok, false);
+  assert.equal(validateStartReceipt({ ...claimed, fencingToken: 'x'.repeat(257) }).ok, false);
+  assert.equal(validateStartReceipt({ ...claimed, claimProvider: 'x'.repeat(129) }).ok, false);
   assert.equal(validateStartReceipt({
     ...claimed,
     leaseExpiresAt: '2026-09-27T09:00:00.000Z',
+  }).ok, false);
+  assert.equal(validateStartReceipt({
+    ...claimed,
+    startedAt: '2026-02-01T10:00:00.000Z',
+    leaseExpiresAt: '2026-02-31T11:00:00.000Z',
   }).ok, false);
   const autoClaimed = {
     ...claimed,
@@ -375,6 +440,48 @@ test('v3 receipts preserve legacy reads and require atomic claim metadata', () =
     ...autoClaimed,
     schema: 'vibe-harness.linear-execution/v1',
   }).ok, false);
+});
+
+test('a v3 execution requires an authoritative host lookup, not a comment or user JSON', async () => {
+  const request = createClaimRequest({
+    issueId: 'ENG-123',
+    executionId: EXECUTION_A,
+    claimId: CLAIM_A,
+    idempotencyKey: 'host-key',
+    leaseExpiresAt: '2026-09-27T11:00:00.000Z',
+    fencingToken: 'fence-a',
+  });
+  const now = new Date('2026-09-27T10:00:00.000Z');
+  const claim = atomicClaim(null, request, { capabilities: { atomicClaim: true, fencing: true }, now }).claim;
+  const receiptFields = {
+    agentKey: 'codex', dagNodeIssue: 'ENG-123', executionId: EXECUTION_A,
+    hostKind: 'codex-desktop', schema: START_RECEIPT_SCHEMA_V3,
+    claimId: CLAIM_A, leaseExpiresAt: request.leaseExpiresAt,
+    fencingToken: request.fencingToken, claimProvider: 'host-atomic',
+    startedAt: now.toISOString(),
+  };
+  const provider = {
+    name: 'host-atomic',
+    capabilities: { atomicClaim: true, fencing: true },
+    readClaim: async () => claim,
+  };
+  assert.throws(() => buildStartReceipt(receiptFields), /authoritative host provider/u);
+  const receiptRecord = await buildVerifiedClaimReceipt(receiptFields, provider, { idempotencyKey: 'host-key', now });
+  assert.equal((await verifyProviderClaim(receiptRecord, provider, { idempotencyKey: 'host-key', now })).claimId, CLAIM_A);
+  await assert.rejects(verifyProviderClaim(receiptRecord, null, { idempotencyKey: 'host-key', now }),
+    { code: 'CLAIM_CAPABILITY_UNAVAILABLE' });
+  await assert.rejects(verifyProviderClaim(receiptRecord, { ...provider, readClaim: async () => null },
+    { idempotencyKey: 'host-key', now }), { code: 'CLAIM_CONFLICT' });
+  await assert.rejects(verifyProviderClaim(receiptRecord, { ...provider, readClaim: async () => ({ ...claim, issueId: 'ENG-124' }) },
+    { idempotencyKey: 'host-key', now }), { code: 'CLAIM_CONFLICT' });
+  await assert.rejects(verifyProviderClaim(receiptRecord, provider,
+    { idempotencyKey: 'wrong-key', now }), { code: 'CLAIM_CONFLICT' });
+  await assert.rejects(verifyProviderClaim({ ...receiptRecord, fencingToken: '42' }, provider,
+    { idempotencyKey: 'host-key', now }), { code: 'FENCING_MISMATCH' });
+  await assert.rejects(verifyProviderClaim({ ...receiptRecord, leaseExpiresAt: '2026-09-27T19:00:00+08:00' }, provider,
+    { idempotencyKey: 'host-key', now }), { code: 'LEASE_EXPIRED' });
+  await assert.rejects(verifyProviderClaim(receiptRecord, provider,
+    { idempotencyKey: 'host-key', now: new Date('2026-09-27T11:00:00.000Z') }), { code: 'LEASE_EXPIRED' });
 });
 
 test('atomic claim is provider-gated, idempotent, fenced, and lease-aware', () => {
@@ -392,6 +499,50 @@ test('atomic claim is provider-gated, idempotent, fenced, and lease-aware', () =
   assert.equal(first.status, 'claimed');
   assert.equal(atomicClaim(first.claim, request, { capabilities, now }).status, 'idempotent');
   assert.throws(
+    () => atomicClaim(first.claim, { ...request, fencingToken: 'fence-other' }, { capabilities, now }),
+    (error) => error.code === 'CLAIM_CONFLICT' && /different claim contents/u.test(error.message),
+  );
+  assert.throws(
+    () => createClaimRequest({
+      issueId: 'ENG-123',
+      executionId: EXECUTION_B,
+      leaseExpiresAt: '2026-09-27T11:00:00.000Z',
+    }),
+    /claim request fencingToken is required/u,
+  );
+  assert.throws(
+    () => createClaimRequest({
+      issueId: 'ENG-123',
+      executionId: EXECUTION_B,
+      claimId: 'not-a-uuid',
+      leaseExpiresAt: '2026-09-27T11:00:00.000Z',
+      fencingToken: 'fence-b',
+    }),
+    /claimId must be UUID v4/u,
+  );
+  assert.throws(
+    () => createClaimRequest({
+      issueId: 'ENG-123',
+      executionId: EXECUTION_B,
+      leaseExpiresAt: '2026-09-27T11:00:00-05:00',
+      fencingToken: 'fence-b',
+    }),
+    /leaseExpiresAt must be an RFC3339 UTC timestamp/u,
+  );
+  assert.throws(
+    () => createClaimRequest({
+      issueId: 'ENG-123',
+      executionId: EXECUTION_B,
+      leaseExpiresAt: '2026-02-31T11:00:00.000Z',
+      fencingToken: 'fence-b',
+    }),
+    /leaseExpiresAt must be an RFC3339 UTC timestamp/u,
+  );
+  assert.throws(
+    () => atomicClaim(null, { ...request, leaseExpiresAt: '2026-09-27T09:00:00.000Z' }, { capabilities, now }),
+    /leaseExpiresAt must be in the future/u,
+  );
+  assert.throws(
     () => atomicClaim(first.claim, createClaimRequest({
       issueId: 'ENG-123',
       executionId: EXECUTION_B,
@@ -406,6 +557,22 @@ test('atomic claim is provider-gated, idempotent, fenced, and lease-aware', () =
     fencingToken: 'fence-a',
     leaseExpiresAt: '2026-09-27T12:00:00.000Z',
   }, { now }).status, 'renewed');
+  assert.throws(
+    () => renewClaim({ ...first.claim, leaseExpiresAt: 'not-a-timestamp' }, {
+      claimId: CLAIM_A,
+      fencingToken: 'fence-a',
+      leaseExpiresAt: '2026-09-27T12:00:00.000Z',
+    }, { now }),
+    (error) => error.code === 'LEASE_EXPIRED',
+  );
+  assert.throws(
+    () => renewClaim(first.claim, {
+      claimId: CLAIM_A,
+      fencingToken: 'fence-a',
+      leaseExpiresAt: '2026-09-27T12:00:00.000Z',
+    }, { now: new Date('not-a-timestamp') }),
+    (error) => error instanceof TypeError && /now must be a valid date/u.test(error.message),
+  );
   assert.equal(releaseClaim(first.claim, request, { fencingToken: 'fence-a' }).status, 'released');
   assert.throws(
     () => atomicClaim(first.claim, request, { capabilities: {}, now }),
@@ -431,6 +598,10 @@ test('atomic claim is provider-gated, idempotent, fenced, and lease-aware', () =
   // through to `claimed` and be replaced silently.
   assert.throws(
     () => atomicClaim({ ...first.claim, leaseExpiresAt: 'not-a-timestamp' }, request, { capabilities, now }),
+    (error) => error.code === 'LEASE_EXPIRED',
+  );
+  assert.throws(
+    () => atomicClaim({ ...first.claim, leaseExpiresAt: '2026-09-27T12:00:00-05:00' }, request, { capabilities, now }),
     (error) => error.code === 'LEASE_EXPIRED',
   );
   // The same fail-closed rule applies to the clock the caller supplies.

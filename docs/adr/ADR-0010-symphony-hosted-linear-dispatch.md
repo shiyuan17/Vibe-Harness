@@ -1,7 +1,7 @@
 ---
 id: ADR-0010
 title: Symphony-hosted Linear dispatch with durable grants and claims
-status: accepted
+status: superseded
 date: 2026-10-09
 review-date: 2027-04-09
 owner: vibe-harness-maintainers
@@ -9,7 +9,7 @@ decision-makers: [vibe-harness-maintainers]
 consulted: [linear-workflow-users]
 informed: [vibe-harness-contributors]
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0019
 ---
 
 # Symphony-hosted Linear dispatch with durable grants and claims

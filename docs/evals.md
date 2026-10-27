@@ -50,8 +50,8 @@ stub-behavioral 产物按同一纪律单独配对：`pnpm eval:check` 校验 `ev
 
 | 目录 | 角色 | 提交策略 |
 | --- | --- | --- |
-| `evals/` | 兼容资产源：9 份 suite、1 份 reference、2 份签入 run 产物与 3 份澄清/目标定义 case JSON，是 reference/run 纪律的唯一权威来源。 | 全部提交 |
-| `.agents/evals/` | 自安装投影：`adapters/install-map.json` 中 source 以 `evals/` 开头的 7 个条目（7 suites + 1 reference）的字节一致镜像，由 `pnpm eval:sync` 对比与再生成；results 与 case JSON 不进投影。 | 全部提交 |
+| `evals/` | 兼容资产源：10 份 suite、1 份 reference、2 份签入 run 产物与 3 份澄清/目标定义 case JSON，是 reference/run 纪律的唯一权威来源。 | 全部提交 |
+| `.agents/evals/` | 自安装投影：`adapters/install-map.json` 中 source 以 `evals/` 开头的 8 个条目（7 suites + 1 reference）的字节一致镜像，由 `pnpm eval:sync` 对比与再生成；results 与 case JSON 不进投影。 | 全部提交 |
 | `harness-evals/` | 新统一体系的框架资产（scenarios、fixtures、runners、verifiers、external 适配等）。 | 框架资产提交；运行生成物 `reports/generated/`、`traces/runs/`、`baselines/candidates/`、`regressions/generated/` 不提交，本地缺失等同空历史，由 CI 产生 |
 | `.vibe-harness/` | 运行时状态：`evals/runs/` 存放 offline/online run 工件（`eval reference --from` 的输入），另有 backups、tasks、transactions。 | 整体忽略 |
 

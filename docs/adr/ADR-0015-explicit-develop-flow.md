@@ -1,7 +1,7 @@
 ---
 id: ADR-0015
 title: 显式 develop flow（gd-flow 与 lwflow）
-status: accepted
+status: superseded
 date: 2026-10-12
 review-date: 2026-11-09
 owner: vibe-harness-maintainers
@@ -9,7 +9,7 @@ decision-makers: [vibe-harness-maintainers]
 consulted: []
 informed: []
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0018
 ---
 
 # 显式 develop flow（gd-flow 与 lwflow）

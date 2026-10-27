@@ -35,7 +35,7 @@
 
 ## Implementation task split (complete only when the plan is split)
 
-> Complete this table when dependencies, isolation, or independent parallel work justify splitting; each task needs a clear result and verification, not a separate commit. Vibe-Harness does not parse it or use it as a completion gate.
+> Split acceptance slices by observable increments, including sequential work by one agent. Follow an existing Linear DAG; ordinary fixed steps need no full DAG. Only explicitly requested multi-agent work consults the task-decomposition reference for isolation, capacity, and benefit. Each task needs a clear result and verification, without requiring a separate commit. Vibe-Harness does not parse this table or use it as a completion gate.
 
 | Task | Goal | Depends on | Change scope | Constraints | Acceptance criteria | Verification | Output |
 |---|---|---|---|---|---|---|---|
@@ -47,9 +47,9 @@
 
 > Field names and value domains follow the table below; field semantics are not restated here: the result enumeration and terminal states, writeScope and Resource Lock, pre-dispatch revalidation, node handoff evidence, and the Linear projection rules are owned by `ai-collab-rules.md`, and their Linear carriers and sources of truth by `linear-workflow.md`.
 
-| id | kind (read / write / aggregate) | output | dependsOn | trigger (all_success / all_done) | writeScope | resourceLocks | verification | result |
-|---|---|---|---|---|---|---|---|---|
-|  |  |  |  |  |  |  |  |  |
+| id | kind (read / write / aggregate) | output | dependsOn | trigger (all_success / all_done) | writeScope | resourceLocks | verification | result | cleanupPending (optional, defaults to false) |
+|---|---|---|---|---|---|---|---|---|---|
+|  |  |  |  |  |  |  |  |  |  |
 
 ## Full project analysis (only when explicitly requested or impact cannot be narrowed)
 
@@ -82,3 +82,7 @@
 ## Next action
 
 ## Risks
+
+## Rework observation (only for actual rework or an explicit pilot)
+
+Use the delivery template's definitions and record once, here or in delivery: event ID and original acceptance item; primary cause (requirement misunderstanding / scope omission / implementation / verification / environment / integration / unknown); earliest missed detection point; repair and prevention evidence; duration (blank if unknown). New requirements are separate; no feedback is not acceptance. This creates no additional anchor or completion gate.

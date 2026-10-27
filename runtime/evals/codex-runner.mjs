@@ -57,17 +57,127 @@ export const EVENT_MARKERS = Object.freeze([
   'semantic-index-used-for-plain-text',
   'tool-unavailable-treated-as-source-evidence', 'unverified-behavior-claim',
 ]);
-// Longest first so a shorter name can never shadow a longer one that shares its
-// prefix.
-const EVENT_MARKER_PATTERN = new RegExp(
-  `\\[VIBE_HARNESS_EVENT:(${[...EVENT_MARKERS].sort((a, b) => b.length - a.length).join('|')})(?::([^\\]]+))?\\]`,
-  'giu',
-);
+// Payloads are scanned, never regex-matched. A character-class payload such as
+// `[^\]]+` ends at the first `]`, so `{"hypothesisIds":["h1","h2"]}` arrived as
+// `{"hypothesisIds":["h1","h2"` and the array field was dropped before the
+// oracle ever saw it. The scanner tracks quotes, escapes, and bracket depth so a
+// `]` inside a string or a nested structure cannot end the payload early.
+const MARKER_PREFIX = '[VIBE_HARNESS_EVENT:';
+// The prefix is matched case-insensitively. The regexp parser this replaced
+// used the `giu` flags, and event names are lowercased before lookup, so a
+// literal search would silently drop `[vibe_harness_event:...]` markers and
+// leave their raw text inside the visible output.
+const MARKER_PREFIX_PATTERN = /\[VIBE_HARNESS_EVENT:/giu;
+const MARKER_NAME_CHARACTER = /[A-Za-z0-9_-]/;
+const EVENT_MARKER_NAMES = new Set(EVENT_MARKERS);
+export const MARKER_PAYLOAD_LIMIT = 1000;
+
+/** Locates the next marker prefix at or after `from`, ignoring letter case. */
+function findMarkerPrefix(text, from) {
+  MARKER_PREFIX_PATTERN.lastIndex = from;
+  const match = MARKER_PREFIX_PATTERN.exec(text);
+  return match ? match.index : -1;
+}
+
+/**
+ * Scans a marker payload from `start` until the `]` that closes the marker at
+ * bracket depth 0. Returns `terminated: false` when the payload runs to the end
+ * of the text, which means the marker is malformed and the payload is invalid.
+ */
+function scanMarkerPayload(text, start) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === '\\') {
+      if (inString) escaped = true;
+      continue;
+    }
+    if (character === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (character === '{' || character === '[') depth += 1;
+    else if (character === '}' || character === ']') {
+      if (depth === 0) return { end: index + 1, raw: text.slice(start, index), terminated: true };
+      depth -= 1;
+    }
+  }
+  return { end: text.length, raw: text.slice(start), terminated: false };
+}
+
+/**
+ * Returns every `[VIBE_HARNESS_EVENT:...]` marker in `text` with its payload.
+ * Oversized and unterminated payloads are reported as `invalid` instead of being
+ * truncated and then parsed as if they were complete.
+ */
+export function matchEventMarkers(text) {
+  const markers = [];
+  if (typeof text !== 'string' || text.length === 0) return markers;
+  let cursor = 0;
+  while (cursor < text.length) {
+    const start = findMarkerPrefix(text, cursor);
+    if (start < 0) break;
+    let nameEnd = start + MARKER_PREFIX.length;
+    while (nameEnd < text.length && MARKER_NAME_CHARACTER.test(text[nameEnd])) nameEnd += 1;
+    const kind = text.slice(start + MARKER_PREFIX.length, nameEnd).toLowerCase();
+    if (!EVENT_MARKER_NAMES.has(kind)) {
+      cursor = start + MARKER_PREFIX.length;
+      continue;
+    }
+    let payload = null;
+    let invalid = false;
+    let terminated = true;
+    let end;
+    let detail = null;
+    if (text[nameEnd] === ':') {
+      const scanned = scanMarkerPayload(text, nameEnd + 1);
+      end = scanned.end;
+      terminated = scanned.terminated;
+      const raw = scanned.raw.trim();
+      detail = raw.slice(0, 200);
+      invalid = !terminated || raw.length > MARKER_PAYLOAD_LIMIT;
+      if (!invalid) payload = raw;
+    } else if (text[nameEnd] === ']') {
+      end = nameEnd + 1;
+    } else {
+      cursor = start + MARKER_PREFIX.length;
+      continue;
+    }
+    markers.push({ detail, end, invalid, kind, payload, start, terminated });
+    cursor = end;
+  }
+  return markers;
+}
+
+/** Removes complete markers so progress text is not mistaken for evidence. */
+function stripEventMarkers(text) {
+  const markers = matchEventMarkers(text).filter((marker) => marker.terminated);
+  if (markers.length === 0) return text;
+  let stripped = '';
+  let cursor = 0;
+  for (const marker of markers) {
+    stripped += text.slice(cursor, marker.start);
+    cursor = marker.end;
+  }
+  return stripped + text.slice(cursor);
+}
 
 // Fields the parser owns. A marker's payload may add evidence, but it may not
-// rewrite the event's identity: `kind` selects which oracle applies, and
-// `index`/`source` describe where the observation came from.
-const RESERVED_EVENT_FIELDS = Object.freeze(['index', 'kind', 'source', 'explicit', 'detail']);
+// rewrite the event's identity or provenance: `kind` selects which oracle
+// applies, `index`/`source` describe where the observation came from, and
+// `evidenceSource` records whether the parser derived the event from a tool
+// result or from the agent's own text.
+const RESERVED_EVENT_FIELDS = Object.freeze([
+  'callId', 'contradictedByLastCommand', 'detail', 'evidenceSource', 'explicit',
+  'index', 'kind', 'payloadInvalid', 'source',
+]);
 
 /** Drops parser-owned keys from a marker payload before it reaches `add()`. */
 function stripReservedFields(fields) {
@@ -682,8 +792,58 @@ function isMaterialChangeItem(item) {
   return ['apply_patch', 'file_change', 'file_edit'].includes(item?.type);
 }
 
+// Rule loading evidence. A rule that was never read cannot have routed the task,
+// and the agent's own sentence about reading one is not proof. This event is
+// deliberately absent from EVENT_MARKERS: only a real read-shaped tool item can
+// produce it, so `[VIBE_HARNESS_EVENT:rule-read]` in agent prose is dropped by
+// the parser like any other unknown marker.
+const RULE_PATH_PATTERN = /(?:AGENTS\.md|CLAUDE\.md|GEMINI\.md|\.agents[\\/]rules[\\/]|docs[\\/]rules[\\/])/iu;
+const RULE_READ_COMMAND_PATTERN = /^\s*(?:[A-Za-z]:)?[^\s]*[\\/]?\s*\b(?:cat|bat|head|tail|less|more|type|get-content|gc|rg|grep|findstr|select-string)\b/iu;
+const RULE_READ_TOOL_PATTERN = /read|view|open|fetch|get/iu;
+
+/**
+ * True when a completed tool item actually read a rule-bearing path. Only the
+ * invocation is inspected: the item's output may quote a rule without any rule
+ * having been read, and the item's type alone would let an unrelated write to
+ * `AGENTS.md` count as a read.
+ */
+function isRuleReadItem(item) {
+  if (!isPlainObject(item)) return false;
+  const command = typeof item.command === 'string' ? item.command : '';
+  const argumentsText = item.arguments === undefined ? '' : JSON.stringify(item.arguments ?? null);
+  const invocationText = [command, argumentsText].filter(Boolean).join(' ');
+  if (!RULE_PATH_PATTERN.test(invocationText)) return false;
+  if (command) return RULE_READ_COMMAND_PATTERN.test(command);
+  return RULE_READ_TOOL_PATTERN.test(String(item.type ?? ''));
+}
+
+/**
+ * Classifies one tool/command result as execution evidence.
+ *
+ * A numeric exit code is decisive. `status: "completed"` only means the process
+ * finished: with `exit_code: 1` it described a failed command, and on its own it
+ * never upgrades an unknown outcome to success.
+ *
+ * @returns {'succeeded' | 'failed' | 'unknown'}
+ */
+export function classifyToolOutcome(item) {
+  const status = typeof item?.status === 'string' ? item.status : '';
+  const exitCode = Number.isInteger(item?.exitCode) ? item.exitCode
+    : Number.isInteger(item?.exit_code) ? item.exit_code : null;
+  if (/^(?:cancelled|declined|denied|rejected|timed_?out|timeout|aborted|interrupted)$/iu.test(status)) return 'failed';
+  if (item?.timed_out === true || item?.timedOut === true) return 'failed';
+  if (exitCode !== null) return exitCode === 0 ? 'succeeded' : 'failed';
+  if (/^(?:error|failed|failure)$/iu.test(status)) return 'failed';
+  return 'unknown';
+}
+
+/**
+ * Execution class of a completed tool item, used by the workflow accumulator.
+ * Only `succeeded` is offered as process evidence; `unknown` (no numeric exit
+ * code) stays unproven instead of being reported as a passed check.
+ */
 function commandSucceeded(item) {
-  return item?.exit_code === 0 || /^(?:completed|success|succeeded)$/iu.test(item?.status ?? '');
+  return classifyToolOutcome(item) === 'succeeded';
 }
 
 export function finalChangeValidationSummary(workflowEvents) {
@@ -709,7 +869,15 @@ export function finalChangeValidationSummary(workflowEvents) {
   const lastChangeIndex = changes.at(-1).index;
   const beforeFinalChange = verifications.filter((event) => event.index < lastChangeIndex);
   const afterFinalChange = verifications.filter((event) => event.index > lastChangeIndex);
-  const successful = afterFinalChange.filter((event) => event.succeeded);
+  // A self-reported "verification succeeded" marker is a claim, not a run. Only
+  // tool/host backed verification supports the completion claim: a trace with
+  // provenance is judged strictly, and a legacy trace without it keeps its
+  // previous meaning instead of being promoted to trusted evidence.
+  const hasProvenance = workflowEvents.some((event) => typeof event?.evidenceSource === 'string');
+  const isObserved = (event) => (typeof event?.evidenceSource === 'string'
+    ? event.evidenceSource !== 'agent-claim'
+    : !hasProvenance);
+  const successful = afterFinalChange.filter((event) => event.succeeded && isObserved(event));
   const failed = afterFinalChange.filter((event) => !event.succeeded);
   const previousChangeIndex = changes.at(-2)?.index ?? -1;
   const lastSuccessfulIndex = successful.at(-1)?.index ?? null;
@@ -813,7 +981,7 @@ function handoffContract(text, item = {}) {
   };
 }
 
-function summarizeToolOutcomes(outcomes, { expectedDenial = false } = {}) {
+export function summarizeToolOutcomes(outcomes, { expectedDenial = false } = {}) {
   const summary = {
     expectedDenied: 0,
     failed: 0,
@@ -826,12 +994,14 @@ function summarizeToolOutcomes(outcomes, { expectedDenial = false } = {}) {
   for (const outcome of outcomes) {
     const status = outcome.status ?? '';
     let classification = 'unknown';
-    if (outcome.exitCode === 0 || /^(?:completed|success|succeeded)$/iu.test(status)) classification = 'success';
-    else if (expectedDenial && /^(?:cancelled|declined|denied|rejected)$/iu.test(status)) classification = 'expected-denial';
-    else if ((Number.isInteger(outcome.exitCode) && outcome.exitCode !== 0)
-      || /^(?:cancelled|declined|denied|error|failed|rejected)$/iu.test(status)) {
-      classification = outcome.fatal ? 'fatal-failure' : 'recoverable-failure';
-    }
+    // Same classifier as the workflow accumulator: the outcome of a tool call
+    // has one definition, so a failed command cannot count as a success in the
+    // tally while failing the verification check.
+    const observed = classifyToolOutcome(outcome);
+    if (expectedDenial && /^(?:cancelled|declined|denied|rejected)$/iu.test(status) && observed === 'failed' && !Number.isInteger(outcome.exitCode)) {
+      classification = 'expected-denial';
+    } else if (observed === 'succeeded') classification = 'success';
+    else if (observed === 'failed') classification = outcome.fatal ? 'fatal-failure' : 'recoverable-failure';
     delete outcome.fatal;
     outcome.classification = classification;
     if (classification === 'success') summary.successful += 1;
@@ -855,7 +1025,10 @@ export function inputEventFromContext(event) {
   return null;
 }
 
-function collaborationWorkflowEvents(event, item, index, text = '') {
+/**
+ * @param {{lastVerificationCommand?: {succeeded: boolean, command: string} | null}} [parserState]
+ */
+function collaborationWorkflowEvents(event, item, index, text = '', parserState = {}) {
   const events = [];
   const invocation = item?.invocation ?? item?.arguments?.invocation ?? item?.input?.invocation ?? {};
   const name = String(invocation?.name ?? item?.name ?? item?.type ?? '').toLowerCase();
@@ -863,9 +1036,11 @@ function collaborationWorkflowEvents(event, item, index, text = '') {
     .filter((value) => typeof value === 'string').join(' ');
   const normalized = itemText.toLowerCase();
   // Parser-controlled keys are applied last: a marker payload that repeats
-  // `kind` (or `index`/`source`) must not be able to relabel the event and slip
-  // past a forbidden-event oracle.
-  const add = (kind, fields = {}) => events.push({ ...fields, index, kind, source: 'agent' });
+  // `kind`, `index`, `source`, or `evidenceSource` must not be able to relabel
+  // the event and slip past a forbidden-event oracle.
+  const toolEvidence = event.type === 'item.completed' ? 'tool-result' : 'tool-call';
+  const add = (kind, fields = {}, evidenceSource = 'agent-claim') => events
+    .push({ ...fields, index, kind, source: 'agent', evidenceSource });
   const markerFields = (raw) => {
     if (!raw) return {};
     try {
@@ -883,22 +1058,38 @@ function collaborationWorkflowEvents(event, item, index, text = '') {
   };
   const successful = event.type !== 'item.completed' || !item?.status || !/fail|error|denied/iu.test(item.status);
   if (/(?:compaction|context[_ -]?compacted|context[_ -]?compression)/u.test(event?.type ?? '')
-    || /(?:compaction|context[_ -]?compacted|context[_ -]?compression)/u.test(name + ' ' + normalized)) add('compaction', { succeeded: successful });
+    || /(?:compaction|context[_ -]?compacted|context[_ -]?compression)/u.test(name + ' ' + normalized)) {
+    add('compaction', { succeeded: successful }, toolEvidence);
+  }
   // Collaboration semantics require a structured tool invocation or an
   // explicit evidence marker; ordinary progress prose is not evidence.
   if (/(?:dispatch|spawn|create[_ -]?thread|send[_ -]?message[_ -]?to[_ -]?thread|fork|delegate|assign[_ -]?agent)/u.test(name)) {
-    add('agent-dispatch', { succeeded: successful });
+    add('agent-dispatch', { succeeded: successful }, toolEvidence);
   }
   if (/(?:wait|join|result|complete|completed)/u.test(name)
     && /(?:collab|agent|subagent|worker|thread)/u.test(name)) {
-    add('agent-complete', { succeeded: successful });
+    add('agent-complete', { succeeded: successful }, toolEvidence);
   }
-  for (const marker of itemText.matchAll(EVENT_MARKER_PATTERN)) {
-    const fields = markerFields(marker[2]?.trim().slice(0, 1000));
+  for (const marker of matchEventMarkers(itemText)) {
+    if (marker.invalid) {
+      // The marker names an event but its payload cannot be trusted. Keep the
+      // event observable (a forbidden marker must still fail the run) while
+      // withholding every field a check could accept.
+      add(marker.kind, { detail: marker.detail, explicit: true, payloadInvalid: true });
+      continue;
+    }
+    const fields = markerFields(marker.payload);
     if (typeof fields.succeeded === 'string') fields.succeeded = fields.succeeded !== 'false';
     if (typeof fields.disjoint === 'string') fields.disjoint = fields.disjoint !== 'false';
     if (typeof fields.fresh === 'string') fields.fresh = fields.fresh !== 'false';
-    add(marker[1].toLowerCase(), { ...fields, explicit: true, ...(marker[2] ? { detail: marker[2].trim().slice(0, 200) } : {}) });
+    if (marker.kind === 'verification' && fields.succeeded === true
+      && parserState.lastVerificationCommand?.succeeded === false) {
+      // The agent claims a check passed while the last check it actually ran
+      // failed. The claim is recorded, but not as a pass.
+      fields.succeeded = false;
+      fields.contradictedByLastCommand = true;
+    }
+    add(marker.kind, { ...fields, explicit: true, ...(marker.detail ? { detail: marker.detail } : {}) });
   }
   return events;
 }
@@ -915,6 +1106,9 @@ export function transcript(stdout) {
   const toolInvocationRecords = [];
   const traceEvents = [];
   const workflowEvents = [];
+  // Tracks the most recent covering check the agent actually ran, so a claim
+  // that arrives after a failed run is recorded as contradicted.
+  const parserState = { lastVerificationCommand: null };
   let sessionId = null;
   const tokenUsage = { cachedInputTokens: 0, inputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: 0 };
   let toolCalls = 0;
@@ -927,7 +1121,7 @@ export function transcript(stdout) {
         events.push(event.item.type);
         const eventIndex = workflowEvents.length;
         const itemText = event.item?.text ?? event.item?.message ?? event.message?.content ?? event.text ?? '';
-        const collaborationEvents = collaborationWorkflowEvents(event, event.item, eventIndex, itemText);
+        const collaborationEvents = collaborationWorkflowEvents(event, event.item, eventIndex, itemText, parserState);
         workflowEvents.push(...collaborationEvents);
         traceEvents.push(...collaborationEvents.map((workflow) => ({
           type: workflow.kind,
@@ -936,9 +1130,9 @@ export function transcript(stdout) {
           timestamp: event.timestamp ?? new Date(traceEvents.length).toISOString(),
         })));
         if (event.type === 'item.completed' && isMaterialChangeItem(event.item)) {
-          workflowEvents.push({ index: eventIndex, kind: 'change' });
+          workflowEvents.push({ evidenceSource: 'tool-result', index: eventIndex, kind: 'change' });
           traceEvents.push({
-            type: 'change', source: 'agent',
+            type: 'change', source: 'agent', evidenceSource: 'tool-result',
             timestamp: event.timestamp ?? new Date(traceEvents.length).toISOString(),
           });
         }
@@ -972,8 +1166,7 @@ export function transcript(stdout) {
             ...(typeof event.item.status === 'string' ? { status: event.item.status } : {}),
             ...(Number.isInteger(event.item.exit_code) ? { exitCode: event.item.exit_code } : {}),
           };
-          const failed = (Number.isInteger(outcome.exitCode) && outcome.exitCode !== 0)
-            || /^(?:cancelled|declined|denied|error|failed|rejected)$/iu.test(outcome.status ?? '');
+          const failed = classifyToolOutcome(outcome) === 'failed';
           if (failed) {
             const errorText = [event.item.message, event.item.text, event.item.aggregated_output, event.item.output]
               .filter((value) => typeof value === 'string').join(' ');
@@ -991,7 +1184,14 @@ export function transcript(stdout) {
           traceEvents.push({
             type: 'tool-result',
             source: 'system',
+            evidenceSource: 'tool-result',
             callId: event.item.id ?? event.item.call_id ?? event.item.tool_call_id ?? `tool-${traceEvents.length + 1}`,
+            // The outcome travels as fields as well as JSON so a reader does not have
+            // to parse the projection back out of `content` to tell a failed command
+            // from a passing one.
+            name: event.item.type,
+            ...(typeof outcome.status === 'string' ? { status: outcome.status } : {}),
+            ...(Number.isInteger(outcome.exitCode) ? { exitCode: outcome.exitCode } : {}),
             content: JSON.stringify(outcome),
             timestamp: event.timestamp ?? new Date(traceEvents.length).toISOString(),
           });
@@ -999,11 +1199,21 @@ export function transcript(stdout) {
           traceEvents.push({
             type: 'tool-call',
             source: 'agent',
+            evidenceSource: 'tool-call',
             callId: event.item.id ?? event.item.call_id ?? event.item.tool_call_id ?? `tool-${traceEvents.length + 1}`,
             name: event.item.type,
             arguments: typeof event.item.command === 'string'
               ? { command: event.item.command }
               : { invocation: toolInvocation(event.item) },
+            timestamp: event.timestamp ?? new Date(traceEvents.length).toISOString(),
+          });
+        }
+        if (event.type === 'item.completed' && isToolEvent && isRuleReadItem(event.item)) {
+          workflowEvents.push({ evidenceSource: 'tool-result', index: eventIndex, kind: 'rule-read' });
+          traceEvents.push({
+            type: 'rule-read',
+            source: 'system',
+            evidenceSource: 'tool-result',
             timestamp: event.timestamp ?? new Date(traceEvents.length).toISOString(),
           });
         }
@@ -1013,16 +1223,21 @@ export function transcript(stdout) {
       if (typeof command === 'string') {
         commands.push(command);
         if (event.type === 'item.completed' && isVerificationCommand(command)) {
+          const succeeded = commandSucceeded(event.item ?? event);
+          parserState.lastVerificationCommand = { command, succeeded };
           workflowEvents.push({
+            evidenceSource: 'tool-result',
+            exitCodeKnown: Number.isInteger(event.item?.exit_code ?? event.exit_code),
             index: workflowEvents.length,
             kind: 'verification',
-            succeeded: commandSucceeded(event.item ?? event),
+            succeeded,
           });
           traceEvents.push({
             type: 'verification',
             source: 'agent',
+            evidenceSource: 'tool-result',
             command,
-            succeeded: commandSucceeded(event.item ?? event),
+            succeeded,
             timestamp: event.timestamp ?? new Date(traceEvents.length).toISOString(),
           });
         }
@@ -1038,11 +1253,11 @@ export function transcript(stdout) {
       }
       const text = event.item?.text ?? event.message?.content ?? event.text;
       if (typeof text === 'string') {
-        const visibleText = text.replace(/\[VIBE_HARNESS_EVENT:[^\]]+\]\s*/giu, '').trim();
+        const visibleText = stripEventMarkers(text).trim();
         if (visibleText) messages.push(visibleText);
         if (event.type === 'item.completed' && event.item?.type === 'agent_message') {
           traceEvents.push({
-            type: 'message', source: 'agent', message: text,
+            type: 'message', source: 'agent', evidenceSource: 'agent-claim', message: text,
             timestamp: event.timestamp ?? new Date(traceEvents.length).toISOString(),
           });
         }

@@ -132,7 +132,8 @@
   "worktree": {
     "mirrors": [
       ".agents",
-      ".codex"
+      ".codex",
+      "node_modules"
     ]
   }
 }

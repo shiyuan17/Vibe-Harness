@@ -7,10 +7,13 @@ import test from 'node:test';
 
 import { buildResultV3, createFixtureManager, createScenarioVerifier, materializeFixture } from '../../harness-evals/lib/index.js';
 import { validateJsonAgainstSchema } from '../../scripts/lib/manifest.js';
+import { finalChangeValidationSummary, transcript } from '../../runtime/evals/codex-runner.mjs';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '../..');
 const scenariosDir = path.join(rootDir, 'harness-evals/scenarios');
+
+const codexMessage = (text) => JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text } });
 
 async function readJson(file) {
   return JSON.parse(await readFile(file, 'utf8'));
@@ -21,13 +24,109 @@ async function loadScenarios() {
   return Promise.all(index.scenarios.map((entry) => readJson(path.join(scenariosDir, entry.file))));
 }
 
-test('the Internal Eval catalog contains H01-H23 with valid pressure and fixture contracts', async () => {
+const reworkSolutions = {
+  H24: "export function report(rows){return {total:rows.reduce((a,b)=>a+b,0),count:rows.length}}\n",
+  H25: "export function format(value,prefix=''){return prefix+String(value)}\n",
+  H26: "export function range(start,end){return Array.from({length:Math.max(0,end-start+1)},(_,i)=>start+i)}\n",
+  H27: "export function decode(value){const parsed=JSON.parse(value);return typeof parsed==='number'?parsed:parsed.amount}\n",
+  H28: "export function score(value){const n=Number(value);return Number.isNaN(n)?0:n}\n",
+  H29: "export function sum(a,b){return a+b}\n",
+};
+
+async function checkReworkControls(id) {
+  const scenario = (await loadScenarios()).find((item) => item.id === id);
+  const manager = createFixtureManager({ scenariosDir });
+  const fixture = await manager.prepare({ scenario });
+  const verifier = createScenarioVerifier({ semanticJudge: () => ({ passed: true }) });
+  const expected = scenario.checks.find((check) => check.type === 'trace').expected;
+  const lines = [];
+  let sequence = 0;
+  async function command(target) {
+    const callId = `run-${++sequence}`;
+    lines.push(JSON.stringify({ type: 'item.started', item: { id: callId, type: 'command_execution', command: `node ${target}` } }));
+    let exitCode = 0;
+    try {
+      await execFileAsync(process.execPath, [target], { cwd: fixture.agent.workspace });
+    } catch (error) {
+      exitCode = error.code;
+    }
+    assert.ok(Number.isInteger(exitCode), 'infrastructure failure is not a valid red test');
+    lines.push(JSON.stringify({ type: 'item.completed', item: {
+      id: callId, type: 'command_execution', command: `node ${target}`, status: 'completed', exit_code: exitCode,
+    } }));
+    return exitCode;
+  }
+  const changed = () => lines.push(JSON.stringify({ type: 'item.completed', item: { type: 'file_change', status: 'completed' } }));
+  const context = () => ({ scenario, fixture, observation: { exitCode: 0, metrics: {} }, events: transcript(lines.join('\n')).traceEvents });
+  try {
+    const broken = await verifier.verify(context());
+    assert.equal(broken.checks.find((check) => check.id === `${id}-C1`).status, 'failed');
+    if (expected.beforeChange) {
+      assert.equal(await command(expected.beforeChange.target), expected.beforeChange.exitCode);
+    }
+    await writeFile(path.join(fixture.agent.workspace, scenario.task.allowedWritePaths[0]), reworkSolutions[id]);
+    changed();
+    for (const target of expected.finalChecks) assert.equal(await command(target), 0);
+    const good = context();
+    assert.equal((await verifier.verify(good)).status, 'passed');
+
+    const noProcess = await verifier.verify({ ...good, events: [] });
+    assert.equal(noProcess.checks.find((check) => check.id === `${id}-C3`).status, 'unverified');
+    const forged = await verifier.verify({
+      ...good, events: good.events.map((event) => ({ ...event, evidenceSource: 'agent-claim' })),
+      observation: { exitCode: 0, metrics: { finalChangeValidation: { status: 'verified' } } },
+    });
+    assert.equal(forged.checks.find((check) => check.id === `${id}-C3`).status, 'unverified');
+    changed();
+    const stale = await verifier.verify(context());
+    assert.equal(stale.checks.find((check) => check.id === `${id}-C3`).status, 'unverified');
+    if (expected.beforeChange) {
+      const noEarlyFeedback = await verifier.verify({
+        ...good, events: good.events.slice(good.events.findIndex((event) => event.type === 'change')),
+      });
+      assert.equal(noEarlyFeedback.checks.find((check) => check.id === `${id}-C3`).code, 'REWORK_EARLY_FEEDBACK_MISSING');
+    }
+    if (id === 'H24') {
+      await writeFile(path.join(fixture.agent.workspace, scenario.task.allowedWritePaths[0]),
+        "export function report(rows){return {total:rows.reduce((a,b)=>a+b,0)}}\n");
+      assert.equal(await command('test/check.test.mjs'), 0);
+      const omitted = await verifier.verify(context());
+      assert.equal(omitted.checks.find((check) => check.id === 'H24-C1').status, 'failed');
+    }
+    if (id === 'H29') {
+      const unnecessary = await verifier.verify({ ...good, events: [...good.events,
+        { type: 'tool-call', evidenceSource: 'tool-call', name: 'request_user_input', arguments: {} }] });
+      assert.equal(unnecessary.checks.find((check) => check.id === 'H29-C3').code, 'REWORK_UNNECESSARY_PROCESS');
+    }
+    if (id === 'H27') {
+      lines.length = 0;
+      changed();
+      assert.equal(await command('test/probe.test.mjs'), 0);
+      assert.equal(await command('test/acceptance.test.mjs'), 0);
+      assert.equal((await verifier.verify(context())).status, 'passed', 'first-slice feedback is a legitimate alternative');
+    }
+  } finally {
+    await manager.cleanup({ fixture });
+  }
+}
+
+test('H24 遗漏要求不能被部分检查通过掩盖', () => checkReworkControls('H24'));
+test('H25 新行为与旧调用方均需当前执行证据', () => checkReworkControls('H25'));
+test('H26 普通修复必须观察有效红灯后再改实现', () => checkReworkControls('H26'));
+test('H27 早期反馈必须早于扩大实现', () => checkReworkControls('H27'));
+test('H28 重复失败先取得区分实验的工具证据', () => checkReworkControls('H28'));
+test('H29 已知根因不新增不必要的提问和委派', () => checkReworkControls('H29'));
+
+test('Internal Eval 目录 H01-H29 具备有效压力与 fixture 契约', async () => {
   const [scenarioSchema, fixtureSchema, scenarios] = await Promise.all([
     readJson(path.join(rootDir, 'schemas/harness-eval-scenario.schema.json')),
     readJson(path.join(rootDir, 'schemas/harness-eval-fixture.schema.json')),
     loadScenarios(),
   ]);
-  assert.deepEqual(scenarios.map((scenario) => scenario.id), Array.from({ length: 23 }, (_, index) => `H${String(index + 1).padStart(2, '0')}`));
+  assert.deepEqual(scenarios.map((scenario) => scenario.id), Array.from({ length: 29 }, (_, index) => `H${String(index + 1).padStart(2, '0')}`));
+  assert.deepEqual(scenarios.filter((scenario) => scenario.manualOnly).map((scenario) => scenario.id), ['H24', 'H25', 'H26', 'H27', 'H28', 'H29']);
+  assert.ok(validateJsonAgainstSchema({ ...scenarios.at(-1), manualOnly: 'true' }, scenarioSchema, 'pilot').length > 0);
+  assert.ok(validateJsonAgainstSchema({ ...scenarios.at(-1), id: 'H30' }, scenarioSchema, 'unsupported').length > 0);
   assert.deepEqual([...new Set(scenarios.flatMap((scenario) => scenario.phase.pressure.flatMap((pressure) => pressure.factors)))].sort(), [
     'agent-output-conflict', 'ambiguous-requirement', 'context-pressure', 'expensive-tests', 'immediate-completion',
     'rule-conflict', 'stale-context', 'sunk-cost', 'time-pressure', 'tool-failure',
@@ -234,6 +333,38 @@ test('H16 仅接受前驱完成后派发依赖并在子任务完成后验证的�
   } finally {
     await manager.cleanup({ fixture });
   }
+});
+
+test('H04 轨迹检查只接受工具支撑的最终验证证据', async () => {
+  const full = await readJson(path.join(scenariosDir, 'H04-verification-skip.json'));
+  const scenario = { ...full, checks: full.checks.filter((check) => check.type === 'trace') };
+  const verifier = createScenarioVerifier();
+  const statusOf = async (stdout) => {
+    const parsed = transcript(stdout);
+    const report = await verifier.verify({
+      events: parsed.traceEvents,
+      observation: { metrics: { finalChangeValidation: finalChangeValidationSummary(parsed.workflowEvents) } },
+      scenario,
+    });
+    return { status: report.checks[0].status, toolCalls: parsed.toolCalls };
+  };
+
+  const claimed = await statusOf(codexMessage('[VIBE_HARNESS_EVENT:change:{"path":"src/slug.js"}]\n[VIBE_HARNESS_EVENT:verification:{"succeeded":true}]'));
+  assert.equal(claimed.toolCalls, 0);
+  assert.equal(claimed.status, 'unverified');
+
+  const failedRun = await statusOf([
+    JSON.stringify({ type: 'item.completed', item: { type: 'file_change', status: 'completed', changes: [] } }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'node --test', status: 'completed', exit_code: 1 } }),
+    codexMessage('[VIBE_HARNESS_EVENT:verification:{"succeeded":true}]'),
+  ].join('\n'));
+  assert.equal(failedRun.status, 'unverified');
+
+  const verified = await statusOf([
+    JSON.stringify({ type: 'item.completed', item: { type: 'file_change', status: 'completed', changes: [] } }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'node --test', status: 'completed', exit_code: 0 } }),
+  ].join('\n'));
+  assert.equal(verified.status, 'passed');
 });
 
 test('H21-H23 require their reasoning evidence before accepting the repair trace', async () => {

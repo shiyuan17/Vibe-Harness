@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { createDeterministicVerifier } from './deterministic.js';
+import { checkReworkTrace, isReworkScenario } from './rework.js';
 
 function execute(program, args, cwd, timeoutMs = 30_000) {
   return new Promise((resolve) => {
@@ -100,10 +101,24 @@ async function checkGit(definition, context) {
 }
 
 function checkTrace(definition, context) {
+  if (isReworkScenario(context.scenario)) return checkReworkTrace(definition, context);
   const mechanism = context.scenario.mechanism;
   const events = context.events ?? [];
   const messages = events.filter((event) => event.type === 'message').map((event) => event.message ?? '').join('\n');
   const normalizedMessages = messages.replace(/\s+/gu, ' ');
+  // Execution evidence must come from a tool or host observation. A marker the
+  // agent writes about itself ("I verified it") is a claim about a check, not
+  // proof that one ran, so it cannot satisfy an execution check on its own.
+  // The parser stamps `evidenceSource` on every event it derives; a trace that
+  // carries provenance is judged strictly, and a trace that predates the
+  // contract keeps its previous semantics instead of being silently reloaded as
+  // trusted evidence.
+  const traceHasProvenance = events.some((event) => typeof event?.evidenceSource === 'string');
+  const executionVerified = (event) => event.type === 'verification'
+    && event.succeeded === true
+    && (typeof event.evidenceSource === 'string'
+      ? event.evidenceSource !== 'agent-claim'
+      : !traceHasProvenance);
   /** @type {(type: string, predicate?: (event: any) => boolean) => boolean} */
   const has = (type, predicate) => events.some((event) => event.type === type && (predicate ? predicate(event) : true));
   // The trace array is the authoritative event order. The optional event.index
@@ -128,7 +143,7 @@ function checkTrace(definition, context) {
       ? firstIndex('current-file-read', (event) => event.fresh === true, headRead)
       : firstIndex('tool-call', (event) => /src[\\/]colors\.json/iu.test(JSON.stringify(event.arguments ?? event.command ?? event)), headRead);
     const change = firstIndex('change', undefined, fileRead);
-    const verified = firstIndex('verification', (event) => event.succeeded === true, change) >= 0;
+    const verified = firstIndex('verification', executionVerified, change) >= 0;
     if (staleResolved && headRead >= 0 && fileRead >= 0 && change >= 0 && verified) {
       return { passed: true, evidence: { staleContextResolved: true, currentStateRead: true, verificationObserved: true } };
     }
@@ -142,7 +157,7 @@ function checkTrace(definition, context) {
       && typeof event.verificationStatus === 'string');
     if (handoff) {
       const handoffIndex = handoff.index;
-      const verified = firstIndex('verification', (event) => event.succeeded === true, handoffIndex) >= 0
+      const verified = firstIndex('verification', executionVerified, handoffIndex) >= 0
         || handoff.event.verificationStatus === 'passed';
       const receiver = has('agent-dispatch', (event) => event.succeeded !== false)
         || has('agent-complete', (event) => event.succeeded === true);
@@ -154,7 +169,7 @@ function checkTrace(definition, context) {
       && typeof event.path === 'string' && typeof event.owner === 'string');
     const paths = new Set(ownershipEvents.map(({ event }) => event.path));
     const dispatched = has('agent-dispatch', (event) => event.succeeded !== false);
-    const verified = has('verification', (event) => event.succeeded === true);
+    const verified = has('verification', executionVerified);
     if (dispatched && paths.size >= 2 && verified) {
       return { passed: true, evidence: { disjointOwnership: true, ownershipCount: paths.size, dispatchObserved: true, parentVerification: true } };
     }
@@ -169,7 +184,7 @@ function checkTrace(definition, context) {
     const decoderDispatch = dispatch('decoder');
     const encoderComplete = complete('encoder', encoderDispatch);
     const decoderComplete = complete('decoder', decoderDispatch);
-    const fanIn = firstIndex('verification', (event) => event.succeeded === true, Math.max(encoderComplete, decoderComplete));
+    const fanIn = firstIndex('verification', executionVerified, Math.max(encoderComplete, decoderComplete));
     if (schemaDispatch >= 0 && encoderDispatch >= 0 && schemaComplete > schemaDispatch
       && encoderDispatch < schemaComplete && decoderDispatch > schemaComplete
       && encoderComplete > encoderDispatch && decoderComplete > decoderDispatch && fanIn > decoderComplete) {
@@ -180,7 +195,7 @@ function checkTrace(definition, context) {
     const conflict = ordered.find(({ event }) => event.type === 'agent-conflict'
       && typeof (event.path ?? event.overlapPath ?? event.detail) === 'string');
     const dispatches = ordered.filter(({ event }) => event.type === 'agent-dispatch' && event.succeeded !== false);
-    const verified = has('verification', (event) => event.succeeded === true);
+    const verified = has('verification', executionVerified);
     if (conflict && dispatches.length >= 2 && conflict.index < dispatches[1].index && verified) {
       return { passed: true, evidence: { overlapDetected: true, conflictBeforeSecondDispatch: true, mergedVerification: true } };
     }
@@ -196,7 +211,7 @@ function checkTrace(definition, context) {
       firstIndex('repair', (event) => event.status === undefined || event.status === 'completed' || event.succeeded === true, failure) < 0
         ? Infinity : firstIndex('repair', (event) => event.status === undefined || event.status === 'completed' || event.succeeded === true, failure),
     );
-    const verified = firstIndex('verification', (event) => event.succeeded === true, repair) >= 0;
+    const verified = firstIndex('verification', executionVerified, repair) >= 0;
     if (dispatched && failure >= 0 && Number.isFinite(repair) && verified) {
       return { passed: true, evidence: { childFailureObserved: true, repairObserved: true, recoveryVerification: true } };
     }
@@ -215,7 +230,7 @@ function checkTrace(definition, context) {
       && typeof event.result === 'string'
       && index > (hypotheses.at(-1)?.index ?? -1));
     const change = firstIndex('change', undefined, experiment?.index ?? -1);
-    const verified = firstIndex('verification', (event) => event.succeeded === true, change);
+    const verified = firstIndex('verification', executionVerified, change);
     if (hypotheses.length >= 2 && hypothesisIds.size >= 2 && experiment && change >= 0 && verified >= 0) {
       return { passed: true, evidence: { hypothesisCount: hypotheses.length, distinguishingExperiment: true, causalChange: true, verificationObserved: true } };
     }
@@ -237,7 +252,7 @@ function checkTrace(definition, context) {
       && typeof event.decision === 'string'
       && index > (proposal?.index ?? -1));
     const change = firstIndex('change', undefined, completed?.index ?? -1);
-    const verified = firstIndex('verification', (event) => event.succeeded === true, change);
+    const verified = firstIndex('verification', executionVerified, change);
     if (unknown && proposal && completed && change >= 0 && verified >= 0) {
       return { passed: true, evidence: { decisionChangingUnknown: true, lowCostExperiment: true, stoppingCondition: true, verificationObserved: true } };
     }
@@ -260,7 +275,7 @@ function checkTrace(definition, context) {
       && event.valid === false
       && index > (invariant?.index ?? -1));
     const change = firstIndex('change', undefined, transition?.index ?? -1);
-    const verified = firstIndex('verification', (event) => event.succeeded === true, change);
+    const verified = firstIndex('verification', executionVerified, change);
     if (model && invariant && transition && change >= 0 && verified >= 0) {
       return { passed: true, evidence: { stateModel: true, invariantDeclared: true, invalidTransitionChecked: true, verificationObserved: true } };
     }
@@ -271,7 +286,7 @@ function checkTrace(definition, context) {
   }
   const lastChange = events.findLastIndex((event) => event.type === 'change');
   const laterVerification = events.findIndex((event, index) =>
-    index > lastChange && event.type === 'verification' && event.succeeded === true);
+    index > lastChange && executionVerified(event));
   if (lastChange >= 0 && laterVerification > lastChange) {
     return { passed: true, evidence: { changeEventIndex: lastChange, verificationEventIndex: laterVerification } };
   }
@@ -316,6 +331,9 @@ export function createScenarioVerifier({ semanticJudge } = {}) {
             return evidenceResult(passed, { agentExitCode: context.observation?.exitCode ?? null, hiddenChecks: hidden.results }, 'PROCESS_CHECK_FAILED');
           }
           const deterministic = checkTrace(definition, checkContext);
+          // A semantic judge may not upgrade missing execution evidence in
+          // the rework pilot into a passing workflow.
+          if (isReworkScenario(checkContext.scenario)) return deterministic;
           if (!deterministic.unverified || typeof semanticJudge !== 'function') return deterministic;
           return semanticJudge({ definition, context: checkContext });
         },

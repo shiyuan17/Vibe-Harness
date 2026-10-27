@@ -17,12 +17,12 @@
     "allowedEffects": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "type": "string", "enum": ["linearWrite", "workspaceWrite", "hostWrite", "externalWrite", "gitBranch", "gitCommit", "gitPush", "mergeRequestWrite", "credentialUse"] }
+      "items": { "type": "string", "enum": ["linearWrite", "workspaceWrite", "hostWrite", "externalWrite", "dataEgress", "gitBranch", "gitCommit", "gitPush", "mergeRequestWrite", "credentialUse"] }
     },
     "forbiddenEffects": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "type": "string", "enum": ["linearWrite", "workspaceWrite", "hostWrite", "externalWrite", "gitBranch", "gitCommit", "gitPush", "mergeRequestWrite", "credentialUse"] }
+      "items": { "type": "string", "enum": ["linearWrite", "workspaceWrite", "hostWrite", "externalWrite", "dataEgress", "gitBranch", "gitCommit", "gitPush", "mergeRequestWrite", "credentialUse"] }
     },
     "terminalCondition": { "type": "string", "minLength": 1, "maxLength": 512 },
     "activeObjective": { "type": "string", "minLength": 1, "maxLength": 1024 },

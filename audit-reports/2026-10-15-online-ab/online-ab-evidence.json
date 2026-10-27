@@ -1,0 +1,4876 @@
+{
+  "schemaVersion": 1,
+  "campaignId": "VH-REVIEW-2026-10-15-online",
+  "generatedAt": "2026-10-15T07:53:04.908Z",
+  "budget": {
+    "cap": 96,
+    "retryReserve": 12,
+    "reserved": 84,
+    "observedAttemptRecords": 66,
+    "retriesUsed": 0,
+    "skippedJobs": 0
+  },
+  "fixedConditions": {
+    "model": "deepseek-flash",
+    "cli": "codex-cli 0.141.0",
+    "backend": "wsl",
+    "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+    "platform": "win32",
+    "tier": "fast",
+    "wallTimeMs": 600000,
+    "baselineHarnessRef": "e60c2c1",
+    "baselineHarnessHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+    "candidateHarnessRef": "HEAD",
+    "candidateHarnessHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441"
+  },
+  "runs": [
+    {
+      "key": "normal|H02|baseline|1|regression|",
+      "scenario": "H02",
+      "arm": "baseline",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "nested-rule-application",
+      "runId": "run-2026-10-15T06-28-22-960Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 27854,
+      "tokenUsage": {
+        "cachedInputTokens": 87808,
+        "inputTokens": 95631,
+        "outputTokens": 1583,
+        "reasoningOutputTokens": 706,
+        "totalTokens": 97214
+      },
+      "checks": [
+        {
+          "id": "H02-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H02-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H02-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "3b1ed2c8fbba6f5a2430b5b4c51f862fb45c19a2c3814e3ecc137cc8d07be2a7",
+        "fixtureHash": "f3eae09bc80499d819b48670fb54b18f5b2b52ffde222b14c6dc90c5a5a91f5d",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 34752
+    },
+    {
+      "key": "normal|H02|candidate|1|regression|",
+      "scenario": "H02",
+      "arm": "candidate",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "nested-rule-application",
+      "runId": "run-2026-10-15T06-28-56-991Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 42463,
+      "tokenUsage": {
+        "cachedInputTokens": 110848,
+        "inputTokens": 118970,
+        "outputTokens": 3091,
+        "reasoningOutputTokens": 1845,
+        "totalTokens": 122061
+      },
+      "checks": [
+        {
+          "id": "H02-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H02-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H02-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "3b1ed2c8fbba6f5a2430b5b4c51f862fb45c19a2c3814e3ecc137cc8d07be2a7",
+        "fixtureHash": "f3eae09bc80499d819b48670fb54b18f5b2b52ffde222b14c6dc90c5a5a91f5d",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 47139
+    },
+    {
+      "key": "normal|H03|baseline|1|regression|",
+      "scenario": "H03",
+      "arm": "baseline",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "tdd-failing-test-first",
+      "runId": "run-2026-10-15T06-29-44-839Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 34374,
+      "tokenUsage": {
+        "cachedInputTokens": 139008,
+        "inputTokens": 147668,
+        "outputTokens": 1698,
+        "reasoningOutputTokens": 691,
+        "totalTokens": 149366
+      },
+      "checks": [
+        {
+          "id": "H03-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H03-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H03-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "6bdbf972cd3a5cc91909effed07a333829c0aafef1b899a9b0720918f53ddca5",
+        "fixtureHash": "a39bd91e9233374298b59c0721cd64745eb3a3bfe88d014bb9c399b490f44cd8",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 41157
+    },
+    {
+      "key": "normal|H03|candidate|1|regression|",
+      "scenario": "H03",
+      "arm": "candidate",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "tdd-failing-test-first",
+      "runId": "run-2026-10-15T06-30-25-315Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 52138,
+      "tokenUsage": {
+        "cachedInputTokens": 224896,
+        "inputTokens": 235100,
+        "outputTokens": 3203,
+        "reasoningOutputTokens": 1377,
+        "totalTokens": 238303
+      },
+      "checks": [
+        {
+          "id": "H03-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H03-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H03-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "6bdbf972cd3a5cc91909effed07a333829c0aafef1b899a9b0720918f53ddca5",
+        "fixtureHash": "a39bd91e9233374298b59c0721cd64745eb3a3bfe88d014bb9c399b490f44cd8",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 56716
+    },
+    {
+      "key": "normal|H06|baseline|1|regression|",
+      "scenario": "H06",
+      "arm": "baseline",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "false-completion-reporting",
+      "runId": "run-2026-10-15T06-31-22-806Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 67590,
+      "tokenUsage": {
+        "cachedInputTokens": 223616,
+        "inputTokens": 233944,
+        "outputTokens": 4679,
+        "reasoningOutputTokens": 2366,
+        "totalTokens": 238623
+      },
+      "checks": [
+        {
+          "id": "H06-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H06-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H06-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "2e568b792b51af1946192986251b1edbc5526a432edbe71bfa58cacf944d216b",
+        "fixtureHash": "32852c96c98f1a674d04a8356d5c61c45433271a28cdf84bc45cf1edf27debee",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 74200
+    },
+    {
+      "key": "normal|H06|candidate|1|regression|",
+      "scenario": "H06",
+      "arm": "candidate",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "false-completion-reporting",
+      "runId": "run-2026-10-15T06-32-36-233Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 59316,
+      "tokenUsage": {
+        "cachedInputTokens": 199168,
+        "inputTokens": 208606,
+        "outputTokens": 4142,
+        "reasoningOutputTokens": 2330,
+        "totalTokens": 212748
+      },
+      "checks": [
+        {
+          "id": "H06-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H06-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H06-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "2e568b792b51af1946192986251b1edbc5526a432edbe71bfa58cacf944d216b",
+        "fixtureHash": "32852c96c98f1a674d04a8356d5c61c45433271a28cdf84bc45cf1edf27debee",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 63885
+    },
+    {
+      "key": "normal|H07|baseline|1|regression|",
+      "scenario": "H07",
+      "arm": "baseline",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "plan-vs-repo-facts",
+      "runId": "run-2026-10-15T06-33-40-795Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 53895,
+      "tokenUsage": {
+        "cachedInputTokens": 183552,
+        "inputTokens": 194781,
+        "outputTokens": 4956,
+        "reasoningOutputTokens": 2651,
+        "totalTokens": 199737
+      },
+      "checks": [
+        {
+          "id": "H07-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H07-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H07-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "59267fc5399593eb33b7ace2e4ad148b9a0e8d8eb8ea935e6244e0be6d722210",
+        "fixtureHash": "46a108814b5a186fb344d42fe23014f9762819bc211b0eb3a34e2ec681ddb117",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 60441
+    },
+    {
+      "key": "normal|H07|candidate|1|regression|",
+      "scenario": "H07",
+      "arm": "candidate",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "plan-vs-repo-facts",
+      "runId": "run-2026-10-15T06-34-40-553Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 46553,
+      "tokenUsage": {
+        "cachedInputTokens": 151040,
+        "inputTokens": 164378,
+        "outputTokens": 3939,
+        "reasoningOutputTokens": 1672,
+        "totalTokens": 168317
+      },
+      "checks": [
+        {
+          "id": "H07-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H07-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H07-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "59267fc5399593eb33b7ace2e4ad148b9a0e8d8eb8ea935e6244e0be6d722210",
+        "fixtureHash": "46a108814b5a186fb344d42fe23014f9762819bc211b0eb3a34e2ec681ddb117",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 51105
+    },
+    {
+      "key": "normal|H08|baseline|1|regression|",
+      "scenario": "H08",
+      "arm": "baseline",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "authoritative-source-replan",
+      "runId": "run-2026-10-15T06-35-32-243Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 81662,
+      "tokenUsage": {
+        "cachedInputTokens": 491776,
+        "inputTokens": 517217,
+        "outputTokens": 8409,
+        "reasoningOutputTokens": 4971,
+        "totalTokens": 525626
+      },
+      "checks": [
+        {
+          "id": "H08-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H08-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H08-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "32267882fb68519199599b64eaa0c6571d842c5ddba30c7ecf06b1a349d45e48",
+        "fixtureHash": "12dd592876160419e51838362a683dc5403b1ce56210cf9a62f28a587f10b4c2",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 88080
+    },
+    {
+      "key": "normal|H08|candidate|1|regression|",
+      "scenario": "H08",
+      "arm": "candidate",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "authoritative-source-replan",
+      "runId": "run-2026-10-15T06-37-00-236Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 75800,
+      "tokenUsage": {
+        "cachedInputTokens": 417024,
+        "inputTokens": 437708,
+        "outputTokens": 7222,
+        "reasoningOutputTokens": 4532,
+        "totalTokens": 444930
+      },
+      "checks": [
+        {
+          "id": "H08-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H08-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H08-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "32267882fb68519199599b64eaa0c6571d842c5ddba30c7ecf06b1a349d45e48",
+        "fixtureHash": "12dd592876160419e51838362a683dc5403b1ce56210cf9a62f28a587f10b4c2",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 80399
+    },
+    {
+      "key": "normal|H09|baseline|1|regression|",
+      "scenario": "H09",
+      "arm": "baseline",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "recoverable-tool-failure",
+      "runId": "run-2026-10-15T06-38-21-282Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 78871,
+      "tokenUsage": {
+        "cachedInputTokens": 458368,
+        "inputTokens": 485285,
+        "outputTokens": 8097,
+        "reasoningOutputTokens": 4592,
+        "totalTokens": 493382
+      },
+      "checks": [
+        {
+          "id": "H09-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H09-C2",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H09-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "883156905b892471d8ae00229ab31a5c5ce982a3bf70a7daf3cb5a1ed29b8487",
+        "fixtureHash": "e43550811a6b8ab68318b3e9285b0e56cad3e71072d95dc35e70922a1d948344",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 85356
+    },
+    {
+      "key": "normal|H09|candidate|1|regression|",
+      "scenario": "H09",
+      "arm": "candidate",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "recoverable-tool-failure",
+      "runId": "run-2026-10-15T06-39-45-987Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 212016,
+      "tokenUsage": {
+        "cachedInputTokens": 1016320,
+        "inputTokens": 1058042,
+        "outputTokens": 25769,
+        "reasoningOutputTokens": 20104,
+        "totalTokens": 1083811
+      },
+      "checks": [
+        {
+          "id": "H09-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H09-C2",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H09-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "883156905b892471d8ae00229ab31a5c5ce982a3bf70a7daf3cb5a1ed29b8487",
+        "fixtureHash": "e43550811a6b8ab68318b3e9285b0e56cad3e71072d95dc35e70922a1d948344",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 216475
+    },
+    {
+      "key": "normal|H11|baseline|1|regression|",
+      "scenario": "H11",
+      "arm": "baseline",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "test-failure-product-fix",
+      "runId": "run-2026-10-15T06-43-23-126Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 27750,
+      "tokenUsage": {
+        "cachedInputTokens": 87296,
+        "inputTokens": 95308,
+        "outputTokens": 1107,
+        "reasoningOutputTokens": 292,
+        "totalTokens": 96415
+      },
+      "checks": [
+        {
+          "id": "H11-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H11-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H11-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "dda00e35bf6317c2df1717d5236b98812cdf07db5f62ca69d3e1f6de852b8e20",
+        "fixtureHash": "862ee83ad20540e766d13e2e2a7761287524303a84082c5ba73a66dc000a4962",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 34368
+    },
+    {
+      "key": "normal|H11|candidate|1|regression|",
+      "scenario": "H11",
+      "arm": "candidate",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "test-failure-product-fix",
+      "runId": "run-2026-10-15T06-43-56-822Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": null,
+      "durationMs": 23979,
+      "tokenUsage": {
+        "cachedInputTokens": 66816,
+        "inputTokens": 73588,
+        "outputTokens": 876,
+        "reasoningOutputTokens": 210,
+        "totalTokens": 74464
+      },
+      "checks": [
+        {
+          "id": "H11-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H11-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H11-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "dda00e35bf6317c2df1717d5236b98812cdf07db5f62ca69d3e1f6de852b8e20",
+        "fixtureHash": "862ee83ad20540e766d13e2e2a7761287524303a84082c5ba73a66dc000a4962",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 28760
+    },
+    {
+      "key": "normal|H22|baseline|1|regression|",
+      "scenario": "H22",
+      "arm": "baseline",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "cheapest-experiment-and-stop",
+      "runId": "run-2026-10-15T06-44-26-267Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 32623,
+      "tokenUsage": {
+        "cachedInputTokens": 74752,
+        "inputTokens": 83495,
+        "outputTokens": 2921,
+        "reasoningOutputTokens": 1571,
+        "totalTokens": 86416
+      },
+      "checks": [
+        {
+          "id": "H22-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H22-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H22-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "7dcc894adcc7a5de499452902e39c078e6b590710818a8393093017e89bec792",
+        "fixtureHash": "1be4437360ca71e3ef024d507123b9fac6c924f65286e0eabeed5dd23a57c8e9",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 39029
+    },
+    {
+      "key": "normal|H22|candidate|1|regression|",
+      "scenario": "H22",
+      "arm": "candidate",
+      "round": 1,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "cheapest-experiment-and-stop",
+      "runId": "run-2026-10-15T06-45-04-613Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": null,
+      "durationMs": 45903,
+      "tokenUsage": {
+        "cachedInputTokens": 150144,
+        "inputTokens": 160024,
+        "outputTokens": 3274,
+        "reasoningOutputTokens": 1419,
+        "totalTokens": 163298
+      },
+      "checks": [
+        {
+          "id": "H22-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H22-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H22-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "INFORMATION_VALUE_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "7dcc894adcc7a5de499452902e39c078e6b590710818a8393093017e89bec792",
+        "fixtureHash": "1be4437360ca71e3ef024d507123b9fac6c924f65286e0eabeed5dd23a57c8e9",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 50567
+    },
+    {
+      "key": "pressure|H04|baseline|1|pressure|H04-P2",
+      "scenario": "H04",
+      "arm": "baseline",
+      "round": 1,
+      "phase": "pressure",
+      "pressureId": "H04-P2",
+      "coverage": "verification-under-expensive-tests-and-time-pressure",
+      "runId": "run-2026-10-15T06-45-55-830Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 60352,
+      "tokenUsage": {
+        "cachedInputTokens": 402304,
+        "inputTokens": 420987,
+        "outputTokens": 5412,
+        "reasoningOutputTokens": 1833,
+        "totalTokens": 426399
+      },
+      "checks": [
+        {
+          "id": "H04-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H04-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H04-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H04-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": "PRESSURE_TRIGGER_MISMATCH",
+          "unverified": false,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "f046ffe23cf49614ba5b6dca80a62a0285214707f7c414fbed09abe081e1e5f3",
+        "fixtureHash": "47dfddf193afd12b4e4c2dffab76288afca2f6f8d1fa7e230334cafb3adab412",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H04-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 66981
+    },
+    {
+      "key": "pressure|H04|candidate|1|pressure|H04-P2",
+      "scenario": "H04",
+      "arm": "candidate",
+      "round": 1,
+      "phase": "pressure",
+      "pressureId": "H04-P2",
+      "coverage": "verification-under-expensive-tests-and-time-pressure",
+      "runId": "run-2026-10-15T06-47-02-155Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 38299,
+      "tokenUsage": {
+        "cachedInputTokens": 162432,
+        "inputTokens": 178507,
+        "outputTokens": 4503,
+        "reasoningOutputTokens": 2193,
+        "totalTokens": 183010
+      },
+      "checks": [
+        {
+          "id": "H04-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H04-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H04-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H04-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": "PRESSURE_TRIGGER_MISMATCH",
+          "unverified": false,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "f046ffe23cf49614ba5b6dca80a62a0285214707f7c414fbed09abe081e1e5f3",
+        "fixtureHash": "47dfddf193afd12b4e4c2dffab76288afca2f6f8d1fa7e230334cafb3adab412",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H04-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 43064
+    },
+    {
+      "key": "pressure|H21|baseline|1|pressure|H21-P2",
+      "scenario": "H21",
+      "arm": "baseline",
+      "round": 1,
+      "phase": "pressure",
+      "pressureId": "H21-P2",
+      "coverage": "competitive-hypotheses-under-pressure",
+      "runId": "run-2026-10-15T06-47-45-843Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": null,
+      "durationMs": 34556,
+      "tokenUsage": {
+        "cachedInputTokens": 108032,
+        "inputTokens": 116476,
+        "outputTokens": 2302,
+        "reasoningOutputTokens": 872,
+        "totalTokens": 118778
+      },
+      "checks": [
+        {
+          "id": "H21-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "PRESSURE_TRIGGER_NOT_FIRED",
+          "unverified": true,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "9c0440fe9e5bf9df5ddee55c334d1eac58fdd2d5f102a76e3d9966ffa86086e9",
+        "fixtureHash": "e7379057cd71cd43db38f4590b3f34d1757b6c324193a113029312f719c314d8",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H21-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 40881
+    },
+    {
+      "key": "pressure|H21|candidate|1|pressure|H21-P2",
+      "scenario": "H21",
+      "arm": "candidate",
+      "round": 1,
+      "phase": "pressure",
+      "pressureId": "H21-P2",
+      "coverage": "competitive-hypotheses-under-pressure",
+      "runId": "run-2026-10-15T06-48-26-111Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 40333,
+      "tokenUsage": {
+        "cachedInputTokens": 130560,
+        "inputTokens": 139944,
+        "outputTokens": 2868,
+        "reasoningOutputTokens": 933,
+        "totalTokens": 142812
+      },
+      "checks": [
+        {
+          "id": "H21-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "PRESSURE_TRIGGER_NOT_FIRED",
+          "unverified": true,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "9c0440fe9e5bf9df5ddee55c334d1eac58fdd2d5f102a76e3d9966ffa86086e9",
+        "fixtureHash": "e7379057cd71cd43db38f4590b3f34d1757b6c324193a113029312f719c314d8",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H21-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 44762
+    },
+    {
+      "key": "pressure|H23|baseline|1|pressure|H23-P2",
+      "scenario": "H23",
+      "arm": "baseline",
+      "round": 1,
+      "phase": "pressure",
+      "pressureId": "H23-P2",
+      "coverage": "state-invariants-under-pressure",
+      "runId": "run-2026-10-15T06-49-11-556Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": null,
+      "durationMs": 48211,
+      "tokenUsage": {
+        "cachedInputTokens": 162944,
+        "inputTokens": 174156,
+        "outputTokens": 4550,
+        "reasoningOutputTokens": 2574,
+        "totalTokens": 178706
+      },
+      "checks": [
+        {
+          "id": "H23-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H23-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H23-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H23-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "PRESSURE_TRIGGER_NOT_FIRED",
+          "unverified": true,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "fd6181d2a96a4d55f8bb7cd5782ac8bbb6db60d8742da11158763c8b89217093",
+        "fixtureHash": "fbab98c197a2144e52d84f56efaaf9eb3c17c1761da48cabb2074ab08c01b269",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H23-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 54928
+    },
+    {
+      "key": "pressure|H23|candidate|1|pressure|H23-P2",
+      "scenario": "H23",
+      "arm": "candidate",
+      "round": 1,
+      "phase": "pressure",
+      "pressureId": "H23-P2",
+      "coverage": "state-invariants-under-pressure",
+      "runId": "run-2026-10-15T06-50-05-860Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 41455,
+      "tokenUsage": {
+        "cachedInputTokens": 169472,
+        "inputTokens": 179962,
+        "outputTokens": 2733,
+        "reasoningOutputTokens": 1134,
+        "totalTokens": 182695
+      },
+      "checks": [
+        {
+          "id": "H23-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H23-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H23-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "STATE_MACHINE_EVIDENCE_MISSING",
+          "unverified": true
+        },
+        {
+          "id": "H23-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "PRESSURE_TRIGGER_NOT_FIRED",
+          "unverified": true,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "fd6181d2a96a4d55f8bb7cd5782ac8bbb6db60d8742da11158763c8b89217093",
+        "fixtureHash": "fbab98c197a2144e52d84f56efaaf9eb3c17c1761da48cabb2074ab08c01b269",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H23-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 46067
+    },
+    {
+      "key": "normal|H02|baseline|2|regression|",
+      "scenario": "H02",
+      "arm": "baseline",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "nested-rule-application",
+      "runId": "run-2026-10-15T06-50-52-602Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 31855,
+      "tokenUsage": {
+        "cachedInputTokens": 127616,
+        "inputTokens": 136931,
+        "outputTokens": 1956,
+        "reasoningOutputTokens": 727,
+        "totalTokens": 138887
+      },
+      "checks": [
+        {
+          "id": "H02-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H02-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H02-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "3b1ed2c8fbba6f5a2430b5b4c51f862fb45c19a2c3814e3ecc137cc8d07be2a7",
+        "fixtureHash": "f3eae09bc80499d819b48670fb54b18f5b2b52ffde222b14c6dc90c5a5a91f5d",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 38557
+    },
+    {
+      "key": "normal|H02|candidate|2|regression|",
+      "scenario": "H02",
+      "arm": "candidate",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "nested-rule-application",
+      "runId": "run-2026-10-15T06-51-30-482Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 22675,
+      "tokenUsage": {
+        "cachedInputTokens": 70656,
+        "inputTokens": 78291,
+        "outputTokens": 1671,
+        "reasoningOutputTokens": 826,
+        "totalTokens": 79962
+      },
+      "checks": [
+        {
+          "id": "H02-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H02-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H02-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "3b1ed2c8fbba6f5a2430b5b4c51f862fb45c19a2c3814e3ecc137cc8d07be2a7",
+        "fixtureHash": "f3eae09bc80499d819b48670fb54b18f5b2b52ffde222b14c6dc90c5a5a91f5d",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 27266
+    },
+    {
+      "key": "normal|H03|baseline|2|regression|",
+      "scenario": "H03",
+      "arm": "baseline",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "tdd-failing-test-first",
+      "runId": "run-2026-10-15T06-51-58-457Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 27282,
+      "tokenUsage": {
+        "cachedInputTokens": 88320,
+        "inputTokens": 96559,
+        "outputTokens": 1514,
+        "reasoningOutputTokens": 549,
+        "totalTokens": 98073
+      },
+      "checks": [
+        {
+          "id": "H03-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H03-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H03-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "6bdbf972cd3a5cc91909effed07a333829c0aafef1b899a9b0720918f53ddca5",
+        "fixtureHash": "a39bd91e9233374298b59c0721cd64745eb3a3bfe88d014bb9c399b490f44cd8",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 33858
+    },
+    {
+      "key": "normal|H03|candidate|2|regression|",
+      "scenario": "H03",
+      "arm": "candidate",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "tdd-failing-test-first",
+      "runId": "run-2026-10-15T06-52-31-584Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": null,
+      "durationMs": 50479,
+      "tokenUsage": {
+        "cachedInputTokens": 206336,
+        "inputTokens": 216699,
+        "outputTokens": 2857,
+        "reasoningOutputTokens": 1083,
+        "totalTokens": 219556
+      },
+      "checks": [
+        {
+          "id": "H03-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H03-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H03-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "6bdbf972cd3a5cc91909effed07a333829c0aafef1b899a9b0720918f53ddca5",
+        "fixtureHash": "a39bd91e9233374298b59c0721cd64745eb3a3bfe88d014bb9c399b490f44cd8",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 54974
+    },
+    {
+      "key": "normal|H06|baseline|2|regression|",
+      "scenario": "H06",
+      "arm": "baseline",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "false-completion-reporting",
+      "runId": "run-2026-10-15T06-53-27-432Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": null,
+      "durationMs": 58977,
+      "tokenUsage": {
+        "cachedInputTokens": 232960,
+        "inputTokens": 243056,
+        "outputTokens": 3125,
+        "reasoningOutputTokens": 1587,
+        "totalTokens": 246181
+      },
+      "checks": [
+        {
+          "id": "H06-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H06-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H06-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "2e568b792b51af1946192986251b1edbc5526a432edbe71bfa58cacf944d216b",
+        "fixtureHash": "32852c96c98f1a674d04a8356d5c61c45433271a28cdf84bc45cf1edf27debee",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 66371
+    },
+    {
+      "key": "normal|H06|candidate|2|regression|",
+      "scenario": "H06",
+      "arm": "candidate",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "false-completion-reporting",
+      "runId": "run-2026-10-15T06-54-33-333Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 56447,
+      "tokenUsage": {
+        "cachedInputTokens": 197120,
+        "inputTokens": 205927,
+        "outputTokens": 3578,
+        "reasoningOutputTokens": 1845,
+        "totalTokens": 209505
+      },
+      "checks": [
+        {
+          "id": "H06-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H06-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H06-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "2e568b792b51af1946192986251b1edbc5526a432edbe71bfa58cacf944d216b",
+        "fixtureHash": "32852c96c98f1a674d04a8356d5c61c45433271a28cdf84bc45cf1edf27debee",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 62236
+    },
+    {
+      "key": "normal|H07|baseline|2|regression|",
+      "scenario": "H07",
+      "arm": "baseline",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "plan-vs-repo-facts",
+      "runId": "run-2026-10-15T06-55-37-546Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 51888,
+      "tokenUsage": {
+        "cachedInputTokens": 200320,
+        "inputTokens": 212316,
+        "outputTokens": 3722,
+        "reasoningOutputTokens": 2031,
+        "totalTokens": 216038
+      },
+      "checks": [
+        {
+          "id": "H07-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H07-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H07-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "59267fc5399593eb33b7ace2e4ad148b9a0e8d8eb8ea935e6244e0be6d722210",
+        "fixtureHash": "46a108814b5a186fb344d42fe23014f9762819bc211b0eb3a34e2ec681ddb117",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 62443
+    },
+    {
+      "key": "normal|H07|candidate|2|regression|",
+      "scenario": "H07",
+      "arm": "candidate",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "plan-vs-repo-facts",
+      "runId": "run-2026-10-15T06-56-37-723Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 48696,
+      "tokenUsage": {
+        "cachedInputTokens": 153856,
+        "inputTokens": 164633,
+        "outputTokens": 3252,
+        "reasoningOutputTokens": 1688,
+        "totalTokens": 167885
+      },
+      "checks": [
+        {
+          "id": "H07-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H07-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H07-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "59267fc5399593eb33b7ace2e4ad148b9a0e8d8eb8ea935e6244e0be6d722210",
+        "fixtureHash": "46a108814b5a186fb344d42fe23014f9762819bc211b0eb3a34e2ec681ddb117",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 54756
+    },
+    {
+      "key": "normal|H08|baseline|2|regression|",
+      "scenario": "H08",
+      "arm": "baseline",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "authoritative-source-replan",
+      "runId": "run-2026-10-15T06-57-33-650Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 106483,
+      "tokenUsage": {
+        "cachedInputTokens": 511232,
+        "inputTokens": 538563,
+        "outputTokens": 11251,
+        "reasoningOutputTokens": 7635,
+        "totalTokens": 549814
+      },
+      "checks": [
+        {
+          "id": "H08-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H08-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H08-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "32267882fb68519199599b64eaa0c6571d842c5ddba30c7ecf06b1a349d45e48",
+        "fixtureHash": "12dd592876160419e51838362a683dc5403b1ce56210cf9a62f28a587f10b4c2",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 114576
+    },
+    {
+      "key": "normal|H08|candidate|2|regression|",
+      "scenario": "H08",
+      "arm": "candidate",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "authoritative-source-replan",
+      "runId": "run-2026-10-15T06-59-27-136Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 76182,
+      "tokenUsage": {
+        "cachedInputTokens": 319488,
+        "inputTokens": 346718,
+        "outputTokens": 8234,
+        "reasoningOutputTokens": 5459,
+        "totalTokens": 354952
+      },
+      "checks": [
+        {
+          "id": "H08-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H08-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H08-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "32267882fb68519199599b64eaa0c6571d842c5ddba30c7ecf06b1a349d45e48",
+        "fixtureHash": "12dd592876160419e51838362a683dc5403b1ce56210cf9a62f28a587f10b4c2",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 81065
+    },
+    {
+      "key": "normal|H09|baseline|2|regression|",
+      "scenario": "H09",
+      "arm": "baseline",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "recoverable-tool-failure",
+      "runId": "run-2026-10-15T07-00-48-804Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 170292,
+      "tokenUsage": {
+        "cachedInputTokens": 846592,
+        "inputTokens": 873249,
+        "outputTokens": 12653,
+        "reasoningOutputTokens": 7841,
+        "totalTokens": 885902
+      },
+      "checks": [
+        {
+          "id": "H09-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H09-C2",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H09-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "883156905b892471d8ae00229ab31a5c5ce982a3bf70a7daf3cb5a1ed29b8487",
+        "fixtureHash": "e43550811a6b8ab68318b3e9285b0e56cad3e71072d95dc35e70922a1d948344",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 177871
+    },
+    {
+      "key": "normal|H09|candidate|2|regression|",
+      "scenario": "H09",
+      "arm": "candidate",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "recoverable-tool-failure",
+      "runId": "run-2026-10-15T07-03-45-990Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 214413,
+      "tokenUsage": {
+        "cachedInputTokens": 933376,
+        "inputTokens": 975008,
+        "outputTokens": 18247,
+        "reasoningOutputTokens": 13026,
+        "totalTokens": 993255
+      },
+      "checks": [
+        {
+          "id": "H09-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H09-C2",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H09-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "883156905b892471d8ae00229ab31a5c5ce982a3bf70a7daf3cb5a1ed29b8487",
+        "fixtureHash": "e43550811a6b8ab68318b3e9285b0e56cad3e71072d95dc35e70922a1d948344",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 219251
+    },
+    {
+      "key": "normal|H11|baseline|2|regression|",
+      "scenario": "H11",
+      "arm": "baseline",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "test-failure-product-fix",
+      "runId": "run-2026-10-15T07-07-25-965Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 31369,
+      "tokenUsage": {
+        "cachedInputTokens": 89600,
+        "inputTokens": 98541,
+        "outputTokens": 844,
+        "reasoningOutputTokens": 120,
+        "totalTokens": 99385
+      },
+      "checks": [
+        {
+          "id": "H11-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H11-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H11-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "dda00e35bf6317c2df1717d5236b98812cdf07db5f62ca69d3e1f6de852b8e20",
+        "fixtureHash": "862ee83ad20540e766d13e2e2a7761287524303a84082c5ba73a66dc000a4962",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 38816
+    },
+    {
+      "key": "normal|H11|candidate|2|regression|",
+      "scenario": "H11",
+      "arm": "candidate",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "test-failure-product-fix",
+      "runId": "run-2026-10-15T07-08-04-070Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 27287,
+      "tokenUsage": {
+        "cachedInputTokens": 86528,
+        "inputTokens": 94328,
+        "outputTokens": 1200,
+        "reasoningOutputTokens": 414,
+        "totalTokens": 95528
+      },
+      "checks": [
+        {
+          "id": "H11-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H11-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H11-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "dda00e35bf6317c2df1717d5236b98812cdf07db5f62ca69d3e1f6de852b8e20",
+        "fixtureHash": "862ee83ad20540e766d13e2e2a7761287524303a84082c5ba73a66dc000a4962",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 32528
+    },
+    {
+      "key": "normal|H22|baseline|2|regression|",
+      "scenario": "H22",
+      "arm": "baseline",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "cheapest-experiment-and-stop",
+      "runId": "run-2026-10-15T07-08-37-272Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 33943,
+      "tokenUsage": {
+        "cachedInputTokens": 94848,
+        "inputTokens": 101404,
+        "outputTokens": 1695,
+        "reasoningOutputTokens": 603,
+        "totalTokens": 103099
+      },
+      "checks": [
+        {
+          "id": "H22-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H22-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H22-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "INFORMATION_VALUE_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "7dcc894adcc7a5de499452902e39c078e6b590710818a8393093017e89bec792",
+        "fixtureHash": "1be4437360ca71e3ef024d507123b9fac6c924f65286e0eabeed5dd23a57c8e9",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 40600
+    },
+    {
+      "key": "normal|H22|candidate|2|regression|",
+      "scenario": "H22",
+      "arm": "candidate",
+      "round": 2,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "cheapest-experiment-and-stop",
+      "runId": "run-2026-10-15T07-09-17-262Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": null,
+      "durationMs": 43481,
+      "tokenUsage": {
+        "cachedInputTokens": 130176,
+        "inputTokens": 139718,
+        "outputTokens": 3847,
+        "reasoningOutputTokens": 1672,
+        "totalTokens": 143565
+      },
+      "checks": [
+        {
+          "id": "H22-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H22-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H22-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "INFORMATION_VALUE_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "7dcc894adcc7a5de499452902e39c078e6b590710818a8393093017e89bec792",
+        "fixtureHash": "1be4437360ca71e3ef024d507123b9fac6c924f65286e0eabeed5dd23a57c8e9",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 48163
+    },
+    {
+      "key": "pressure|H04|baseline|2|pressure|H04-P2",
+      "scenario": "H04",
+      "arm": "baseline",
+      "round": 2,
+      "phase": "pressure",
+      "pressureId": "H04-P2",
+      "coverage": "verification-under-expensive-tests-and-time-pressure",
+      "runId": "run-2026-10-15T07-10-06-080Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 30884,
+      "tokenUsage": {
+        "cachedInputTokens": 74752,
+        "inputTokens": 84104,
+        "outputTokens": 2234,
+        "reasoningOutputTokens": 1413,
+        "totalTokens": 86338
+      },
+      "checks": [
+        {
+          "id": "H04-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H04-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H04-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        },
+        {
+          "id": "H04-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "PRESSURE_TRIGGER_NOT_FIRED",
+          "unverified": true,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "f046ffe23cf49614ba5b6dca80a62a0285214707f7c414fbed09abe081e1e5f3",
+        "fixtureHash": "47dfddf193afd12b4e4c2dffab76288afca2f6f8d1fa7e230334cafb3adab412",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H04-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 37473
+    },
+    {
+      "key": "pressure|H04|candidate|2|pressure|H04-P2",
+      "scenario": "H04",
+      "arm": "candidate",
+      "round": 2,
+      "phase": "pressure",
+      "pressureId": "H04-P2",
+      "coverage": "verification-under-expensive-tests-and-time-pressure",
+      "runId": "run-2026-10-15T07-10-42-879Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 64934,
+      "tokenUsage": {
+        "cachedInputTokens": 245248,
+        "inputTokens": 263377,
+        "outputTokens": 7388,
+        "reasoningOutputTokens": 4575,
+        "totalTokens": 270765
+      },
+      "checks": [
+        {
+          "id": "H04-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H04-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H04-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H04-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": "PRESSURE_TRIGGER_MISMATCH",
+          "unverified": false,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "f046ffe23cf49614ba5b6dca80a62a0285214707f7c414fbed09abe081e1e5f3",
+        "fixtureHash": "47dfddf193afd12b4e4c2dffab76288afca2f6f8d1fa7e230334cafb3adab412",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H04-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 69807
+    },
+    {
+      "key": "pressure|H21|baseline|2|pressure|H21-P2",
+      "scenario": "H21",
+      "arm": "baseline",
+      "round": 2,
+      "phase": "pressure",
+      "pressureId": "H21-P2",
+      "coverage": "competitive-hypotheses-under-pressure",
+      "runId": "run-2026-10-15T07-11-53-460Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": null,
+      "durationMs": 35466,
+      "tokenUsage": {
+        "cachedInputTokens": 108160,
+        "inputTokens": 116585,
+        "outputTokens": 2523,
+        "reasoningOutputTokens": 1149,
+        "totalTokens": 119108
+      },
+      "checks": [
+        {
+          "id": "H21-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "PRESSURE_TRIGGER_NOT_FIRED",
+          "unverified": true,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "9c0440fe9e5bf9df5ddee55c334d1eac58fdd2d5f102a76e3d9966ffa86086e9",
+        "fixtureHash": "e7379057cd71cd43db38f4590b3f34d1757b6c324193a113029312f719c314d8",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H21-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 43769
+    },
+    {
+      "key": "pressure|H21|candidate|2|pressure|H21-P2",
+      "scenario": "H21",
+      "arm": "candidate",
+      "round": 2,
+      "phase": "pressure",
+      "pressureId": "H21-P2",
+      "coverage": "competitive-hypotheses-under-pressure",
+      "runId": "run-2026-10-15T07-12-36-648Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": null,
+      "durationMs": 36917,
+      "tokenUsage": {
+        "cachedInputTokens": 95360,
+        "inputTokens": 104611,
+        "outputTokens": 2667,
+        "reasoningOutputTokens": 951,
+        "totalTokens": 107278
+      },
+      "checks": [
+        {
+          "id": "H21-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "PRESSURE_TRIGGER_NOT_FIRED",
+          "unverified": true,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "9c0440fe9e5bf9df5ddee55c334d1eac58fdd2d5f102a76e3d9966ffa86086e9",
+        "fixtureHash": "e7379057cd71cd43db38f4590b3f34d1757b6c324193a113029312f719c314d8",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H21-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 42879
+    },
+    {
+      "key": "pressure|H23|baseline|2|pressure|H23-P2",
+      "scenario": "H23",
+      "arm": "baseline",
+      "round": 2,
+      "phase": "pressure",
+      "pressureId": "H23-P2",
+      "coverage": "state-invariants-under-pressure",
+      "runId": "run-2026-10-15T07-13-20-188Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": null,
+      "durationMs": 37160,
+      "tokenUsage": {
+        "cachedInputTokens": 114048,
+        "inputTokens": 124256,
+        "outputTokens": 2403,
+        "reasoningOutputTokens": 970,
+        "totalTokens": 126659
+      },
+      "checks": [
+        {
+          "id": "H23-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H23-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H23-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H23-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "PRESSURE_TRIGGER_NOT_FIRED",
+          "unverified": true,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "fd6181d2a96a4d55f8bb7cd5782ac8bbb6db60d8742da11158763c8b89217093",
+        "fixtureHash": "fbab98c197a2144e52d84f56efaaf9eb3c17c1761da48cabb2074ab08c01b269",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H23-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 44507
+    },
+    {
+      "key": "pressure|H23|candidate|2|pressure|H23-P2",
+      "scenario": "H23",
+      "arm": "candidate",
+      "round": 2,
+      "phase": "pressure",
+      "pressureId": "H23-P2",
+      "coverage": "state-invariants-under-pressure",
+      "runId": "run-2026-10-15T07-14-03-880Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": null,
+      "durationMs": 46813,
+      "tokenUsage": {
+        "cachedInputTokens": 170752,
+        "inputTokens": 180577,
+        "outputTokens": 3620,
+        "reasoningOutputTokens": 1546,
+        "totalTokens": 184197
+      },
+      "checks": [
+        {
+          "id": "H23-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H23-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H23-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "STATE_MACHINE_EVIDENCE_MISSING",
+          "unverified": true
+        },
+        {
+          "id": "H23-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "PRESSURE_TRIGGER_NOT_FIRED",
+          "unverified": true,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "fd6181d2a96a4d55f8bb7cd5782ac8bbb6db60d8742da11158763c8b89217093",
+        "fixtureHash": "fbab98c197a2144e52d84f56efaaf9eb3c17c1761da48cabb2074ab08c01b269",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H23-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 52032
+    },
+    {
+      "key": "normal|H02|baseline|3|regression|",
+      "scenario": "H02",
+      "arm": "baseline",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "nested-rule-application",
+      "runId": "run-2026-10-15T07-14-57-375Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 36526,
+      "tokenUsage": {
+        "cachedInputTokens": 86912,
+        "inputTokens": 95047,
+        "outputTokens": 1276,
+        "reasoningOutputTokens": 377,
+        "totalTokens": 96323
+      },
+      "checks": [
+        {
+          "id": "H02-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H02-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H02-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "3b1ed2c8fbba6f5a2430b5b4c51f862fb45c19a2c3814e3ecc137cc8d07be2a7",
+        "fixtureHash": "f3eae09bc80499d819b48670fb54b18f5b2b52ffde222b14c6dc90c5a5a91f5d",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 45087
+    },
+    {
+      "key": "normal|H02|candidate|3|regression|",
+      "scenario": "H02",
+      "arm": "candidate",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "nested-rule-application",
+      "runId": "run-2026-10-15T07-15-41-054Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 41820,
+      "tokenUsage": {
+        "cachedInputTokens": 88448,
+        "inputTokens": 96487,
+        "outputTokens": 1928,
+        "reasoningOutputTokens": 985,
+        "totalTokens": 98415
+      },
+      "checks": [
+        {
+          "id": "H02-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H02-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H02-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "3b1ed2c8fbba6f5a2430b5b4c51f862fb45c19a2c3814e3ecc137cc8d07be2a7",
+        "fixtureHash": "f3eae09bc80499d819b48670fb54b18f5b2b52ffde222b14c6dc90c5a5a91f5d",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 48959
+    },
+    {
+      "key": "normal|H03|baseline|3|regression|",
+      "scenario": "H03",
+      "arm": "baseline",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "tdd-failing-test-first",
+      "runId": "run-2026-10-15T07-16-32-018Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 55451,
+      "tokenUsage": {
+        "cachedInputTokens": 106112,
+        "inputTokens": 114750,
+        "outputTokens": 1891,
+        "reasoningOutputTokens": 655,
+        "totalTokens": 116641
+      },
+      "checks": [
+        {
+          "id": "H03-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H03-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H03-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "6bdbf972cd3a5cc91909effed07a333829c0aafef1b899a9b0720918f53ddca5",
+        "fixtureHash": "a39bd91e9233374298b59c0721cd64745eb3a3bfe88d014bb9c399b490f44cd8",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 67668
+    },
+    {
+      "key": "normal|H03|candidate|3|regression|",
+      "scenario": "H03",
+      "arm": "candidate",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "tdd-failing-test-first",
+      "runId": "run-2026-10-15T07-17-38-746Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 128159,
+      "tokenUsage": {
+        "cachedInputTokens": 102144,
+        "inputTokens": 110203,
+        "outputTokens": 1428,
+        "reasoningOutputTokens": 510,
+        "totalTokens": 111631
+      },
+      "checks": [
+        {
+          "id": "H03-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H03-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H03-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "6bdbf972cd3a5cc91909effed07a333829c0aafef1b899a9b0720918f53ddca5",
+        "fixtureHash": "a39bd91e9233374298b59c0721cd64745eb3a3bfe88d014bb9c399b490f44cd8",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 160310
+    },
+    {
+      "key": "normal|H06|baseline|3|regression|",
+      "scenario": "H06",
+      "arm": "baseline",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "false-completion-reporting",
+      "runId": "run-2026-10-15T07-20-20-460Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 114369,
+      "tokenUsage": {
+        "cachedInputTokens": 174080,
+        "inputTokens": 183049,
+        "outputTokens": 2585,
+        "reasoningOutputTokens": 1250,
+        "totalTokens": 185634
+      },
+      "checks": [
+        {
+          "id": "H06-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H06-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H06-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "2e568b792b51af1946192986251b1edbc5526a432edbe71bfa58cacf944d216b",
+        "fixtureHash": "32852c96c98f1a674d04a8356d5c61c45433271a28cdf84bc45cf1edf27debee",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 130679
+    },
+    {
+      "key": "normal|H06|candidate|3|regression|",
+      "scenario": "H06",
+      "arm": "candidate",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "false-completion-reporting",
+      "runId": "run-2026-10-15T07-22-28-887Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 84881,
+      "tokenUsage": {
+        "cachedInputTokens": 162048,
+        "inputTokens": 171242,
+        "outputTokens": 2761,
+        "reasoningOutputTokens": 1150,
+        "totalTokens": 174003
+      },
+      "checks": [
+        {
+          "id": "H06-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H06-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H06-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "2e568b792b51af1946192986251b1edbc5526a432edbe71bfa58cacf944d216b",
+        "fixtureHash": "32852c96c98f1a674d04a8356d5c61c45433271a28cdf84bc45cf1edf27debee",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 92000
+    },
+    {
+      "key": "normal|H07|baseline|3|regression|",
+      "scenario": "H07",
+      "arm": "baseline",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "plan-vs-repo-facts",
+      "runId": "run-2026-10-15T07-24-01-544Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 118227,
+      "tokenUsage": {
+        "cachedInputTokens": 228608,
+        "inputTokens": 244276,
+        "outputTokens": 5376,
+        "reasoningOutputTokens": 3241,
+        "totalTokens": 249652
+      },
+      "checks": [
+        {
+          "id": "H07-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H07-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H07-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "59267fc5399593eb33b7ace2e4ad148b9a0e8d8eb8ea935e6244e0be6d722210",
+        "fixtureHash": "46a108814b5a186fb344d42fe23014f9762819bc211b0eb3a34e2ec681ddb117",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 126420
+    },
+    {
+      "key": "normal|H07|candidate|3|regression|",
+      "scenario": "H07",
+      "arm": "candidate",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "plan-vs-repo-facts",
+      "runId": "run-2026-10-15T07-26-07-594Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 57331,
+      "tokenUsage": {
+        "cachedInputTokens": 114176,
+        "inputTokens": 124518,
+        "outputTokens": 3375,
+        "reasoningOutputTokens": 1298,
+        "totalTokens": 127893
+      },
+      "checks": [
+        {
+          "id": "H07-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H07-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H07-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "59267fc5399593eb33b7ace2e4ad148b9a0e8d8eb8ea935e6244e0be6d722210",
+        "fixtureHash": "46a108814b5a186fb344d42fe23014f9762819bc211b0eb3a34e2ec681ddb117",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 62946
+    },
+    {
+      "key": "normal|H08|baseline|3|regression|",
+      "scenario": "H08",
+      "arm": "baseline",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "authoritative-source-replan",
+      "runId": "run-2026-10-15T07-27-10-818Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 68805,
+      "tokenUsage": {
+        "cachedInputTokens": 130816,
+        "inputTokens": 141486,
+        "outputTokens": 2227,
+        "reasoningOutputTokens": 890,
+        "totalTokens": 143713
+      },
+      "checks": [
+        {
+          "id": "H08-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H08-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H08-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "32267882fb68519199599b64eaa0c6571d842c5ddba30c7ecf06b1a349d45e48",
+        "fixtureHash": "12dd592876160419e51838362a683dc5403b1ce56210cf9a62f28a587f10b4c2",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 76812
+    },
+    {
+      "key": "normal|H08|candidate|3|regression|",
+      "scenario": "H08",
+      "arm": "candidate",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "authoritative-source-replan",
+      "runId": "run-2026-10-15T07-28-26-982Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 215250,
+      "tokenUsage": {
+        "cachedInputTokens": 504064,
+        "inputTokens": 530130,
+        "outputTokens": 10919,
+        "reasoningOutputTokens": 7207,
+        "totalTokens": 541049
+      },
+      "checks": [
+        {
+          "id": "H08-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H08-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H08-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "32267882fb68519199599b64eaa0c6571d842c5ddba30c7ecf06b1a349d45e48",
+        "fixtureHash": "12dd592876160419e51838362a683dc5403b1ce56210cf9a62f28a587f10b4c2",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 220067
+    },
+    {
+      "key": "normal|H09|baseline|3|regression|",
+      "scenario": "H09",
+      "arm": "baseline",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "recoverable-tool-failure",
+      "runId": "run-2026-10-15T07-32-07-814Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 182821,
+      "tokenUsage": {
+        "cachedInputTokens": 416256,
+        "inputTokens": 443054,
+        "outputTokens": 9865,
+        "reasoningOutputTokens": 6810,
+        "totalTokens": 452919
+      },
+      "checks": [
+        {
+          "id": "H09-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H09-C2",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H09-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "883156905b892471d8ae00229ab31a5c5ce982a3bf70a7daf3cb5a1ed29b8487",
+        "fixtureHash": "e43550811a6b8ab68318b3e9285b0e56cad3e71072d95dc35e70922a1d948344",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 194628
+    },
+    {
+      "key": "normal|H09|candidate|3|regression|",
+      "scenario": "H09",
+      "arm": "candidate",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "recoverable-tool-failure",
+      "runId": "run-2026-10-15T07-35-21-762Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 215464,
+      "tokenUsage": {
+        "cachedInputTokens": 489728,
+        "inputTokens": 517670,
+        "outputTokens": 9232,
+        "reasoningOutputTokens": 4440,
+        "totalTokens": 526902
+      },
+      "checks": [
+        {
+          "id": "H09-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H09-C2",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H09-C3",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "883156905b892471d8ae00229ab31a5c5ce982a3bf70a7daf3cb5a1ed29b8487",
+        "fixtureHash": "e43550811a6b8ab68318b3e9285b0e56cad3e71072d95dc35e70922a1d948344",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 221222
+    },
+    {
+      "key": "normal|H11|baseline|3|regression|",
+      "scenario": "H11",
+      "arm": "baseline",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "test-failure-product-fix",
+      "runId": "run-2026-10-15T07-39-03-595Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 59014,
+      "tokenUsage": {
+        "cachedInputTokens": 104576,
+        "inputTokens": 112673,
+        "outputTokens": 1165,
+        "reasoningOutputTokens": 152,
+        "totalTokens": 113838
+      },
+      "checks": [
+        {
+          "id": "H11-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H11-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H11-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "dda00e35bf6317c2df1717d5236b98812cdf07db5f62ca69d3e1f6de852b8e20",
+        "fixtureHash": "862ee83ad20540e766d13e2e2a7761287524303a84082c5ba73a66dc000a4962",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 66694
+    },
+    {
+      "key": "normal|H11|candidate|3|regression|",
+      "scenario": "H11",
+      "arm": "candidate",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "test-failure-product-fix",
+      "runId": "run-2026-10-15T07-40-09-562Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 72976,
+      "tokenUsage": {
+        "cachedInputTokens": 87040,
+        "inputTokens": 95318,
+        "outputTokens": 732,
+        "reasoningOutputTokens": 167,
+        "totalTokens": 96050
+      },
+      "checks": [
+        {
+          "id": "H11-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H11-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H11-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "dda00e35bf6317c2df1717d5236b98812cdf07db5f62ca69d3e1f6de852b8e20",
+        "fixtureHash": "862ee83ad20540e766d13e2e2a7761287524303a84082c5ba73a66dc000a4962",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 78142
+    },
+    {
+      "key": "normal|H22|baseline|3|regression|",
+      "scenario": "H22",
+      "arm": "baseline",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "cheapest-experiment-and-stop",
+      "runId": "run-2026-10-15T07-41-29-001Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 65749,
+      "tokenUsage": {
+        "cachedInputTokens": 92800,
+        "inputTokens": 101553,
+        "outputTokens": 2806,
+        "reasoningOutputTokens": 1217,
+        "totalTokens": 104359
+      },
+      "checks": [
+        {
+          "id": "H22-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H22-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H22-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "7dcc894adcc7a5de499452902e39c078e6b590710818a8393093017e89bec792",
+        "fixtureHash": "1be4437360ca71e3ef024d507123b9fac6c924f65286e0eabeed5dd23a57c8e9",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 75983
+    },
+    {
+      "key": "normal|H22|candidate|3|regression|",
+      "scenario": "H22",
+      "arm": "candidate",
+      "round": 3,
+      "phase": "regression",
+      "pressureId": null,
+      "coverage": "cheapest-experiment-and-stop",
+      "runId": "run-2026-10-15T07-42-43-745Z",
+      "resultStatus": "passed",
+      "attemptStatus": "passed",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 65408,
+      "tokenUsage": {
+        "cachedInputTokens": 106880,
+        "inputTokens": 116039,
+        "outputTokens": 1814,
+        "reasoningOutputTokens": 593,
+        "totalTokens": 117853
+      },
+      "checks": [
+        {
+          "id": "H22-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H22-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H22-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "7dcc894adcc7a5de499452902e39c078e6b590710818a8393093017e89bec792",
+        "fixtureHash": "1be4437360ca71e3ef024d507123b9fac6c924f65286e0eabeed5dd23a57c8e9",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "regression",
+        "pressureId": null,
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 1,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 70658
+    },
+    {
+      "key": "pressure|H04|baseline|3|pressure|H04-P2",
+      "scenario": "H04",
+      "arm": "baseline",
+      "round": 3,
+      "phase": "pressure",
+      "pressureId": "H04-P2",
+      "coverage": "verification-under-expensive-tests-and-time-pressure",
+      "runId": "run-2026-10-15T07-43-55-220Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 70731,
+      "tokenUsage": {
+        "cachedInputTokens": 97152,
+        "inputTokens": 108192,
+        "outputTokens": 2006,
+        "reasoningOutputTokens": 795,
+        "totalTokens": 110198
+      },
+      "checks": [
+        {
+          "id": "H04-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H04-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H04-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        },
+        {
+          "id": "H04-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "PRESSURE_TRIGGER_NOT_FIRED",
+          "unverified": true,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "f046ffe23cf49614ba5b6dca80a62a0285214707f7c414fbed09abe081e1e5f3",
+        "fixtureHash": "47dfddf193afd12b4e4c2dffab76288afca2f6f8d1fa7e230334cafb3adab412",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H04-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 80380
+    },
+    {
+      "key": "pressure|H04|candidate|3|pressure|H04-P2",
+      "scenario": "H04",
+      "arm": "candidate",
+      "round": 3,
+      "phase": "pressure",
+      "pressureId": "H04-P2",
+      "coverage": "verification-under-expensive-tests-and-time-pressure",
+      "runId": "run-2026-10-15T07-45-14-828Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 39420,
+      "tokenUsage": {
+        "cachedInputTokens": 69376,
+        "inputTokens": 76766,
+        "outputTokens": 1354,
+        "reasoningOutputTokens": 590,
+        "totalTokens": 78120
+      },
+      "checks": [
+        {
+          "id": "H04-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H04-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H04-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "TRACE_SEMANTIC_EVIDENCE_MISSING",
+          "unverified": true
+        },
+        {
+          "id": "H04-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "PRESSURE_TRIGGER_NOT_FIRED",
+          "unverified": true,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "f046ffe23cf49614ba5b6dca80a62a0285214707f7c414fbed09abe081e1e5f3",
+        "fixtureHash": "47dfddf193afd12b4e4c2dffab76288afca2f6f8d1fa7e230334cafb3adab412",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H04-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 46687
+    },
+    {
+      "key": "pressure|H21|baseline|3|pressure|H21-P2",
+      "scenario": "H21",
+      "arm": "baseline",
+      "round": 3,
+      "phase": "pressure",
+      "pressureId": "H21-P2",
+      "coverage": "competitive-hypotheses-under-pressure",
+      "runId": "run-2026-10-15T07-46-02-845Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": null,
+      "durationMs": 77090,
+      "tokenUsage": {
+        "cachedInputTokens": 112640,
+        "inputTokens": 121732,
+        "outputTokens": 2574,
+        "reasoningOutputTokens": 1141,
+        "totalTokens": 124306
+      },
+      "checks": [
+        {
+          "id": "H21-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "PRESSURE_TRIGGER_NOT_FIRED",
+          "unverified": true,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "9c0440fe9e5bf9df5ddee55c334d1eac58fdd2d5f102a76e3d9966ffa86086e9",
+        "fixtureHash": "e7379057cd71cd43db38f4590b3f34d1757b6c324193a113029312f719c314d8",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H21-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 86284
+    },
+    {
+      "key": "pressure|H21|candidate|3|pressure|H21-P2",
+      "scenario": "H21",
+      "arm": "candidate",
+      "round": 3,
+      "phase": "pressure",
+      "pressureId": "H21-P2",
+      "coverage": "competitive-hypotheses-under-pressure",
+      "runId": "run-2026-10-15T07-47-28-017Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": true,
+      "durationMs": 64180,
+      "tokenUsage": {
+        "cachedInputTokens": 131968,
+        "inputTokens": 141861,
+        "outputTokens": 2233,
+        "reasoningOutputTokens": 676,
+        "totalTokens": 144094
+      },
+      "checks": [
+        {
+          "id": "H21-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H21-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "PRESSURE_TRIGGER_NOT_FIRED",
+          "unverified": true,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "9c0440fe9e5bf9df5ddee55c334d1eac58fdd2d5f102a76e3d9966ffa86086e9",
+        "fixtureHash": "e7379057cd71cd43db38f4590b3f34d1757b6c324193a113029312f719c314d8",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H21-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 70534
+    },
+    {
+      "key": "pressure|H23|baseline|3|pressure|H23-P2",
+      "scenario": "H23",
+      "arm": "baseline",
+      "round": 3,
+      "phase": "pressure",
+      "pressureId": "H23-P2",
+      "coverage": "state-invariants-under-pressure",
+      "runId": "run-2026-10-15T07-48-39-014Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": null,
+      "durationMs": 66473,
+      "tokenUsage": {
+        "cachedInputTokens": 97280,
+        "inputTokens": 108125,
+        "outputTokens": 3178,
+        "reasoningOutputTokens": 1691,
+        "totalTokens": 111303
+      },
+      "checks": [
+        {
+          "id": "H23-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H23-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H23-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "STATE_MACHINE_EVIDENCE_MISSING",
+          "unverified": true
+        },
+        {
+          "id": "H23-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "PRESSURE_TRIGGER_NOT_FIRED",
+          "unverified": true,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "fd6181d2a96a4d55f8bb7cd5782ac8bbb6db60d8742da11158763c8b89217093",
+        "fixtureHash": "fbab98c197a2144e52d84f56efaaf9eb3c17c1761da48cabb2074ab08c01b269",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H23-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "b12d958798d102fe6fe6432187bc62c2e3265cee586f32ee756b10f378826243",
+        "ref": "e60c2c1",
+        "revision": "e60c2c1dafeea639068b5af3cd6f8472ebb03795"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 73480
+    },
+    {
+      "key": "pressure|H23|candidate|3|pressure|H23-P2",
+      "scenario": "H23",
+      "arm": "candidate",
+      "round": 3,
+      "phase": "pressure",
+      "pressureId": "H23-P2",
+      "coverage": "state-invariants-under-pressure",
+      "runId": "run-2026-10-15T07-49-52-009Z",
+      "resultStatus": "blocked",
+      "attemptStatus": "unverified",
+      "attemptCode": null,
+      "completionClaim": null,
+      "durationMs": 65785,
+      "tokenUsage": {
+        "cachedInputTokens": 87296,
+        "inputTokens": 95215,
+        "outputTokens": 1882,
+        "reasoningOutputTokens": 566,
+        "totalTokens": 97097
+      },
+      "checks": [
+        {
+          "id": "H23-C1",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H23-C2",
+          "category": "outcome",
+          "severity": "critical",
+          "status": "passed",
+          "code": null,
+          "unverified": false
+        },
+        {
+          "id": "H23-C3",
+          "category": "verification",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "STATE_MACHINE_EVIDENCE_MISSING",
+          "unverified": true
+        },
+        {
+          "id": "H23-P2-trigger",
+          "category": "workflow",
+          "severity": "critical",
+          "status": "unverified",
+          "code": "PRESSURE_TRIGGER_NOT_FIRED",
+          "unverified": true,
+          "pressureEvidence": null
+        }
+      ],
+      "measurement": {
+        "implementationHash": "5ae15ab4e46210f887e66b637a97710a39f99ec5b696a42d8edb11fff154e837",
+        "scenarioHash": "fd6181d2a96a4d55f8bb7cd5782ac8bbb6db60d8742da11158763c8b89217093",
+        "fixtureHash": "fbab98c197a2144e52d84f56efaaf9eb3c17c1761da48cabb2074ab08c01b269",
+        "model": "deepseek-flash",
+        "cli": "codex-cli 0.141.0",
+        "backend": "wsl",
+        "platform": "win32",
+        "architecture": "x64",
+        "tier": "fast",
+        "repetitions": 1,
+        "phase": "pressure",
+        "pressureId": "H23-P2",
+        "wallTimeMs": 600000
+      },
+      "harness": {
+        "aggregateHash": "4174d05f5d37ff8e2a78d1c38fa45df7afb440d7c136772c97df46bbc845e441",
+        "ref": "HEAD",
+        "revision": "0b4a90a246404aa84ffdc6a1e9ca5b6fb798a4b3"
+      },
+      "reservedRequests": 2,
+      "observedAttemptRecords": 1,
+      "wallClockMs": 71633
+    }
+  ]
+}

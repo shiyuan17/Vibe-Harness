@@ -148,6 +148,30 @@ function readPermissionPreset(config) {
   return preset.trim();
 }
 
+function readHookMode(config) {
+  const mode = config.hooks?.mode ?? 'guarded';
+  if (!['off', 'observe', 'guarded'].includes(mode)) {
+    throw new Error('hooks.mode must be off, observe, or guarded.');
+  }
+  return mode;
+}
+
+function readHookProfile(config) {
+  const profile = config.hooks?.profile ?? 'standard';
+  if (!['minimal', 'standard', 'strict'].includes(profile)) {
+    throw new Error('hooks.profile must be minimal, standard, or strict.');
+  }
+  return profile;
+}
+
+function readHookEnforcement(config) {
+  const enforcement = config.hooks?.enforcement ?? 'advisory';
+  if (!['advisory', 'strict'].includes(enforcement)) {
+    throw new Error('hooks.enforcement must be advisory or strict.');
+  }
+  return enforcement;
+}
+
 async function readRedZonePaths(rootDir, config) {
   const paths = config.hooks?.redZonePaths;
   if (paths !== undefined
@@ -173,11 +197,21 @@ export async function readHookSettings(rootDir) {
     return {
       allowedWriteRoots: [],
       allowedEgressHosts: readAllowedEgressHosts(config),
-      mode: 'guarded',
+      mode: readHookMode(config),
+      profile: readHookProfile(config),
+      enforcement: readHookEnforcement(config),
       permissionPreset: readPermissionPreset(config),
       redZonePaths: await readRedZonePaths(rootDir, config),
     };
   } catch {
-    return { allowedWriteRoots: [], allowedEgressHosts: [], mode: 'guarded', permissionPreset: null, redZonePaths: DEFAULT_RED_ZONE_PATHS };
+    return {
+      allowedWriteRoots: [],
+      allowedEgressHosts: [],
+      mode: 'guarded',
+      profile: 'standard',
+      enforcement: 'advisory',
+      permissionPreset: null,
+      redZonePaths: DEFAULT_RED_ZONE_PATHS,
+    };
   }
 }

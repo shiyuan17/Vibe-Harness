@@ -27,6 +27,7 @@
 ## Implement (implement)
 
 - Input: the implementation plan and its authorization scope; the state anchor for long tasks.
+- Inner loop: clarify acceptance → test a decision-changing unknown only when present → implement one behavioral slice → focused validation → extend the next slice. A slice may span files. Check the riskiest real consumer, installation, or host boundary early; do not manufacture experiments or require E2E for every slice.
 - Output: actual changes; implementation unit status, decisions made, and blockers updated into the anchor or the task record.
 - Exit criteria: all implementation units are complete or explicitly blocked; no disposable files are left without an owner.
 - New session: update the anchor before the context approaches a compaction boundary; a new session resumes from the anchor plus the current diff instead of re-reading rule bodies.
@@ -35,9 +36,10 @@
 
 ## Verify (verify)
 
-- Input: the implemented workspace and the completion claim.
+- Input: the workspace already validated slice by slice and the completion claim; this stage checks the final combined state rather than postponing inner-loop feedback.
 - Output: verification receipts — actual commands or manual criteria with results, each bound to passed, failed, blocked, or unverified.
 - Exit criteria: verification scope matches the completion claim; failures are fixed and the same or an equivalent check rerun after the last substantive change.
+- Acceptance alignment: check the original requirements and preserved behavior for omissions. Reuse managed-plan acceptance IDs to link requirements, criteria, units, and evidence. Small tasks use a short summary, not a new matrix or anchor.
 - New session: once receipts are durable (task record or project verification receipts) they can be cited across sessions; after a check passes, do not re-verify without new changes, failures, or unresolved doubts.
 - Fan-out: result retrieval and evidence gathering; conclusions come from this run's actual command output, never from sub-agent claims.
 - Stop: when required verification is blocked, report the concrete gap and stop — do not write partial completion as complete; retries without change stay bounded.
@@ -46,7 +48,7 @@
 
 - Input: implementation unit status and verification receipts.
 - Output: a delivery record (result, actual changes, verification performed this run), organized with `delivery.md`.
-- Exit criteria (closing checklist): implementation unit status agrees with the verification receipts, all decisions made are recorded, blockers are resolved or explicitly handed over, and the next action can be executed independently; disposable files are attributed and cleaned up. Delivery implemented in a worktree first closes the loop through the project entry point `worktree land` — dry-run prints the plan by default, `--write` merges back into the primary checkout's current branch through the verify gate, and push plus branch deletion happen only with an explicit `--push`; an unmerged worktree blocks any "integrated" claim.
+- Exit criteria (closing checklist): implementation unit status agrees with the verification receipts, all decisions made are recorded, blockers are resolved or explicitly handed over, and the next action can be executed independently; disposable files are attributed and cleaned up. Delivery implemented in a worktree first uses `worktree stage` to build and verify a persistent local candidate (`local_staged`), then `worktree publish --batch <id>` to rebuild against the latest remote, verify the final tree, push exactly, and read back the SHA. Only remote confirmation supports an "integrated" claim; a dirty or lagging primary checkout must never be stashed, overwritten, or committed.
 - New session: once delivery is complete and the next action is independently executable, that action is the entry point for a new session.
 - Fan-out: none; delivery and the closing check stay with a single responsible agent.
 - Stop: stop after delivery; do not start supplementary audits or out-of-scope work automatically; when blocked, hand the blockers over explicitly and finish.

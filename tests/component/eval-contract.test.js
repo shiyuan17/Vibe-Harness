@@ -134,6 +134,43 @@ test('role-routing contract cases reject an executor that only repeats the expec
   assert.equal(contractReplay.passed, true);
 });
 
+test('自然角色路由场景不把预期角色写进题目，答案只留在 oracle', async () => {
+  const suite = await readJson(path.join(rootDir, 'evals/suites/vibe-harness-role-routing.json'));
+  const naturalAnswers = {
+    'EVAL-ROLE-ARCHITECT-001': 'chief-architect',
+    'EVAL-ROLE-DISABLED-001': 'senior-engineer',
+    'EVAL-ROLE-ENGINEER-001': 'senior-engineer',
+    'EVAL-ROLE-RELEASE-001': 'technical-release-manager',
+    'EVAL-ROLE-SECURITY-001': 'adversarial-security-reviewer',
+    'EVAL-ROLE-STABILITY-001': 'senior-engineer',
+    'EVAL-ROLE-TEST-001': 'test-lead',
+  };
+  for (const [id, role] of Object.entries(naturalAnswers)) {
+    const item = suite.cases.find((candidate) => candidate.id === id);
+    assert.ok(item, id);
+    assert.doesNotMatch(item.input.scenario, new RegExp(role, 'u'), `${id} 的题目泄露了预期角色`);
+    assert.doesNotMatch(item.input.scenario, /reply exactly [a-z-]+$/u, id);
+    const keepsRole = (value) => typeof value === 'string' && value.includes(role);
+    const oracleKeepsAnswer = keepsRole(item.oracle.exactOutput?.value)
+      || item.oracle.requiredOutputFragments.some((fragment) => keepsRole(fragment.value))
+      || item.oracle.forbiddenOutputFragments.some((fragment) => keepsRole(fragment.value));
+    assert.equal(oracleKeepsAnswer, true, `${id} 的 oracle 必须保留预期角色`);
+    // Rule loading is host-observed rather than self-reported: the agent's own
+    // sentence about reading the rules cannot satisfy this assertion, and a host
+    // that injects AGENTS.md without a read tool call only loses the
+    // evidenceQuality point instead of failing the case.
+    const ruleRead = item.oracle.requiredEvents.find((assertion) => assertion.value === 'rule-read');
+    assert.ok(ruleRead, `${id} 需要可观测的规则读取信号`);
+    assert.equal(ruleRead.critical, false);
+    assert.equal(ruleRead.dimension, 'evidenceQuality');
+    assert.equal(item.input.replay.events.includes('rule-read'), true, id);
+  }
+  for (const id of ['EVAL-ROLE-PRODUCT-001', 'EVAL-ROLE-PROJECT-001', 'EVAL-ROLE-EXPLICIT-001']) {
+    const item = suite.cases.find((candidate) => candidate.id === id);
+    assert.match(item.input.scenario, /explicitly/u, `${id} 是显式指令遵从场景，题目应说明用户已指定角色`);
+  }
+});
+
 test('online role and tool routing suites declare their fixture and reporting contracts', async () => {
   const [roles, tools] = await Promise.all([
     readJson(path.join(rootDir, 'evals/suites/vibe-harness-role-routing.json')),
@@ -672,7 +709,7 @@ test('offline replay artifact regeneration creates a missing artifact without a 
   }
 });
 
-test('eval replay CLI writes only inside the pack it evaluates and rejects unknown arguments', async () => {
+test('eval replay CLI writes only inside the pack it evaluates and rejects unknown arguments', { timeout: 120_000 }, async () => {
   const packRoot = await mkdtemp(path.join(tmpdir(), 'vibe-eval-replay-pack-'));
   try {
     await stageEvalPack(packRoot);

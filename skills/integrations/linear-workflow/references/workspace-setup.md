@@ -8,7 +8,7 @@
 
 默认分支流为 <code>feat/*、fix/* → develop → main</code>，hotfix 为 <code>hotfix/* → main → develop</code>。GitHub 默认分支设为 <code>develop</code>，release-please 明确固定 <code>target-branch: main</code>；普通开发 Issue 合入 <code>develop</code> 后即 Done，发布等待由独立 Release Issue 跟踪。合入 <code>develop</code> 不要求服务器端 fast gate，质量责任落在本地候选合并验证与提交前检查，完整 CI 只在发布边界（<code>develop → main</code>、<code>hotfix/* → main</code>、<code>release/*</code>）运行；合并前的本地验证必须建立在最新 <code>origin/develop</code> 之上。<code>release/*</code> 不是日常分支，只在管理员为并行维护历史版本时临时创建，出现时按与 <code>main</code> 相同的门禁处理。
 
-关闭 Linear 的 Parent/Sub-issue 自动关闭。普通 write 子任务仍须由 closing PR/MR 合并证明完成；显式 `vb-linear-worktree-develop` 的本地 land 子任务须另证最新基线验证、no-ff 合并、推送和 worktree/分支清理；aggregate Parent 仍须通过 Fan-in Verification，任何子任务状态变化都不得绕过这些条件。
+关闭 Linear 的 Parent/Sub-issue 自动关闭。普通 write 子任务仍须由 closing PR/MR 合并证明完成；显式 `vb-linear-worktree-develop` 的 local-land 子任务须另证 stage 候选 no-ff 合并验证、publish 最新基线重建验证、精确远端推送确认和 worktree/分支清理；aggregate Parent 仍须通过 Fan-in Verification，任何子任务状态变化都不得绕过这些条件。
 
 Triage 建议开启 priority-before-exit，使 Issue 离开 Triage 前必须设置 Priority；Triage Rules 自动路由属可选配置。
 
@@ -33,11 +33,11 @@ Triage 是团队收件箱，进入的 Issue 默认不进入常规视图，必须
 - Parent/Sub-issue 只表示分解，blocked-by / blocks 才表示执行依赖，related 永不表示依赖。
 - Reviewer 和 Verifier 只读，不登记 Receipt 或修改 Delegate。
 - 每个 Issue 的 Target branch 填写可解析的精确远端 ref；“默认分支”只有确为实现基线时才有效。分支格式为 <type>/<ISSUE-ID>-<slug>，worktree 位于仓库同级的 <repo>-worktrees/<ISSUE-ID>。commit 使用 <code>Refs &lt;ISSUE-ID&gt;</code>，closing GitHub PR 或 GitLab MR 使用 <code>Fixes &lt;ISSUE-ID&gt;</code>；只有提供方配置且创建后重读确认的等价语法才可替代。
-- 普通功能和修复使用 <code>origin/develop</code>；hotfix 使用 <code>origin/main</code>。顺序执行且工作区干净时允许当前 clone 的任务分支；并发、脏工作区或需要隔离时使用仓库外 worktree。
+- 普通功能和修复使用 <code>origin/develop</code>；hotfix 使用 <code>origin/main</code>。顺序执行且工作区干净时允许当前 clone 的任务分支；并发、脏工作区或需要隔离时使用隔离 worktree：宿主提供 worktree 能力时优先用宿主 worktree，需要治理面投影、端口分段或依赖链接时使用仓库外 worktree。
 - 发布使用 release-issue.md 的 aggregate 模板。<code>develop → main</code> 与 <code>main → develop</code> PR 使用 <code>Refs &lt;ISSUE-ID&gt;</code>，不得再次 closing 已完成开发 Issue。
 - 建议开启“复制分支名即移入 Started 状态”，使分支创建自记录为 In Progress。
 - 状态自动化和 Agent 手工回写都不得用旧计划覆盖实时状态。手工写入按“读 -> 校验转换 -> 写 -> 重读”执行；后退或纠错需单独授权和原因，不得把 In Progress、In Review 或 Ready to Merge 退回 Todo 以恢复 Ready 统计。
-- 普通 write 节点 Done 只在 closing PR/MR 合并到声明的精确目标 ref 后成立；仅显式 `vb-linear-worktree-develop` 节点可凭完整的本地 land 推送和清理证据成立；aggregate Parent 还需全部必需节点成功和 Fan-in Verification 通过。
+- 普通 write 节点 Done 只在 closing PR/MR 合并到声明的精确目标 ref 后成立；仅显式 `vb-linear-worktree-develop` 节点可凭 stage 验证、publish 远端确认和清理证据成立；aggregate Parent 还需全部必需节点成功和 Fan-in Verification 通过。
 
 ## Agent 身份回退
 
@@ -71,7 +71,7 @@ GitHub/GitLab automation 只推进代码状态，不创建或终结 Execution Re
 
 ## GitHub 分支与发布设置
 
-- <code>develop</code>：只接受短期任务分支，普通 PR 使用 squash merge，也可用本地 <code>worktree land</code> 以 no-ff 直落；不要求服务器端 fast gate，持有 Issue 登记的 Writer 可在授权后自行 squash 合并，或由作者启用 auto-merge。合并前的本地验证必须建立在合并时的最新 <code>origin/develop</code> 之上；高风险变更仍须携带 Independent Review Receipt 与 Risk Evidence，收据缺失、与 diff 不匹配或结论为 negative 时不得自行落地合并。
+- <code>develop</code>：只接受短期任务分支，普通 PR 使用 squash merge，也可用 <code>worktree stage</code> / <code>worktree publish</code> 以 no-ff 直落；不要求服务器端 fast gate，持有 Issue 登记的 Writer 可在授权后自行 squash 合并，或由作者启用 auto-merge。stage 从本地基线完成首轮验证，publish 必须对齐并重验最新 <code>origin/develop</code>；高风险变更仍须携带 Independent Review Receipt 与 Risk Evidence，收据缺失、与 diff 不匹配或结论为 negative 时不得自行落地合并。
 - <code>main</code>：只接受同仓库的 <code>develop</code>、<code>hotfix/*</code> 和 <code>release-please--branches--main*</code>；运行完整发布门禁。
 - <code>develop → main</code> 与 <code>main → develop</code> 使用 merge commit，保留任务提交和版本回同步历史。
 - GitHub Release 成功后创建 <code>main → develop</code> 回同步 PR；检查通过后 auto-merge。失败时 Release Issue 保持未完成并报告分支漂移。

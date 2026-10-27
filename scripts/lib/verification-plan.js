@@ -553,6 +553,7 @@ export async function buildVerificationPlan({
     metadata: config.validationCommands?.checks ?? [],
     projectDir: targetDir,
     only,
+    pruneSubsumed: !full && !only,
   }) : null;
   // `--full` means the complete matrix: the tier surface covers the configured
   // commands, and the risk plan adds the checks it derives from the change
@@ -574,6 +575,7 @@ export async function buildVerificationPlan({
         ...(tierSelection?.deferredChecks ?? []),
         ...(tierSelection ? [] : deferredEvidence.map(withCost).filter(Boolean)),
       ].filter((item) => !selectedIds.has(item.id));
+  const subsumedChecks = full || only ? [] : (tierSelection?.subsumedChecks ?? []);
   const metadata = validationCheckMap(config);
   const selectedWithMetadata = selectedChecks.map((item) => {
     const configured = metadata.get(item.id);
@@ -586,10 +588,13 @@ export async function buildVerificationPlan({
       // and the focused entrypoint would execute it twice.
       cwd: configured.cwd ?? item.cwd ?? '.',
       deterministic: configured.deterministic,
+      cacheScope: configured.cacheScope,
+      ...(configured.subsumes !== undefined ? { subsumes: configured.subsumes } : {}),
       ...(configured.estimatedDurationMs !== undefined ? { estimatedDurationMs: configured.estimatedDurationMs } : {}),
+      ...(configured.resourceClass === 'repo-heavy' ? { resourceClass: 'repo-heavy' } : {}),
     };
   });
-  const selectionReasonsByCheck = Object.fromEntries([...selectedWithMetadata, ...deferredChecks].map((item) => [
+  const selectionReasonsByCheck = Object.fromEntries([...selectedWithMetadata, ...deferredChecks, ...subsumedChecks].map((item) => [
     item.id ?? item.command,
     [...new Set(item.selectionReasons ?? (item.reason ? [item.reason] : []))],
   ]));
@@ -617,6 +622,7 @@ export async function buildVerificationPlan({
   return {
     ...risk,
     deferredChecks,
+    subsumedChecks,
     executionTier: resolved?.tier ?? null,
     nextTier: resolved?.tier ? nextNonEmptyTier(resolved.tier, effectiveTiers) : null,
     planMode: full ? 'full' : (resolved?.tier ? 'tier:' + resolved.tier : 'auto'),

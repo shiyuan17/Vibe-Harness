@@ -26,13 +26,13 @@
 
 按可独立验证的增量描述目标、修改位置、依赖和产物。每个增量必须在进入下一个依赖增量前完成验证。
 
-## 墙钟与 Agent 编排
+## 执行模式与 Agent 编排（仅真实多 Agent 时填写）
 
-Parent 计划必须先估算单 Agent 与受限并行的墙钟时间，再决定执行模式。规划必须区分 active work、external wait/block、coordination/fan-in 和 verification；墙钟预算是规划证据，不是完成授权或时间承诺。
+普通单 Agent 任务和普通 Parent 只写验收切片与顺序步骤，不要求 `wallClock`、Agent 容量、并行收益、Task DAG 或独立审查。已有 Linear DAG 时遵循原生关系；只有实际派发多个 Agent 且需要判断并行收益时，才按 `task-decomposition` 的按需 reference 填写下列计划块。执行模式估算只用于选择 single/parallel，不是任务完成期限，也不能触发中止。
 
 ```linear-plan
 {
-  "schema": "vibe-harness.linear-plan/v1",
+  "schema": "vibe-harness.linear-plan/v2",
   "executionMode": "auto",
   "wallClock": {
     "budgetMinutes": 600,
@@ -41,15 +41,15 @@ Parent 计划必须先估算单 Agent 与受限并行的墙钟时间，再决定
     "activeWorkMinutes": 390,
     "verificationMinutes": 90,
     "singleAgentMinutes": 585,
-    "parallelAgentMinutes": 432,
+    "parallelAgentMinutes": 612,
     "coordinationMinutes": 30,
     "fanInMinutes": 45,
     "finalIntegrationMinutes": 60,
     "uncertaintyBufferRatio": 0.2,
     "units": [
-      { "id": "U1", "activeMinutes": 120, "verificationMinutes": 30 },
-      { "id": "U3", "activeMinutes": 150, "verificationMinutes": 30 },
-      { "id": "U5", "activeMinutes": 120, "verificationMinutes": 30 }
+      { "id": "U1", "kind": "write", "dependsOn": [], "activeMinutes": 120, "verificationMinutes": 30 },
+      { "id": "U3", "kind": "write", "dependsOn": [], "activeMinutes": 150, "verificationMinutes": 30 },
+      { "id": "U5", "kind": "write", "dependsOn": [], "activeMinutes": 120, "verificationMinutes": 30 }
     ],
     "criticalPath": ["U3"],
     "confidence": "medium"
@@ -57,12 +57,15 @@ Parent 计划必须先估算单 Agent 与受限并行的墙钟时间，再决定
   "agentPlan": {
     "maxWriteAgents": 2,
     "maxReadAgents": 4,
+    "maxAgents": 2,
+    "isolationProven": false,
+    "sharedContractFrozen": false,
     "fanInOwner": "parent-agent"
   }
 }
 ```
 
-`auto` 只有在至少两个 ready 单元、共享契约已有唯一 owner、writeScope 与 Resource Lock 完全隔离、真实 Agent/workspace 容量可用且预计净节省至少 45 分钟和 25% 时才选择 `parallel`，否则降级为 `single`。默认最多 2 个并行写 Agent、4 个只读 Agent；共享契约、数据库迁移、公共模板和最终集成只由一个 owner 写入。
+`auto` 必须先解析为 `single` 或 `parallel` 再校验。容量、依赖、共享契约、隔离与净收益门槛只存在于 `task-decomposition` 的按需 reference；共享契约、数据库迁移、公共模板和最终集成只由一个 owner 写入。
 
 ### 早期探查（存在实质不确定性时选填）
 
@@ -77,6 +80,8 @@ Parent 计划必须先估算单 Agent 与受限并行的墙钟时间，再决定
 
 为每项验收提供唯一 ID、实际命令或人工判据、预期结果和所需证据。
 
+行为修改同时说明用户可观察结果、保留行为和关键例子；复用已给出的要求，不重新确认。验收 ID 表示用户要求，不是检查 ID：一个检查可覆盖多个要求，必须说明对应关系。交付沿用本表 ID，关联实施单元与当前证据；不能只用“所有选中检查通过”替代原始需求完整性。
+
 | 验收 ID | 判据 | 命令或操作 | 预期结果 | 证据 |
 |---|---|---|---|---|
 | A-001 |  |  |  |  |
@@ -86,6 +91,8 @@ Parent 计划必须先估算单 Agent 与受限并行的墙钟时间，再决定
 下面的机器可读执行块是交接与派发的契约：评审者、CI 与 `task plan-check` 只读这一段，就能判断“允许改什么、先做什么、每步由哪条验收兜底”。
 `allowedScope` 是本次允许写入的边界，`protectedAssets` 是绝不允许写入的资产；`units[].files` 越界或命中受保护资产、`dependsOn` 指向不存在的单元或成环、`acceptance` 引用了验收表里没有的 ID，`plan-check` 都会拒绝，并按 `VIBE_HARNESS_PLAN_SCOPE_VIOLATION` / `VIBE_HARNESS_PLAN_DEPENDENCY_INVALID` / `VIBE_HARNESS_PLAN_ACCEPTANCE_UNBOUND` 报告原因。
 旧计划可以暂时不含该执行块（只记为 `VIBE_HARNESS_PLAN_UNITS_MISSING` 警告），但新增计划必须填写。
+
+`task plan-check` / `task check` 的 `acceptanceCoverage` 是告警型覆盖诊断，不新增门禁：规划阶段只检查声明映射，完成检查补充单元与证据缺口；`--unit` 只代表该单元范围。缺失旧执行块或仅有人工判据时明确无法机械核对，不能把映射完整解释为行为通过，也不自动迁移旧计划。
 
 ```plan-units
 {
@@ -102,6 +109,31 @@ Parent 计划必须先估算单 Agent 与受限并行的墙钟时间，再决定
   ]
 }
 ```
+
+## 完整示例
+
+下面是一份填好的例子，用来说明每个字段写到什么程度才算可交接。它是人读样例，不参与机器校验；机器契约仍是上方唯一的 `plan-units` 块，示例中的验收 ID 也刻意与上面的表格区分开。
+
+**输入**：目标项目报「`normalize()` 对空数组返回 `undefined`，调用方随后抛 TypeError」，仓库里已有失败用例 `tests/unit/normalize.test.js`，`src/normalize.mjs` 是唯一实现点。
+
+**输出**：`src/normalize.mjs` 对空数组返回 `[]`；回归用例固定在 `tests/unit/normalize.test.js`；计划文件补上基线与验证收据，改动的文件、理由和验证命令都在其中。
+
+**接口**：`normalize(value: unknown): unknown[]` 的签名不变，但空数组输入与 `null` 输入的返回值从 `undefined` 变成 `[]`；这是可观察的行为变更，必须在「非目标」之外显式声明，并同步 `docs/api/normalize.md` 的示例。
+
+**失败情况**：
+
+- 修复后 `tests/unit/normalize.test.js` 仍失败：停止扩张改动，回到根因（例如调用方还有一条传入 `null` 的路径未覆盖），而不是继续改调用点。
+- `tests/component/api-contract.test.js` 报空数组语义漂移：停止并把它升级为需要确认的行为变更，不静默更新契约快照。
+- 验证命令超时，或验证期间工作树发生变化：收据记为未验证并重跑，不解释成通过。
+
+**验证命令与预期结果**：
+
+| 验收 ID | 命令 | 预期结果 |
+|---|---|---|
+| A-101 | `pnpm test:unit` | 退出码 0，新增的空数组与 `null` 回归用例通过 |
+| A-102 | `pnpm test:component` | 退出码 0，契约用例无漂移 |
+
+**停止条件**：A-101 与 A-102 都在最后一次改动之后通过即停止，不追加未被要求的重构；任一失败、任一必需证据缺失或出现需要授权的行为变更时，停止扩张并报告缺口与下一步。
 
 ## 计划漂移记录
 

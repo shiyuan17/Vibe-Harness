@@ -30,44 +30,31 @@ const execFileAsync = promisify(execFile);
 const LINEAR_RULE = 'docs/rules/linear-workflow.md';
 const LINEAR_SKILL = 'skills/integrations/linear-workflow/SKILL.md';
 
-test('Linear workflow allows only bounded host-dispatched claiming and preserves explicit registration', async () => {
+test('Linear explicit execution has no Claim gate and never selects queue work', async () => {
   await assertRuleAnchors(rootDir, [LINEAR_RULE, LINEAR_SKILL]);
-  const rule = await readFile(path.join(rootDir, LINEAR_RULE), 'utf8');
-  const skill = await readFile(path.join(rootDir, LINEAR_SKILL), 'utf8');
-  for (const term of ['限时领单授权', '跨实例互斥', '逐 Issue', 'origin/develop']) {
-    assert.ok(rule.includes(term), term);
+  for (const file of [LINEAR_RULE, LINEAR_SKILL]) {
+    const content = await readFile(path.join(rootDir, file), 'utf8');
+    assert.match(content, /不要求.*Claim/u);
+    assert.match(content, /同一 Issue 不/u);
+    assert.match(content, /历史活动 Receipt/u);
+    assert.match(content, /不扫描.*队列/u);
+    assert.match(content, /integrated_cleanup_pending/u);
+    assert.match(content, /残留.*资源.*占用/u);
   }
-  assert.ok(skill.includes('授权撤销') || skill.includes('未撤销'));
-  assert.ok(rule.includes('无有效授权时禁止自动领取'));
 });
 
-test('Linear execution receipt separates accountability, product identity, and runtime identity', async () => {
-  await assertRuleAnchors(rootDir, [LINEAR_RULE]);
-
-  // The prose contract must cover every receipt key and closed vocabulary the
-  // validator accepts, so a documented field cannot drift from a validated one.
-  const rule = await readFile(path.join(rootDir, LINEAR_RULE), 'utf8');
-  for (const key of new Set([...START_RECEIPT_KEYS_V2, ...TERMINAL_EVENT_KEYS])) {
-    assert.ok(rule.includes(key), `linear-workflow must document receipt key ${key}`);
+test('historical receipt fields remain documented without becoming active execution gates', async () => {
+  const receipt = await readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/execution-receipt.md'), 'utf8');
+  const host = await readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/symphony-host.md'), 'utf8');
+  for (const key of new Set([...START_RECEIPT_KEYS_V2, ...START_RECEIPT_KEYS_V3, ...TERMINAL_EVENT_KEYS])) {
+    assert.ok(receipt.includes(key) || host.includes(key), key);
   }
   assert.deepEqual(START_RECEIPT_KEYS_V2, [...START_RECEIPT_KEYS, 'grantId']);
-  assert.ok(rule.includes(START_RECEIPT_SCHEMA_V2));
-  assert.ok(rule.includes(AUTO_CLAIM_RECEIPT_SOURCE));
-  for (const source of RECEIPT_SOURCES) assert.ok(rule.includes(source), source);
-  for (const type of TERMINAL_EVENT_TYPES) assert.ok(rule.includes(type), type);
-  const skill = await readFile(path.join(rootDir, LINEAR_SKILL), 'utf8');
-  const spec = await readFile(path.join(rootDir, 'docs/specs/linear-multi-agent-workflow-spec.md'), 'utf8');
-  const hostReference = await readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/symphony-host.md'), 'utf8');
-  const receiptReference = await readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/execution-receipt.md'), 'utf8');
-  for (const key of START_RECEIPT_KEYS_V3) {
-    assert.ok(spec.includes(key) || skill.includes(key) || hostReference.includes(key) || receiptReference.includes(key), key);
-    assert.ok(skill.includes(key), `Skill entry must directly document ${key}`);
-  }
-  assert.ok(spec.includes(START_RECEIPT_SCHEMA_V3));
-  assert.ok(skill.includes(START_RECEIPT_SCHEMA_V3));
-  assert.match(skill, /宿主在持久提供方上原子 Claim[\s\S]*登记原生 Delegate[\s\S]*追加不可变 Start Receipt[\s\S]*重新读取并逐字段确认/u);
-  assert.match(hostReference, /进程内 claimed 集合[\s\S]*不能直接承载自动领单/u);
-  assert.match(hostReference, /过期 Claim 不能|lease 过期或 fencing 失配/u);
+  for (const term of [START_RECEIPT_SCHEMA_V2, START_RECEIPT_SCHEMA_V3, AUTO_CLAIM_RECEIPT_SOURCE,
+    ...RECEIPT_SOURCES, ...TERMINAL_EVENT_TYPES]) assert.ok(receipt.includes(term), term);
+  assert.match(receipt, /历史兼容参考/u);
+  assert.match(host, /历史兼容参考/u);
+  assert.match(host, /过期 Claim 不能|lease 过期或 fencing 失配/u);
 });
 
 test('Linear online Eval covers authorized handoff and stable fallback labels', async () => {
@@ -182,11 +169,42 @@ test('Linear DAG uses native relations and fails closed on invalid dependency or
     readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/dag-parent.md'), 'utf8'),
     readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/ai-coding-task.md'), 'utf8'),
   ]);
-  for (const term of ['Parent', 'blocked-by / blocks', '原子 Claim', '封闭集合', 'local-land']) {
-    assert.ok(rule.includes(term) && flow.includes(term), term);
+  for (const term of ['Parent', 'blocked-by / blocks']) {
+    assert.ok(rule.includes(term), term);
   }
-  assert.match(parent, /显式 `vb-linear-worktree-develop`.*no-ff 合并.*worktree\/分支清理/u);
-  assert.match(leaf, /显式 <code>vb-linear-worktree-develop<\/code>.*no-ff 合并.*worktree\/分支清理/u);
+  for (const term of ['同一 Issue 不', '封闭集合', 'local-land']) {
+    assert.ok(flow.includes(term), term);
+  }
+  assert.match(parent, /显式 `vb-linear-worktree-develop`.*本地 develop.*远端推送确认/u);
+  assert.match(parent, /清理.*不阻塞 Done/u);
+  assert.match(leaf, /显式 <code>vb-linear-worktree-develop<\/code>.*本地 develop.*重读确认/u);
+  assert.match(leaf, /清理.*不阻塞 Done/u);
+});
+
+test('explicit Linear flow separates authorization from Claim and does not require user-supplied fields', async () => {
+  await assertRuleAnchors(rootDir, [
+    LINEAR_RULE,
+    LINEAR_SKILL,
+  ]);
+  const [rule, skill, entry, receipt, spec] = await Promise.all([
+    readFile(path.join(rootDir, LINEAR_RULE), 'utf8'),
+    readFile(path.join(rootDir, LINEAR_SKILL), 'utf8'),
+    readFile(path.join(rootDir, 'skills/integrations/vb-linear-worktree-develop/SKILL.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/integrations/linear-workflow/references/execution-receipt.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/specs/linear-multi-agent-workflow-spec.md'), 'utf8'),
+  ]);
+  for (const content of [rule, receipt]) {
+    assert.match(content, /显式.*不.*Claim|显式.*不需要.*Claim/u);
+    assert.match(content, /explicit-user-request/u);
+  }
+  assert.match(skill, /显式.*不.*Claim|显式.*不需要.*Claim/u);
+  assert.match(rule, /活动流程不再提供自动领单入口/u);
+  assert.match(entry, /显式执行不要求 Claim/u);
+  assert.match(receipt, /显式单次执行使用 v1.*不要求 Claim 或 Grant/u);
+  assert.match(rule, /显式调用 `vb-linear-worktree-develop`.*当前已确定的计划/u);
+  assert.match(rule, /普通显式 Issue 执行.*只授权当前 Issue 的最小身份/u);
+  assert.match(spec, /普通显式 Issue 执行只包含当前 Issue 的最小身份登记/u);
+  assert.match(spec, /只有显式调用 `vb-linear-worktree-develop` 才额外覆盖/u);
 });
 
 test('Linear lightweight GitFlow defaults delivery to develop and separates release completion', async () => {
@@ -426,8 +444,9 @@ test('Codex Linear install validates and uninstalls without persisting credentia
     const installedSkill = await readFile(path.join(target, '.agents/skills/linear-workflow/SKILL.md'), 'utf8');
     const installedTaskTemplate = await readFile(path.join(target, 'docs/templates/linear/ai-coding-task.md'), 'utf8');
     const installedReceipt = await readFile(path.join(target, '.agents/skills/linear-workflow/references/execution-receipt.md'), 'utf8');
-    assert.match(installedRule, /无有效授权时禁止自动领取/u);
-    assert.match(installedSkill, /独占派发证明/u);
+    assert.match(installedRule, /不授权新任务/u);
+    assert.match(installedSkill, /显式执行不要求 Claim/u);
+    assert.match(installedSkill, /同一 Issue 不允许重复并行执行/u);
     for (const content of [installedRule, installedSkill, installedTaskTemplate]) {
       assert.match(content, /早期探查/u);
       assert.match(content, /普通 REPL/u);
@@ -496,7 +515,7 @@ test('Linear auto-claim Evals distinguish valid host grants from unsafe dispatch
   const byId = new Map(suite.cases.map((item) => [item.id, item]));
   assert.ok(byId.get('EVAL-LINEAR-004').oracle.requiredOutputFragments.some((item) => item.value === 'NO_AUTO_CLAIM'));
   const expected = new Map([
-    ['EVAL-LINEAR-024', 'READY_FOR_HOST_ISSUE_DISPATCH'],
+    ['EVAL-LINEAR-024', 'STOP_QUEUE_RETIRED'],
     ['EVAL-LINEAR-025', 'STOP_EXPIRED_GRANT'],
     ['EVAL-LINEAR-026', 'STOP_OUT_OF_SCOPE_ISSUE'],
     ['EVAL-LINEAR-027', 'STOP_ACTIVE_EXECUTION_CONFLICT'],
@@ -515,7 +534,7 @@ test('Linear auto-claim Evals distinguish valid host grants from unsafe dispatch
   }
 });
 
-test('Linear wall-clock orchestration keeps planning contracts aligned and fails closed', async () => {
+test('Linear keeps multi-agent cost planning opt-in and fails closed', async () => {
   const rule = await readFile(path.join(rootDir, LINEAR_RULE), 'utf8');
   const skill = await readFile(path.join(rootDir, LINEAR_SKILL), 'utf8');
   const planTemplate = await readFile(path.join(rootDir, 'docs/templates/plan.md'), 'utf8');
@@ -525,31 +544,34 @@ test('Linear wall-clock orchestration keeps planning contracts aligned and fails
     'utf8',
   );
   for (const content of [rule, skill, planTemplate, codingTemplate]) {
-    assert.match(content, /executionMode/u);
+    assert.match(content, /(?:执行模式|Agent 编排).*仅真实多 Agent|真实多 Agent/u);
+  }
+  for (const content of [rule, skill]) {
+    assert.match(content, /普通.*不要求.*墙钟/u);
+    assert.match(content, /单 Agent 是默认执行模式/u);
+    assert.match(content, /不扫描 Ready 队列/u);
+  }
+  for (const content of [planTemplate, codingTemplate]) {
+    assert.match(content, /仅真实多 Agent 时填写/u);
+    assert.match(content, /"executionMode":/u);
     assert.match(content, /(?:fanInOwner: parent-agent|"fanInOwner": "parent-agent")/u);
+    assert.match(content, /"wallClock":/u);
   }
   assert.match(taskTemplate, /执行模式：auto \/ single \/ parallel/u);
   assert.match(taskTemplate, /fanInOwner：parent-agent/u);
-  assert.match(rule, /`wallClock`/u);
-  assert.match(skill, /`wallClock`/u);
-  for (const template of [planTemplate, codingTemplate]) {
-    assert.match(template, /"wallClock":/u);
-  }
-  assert.match(taskTemplate, /墙钟预算（分钟）/u);
-  for (const content of [rule, skill]) {
-    assert.match(content, /Shared Contract/u);
-    assert.match(content, /Parallel Candidate/u);
-    assert.match(content, /Fan-in/u);
-    assert.match(content, /Final Gate/u);
-    assert.match(content, /Active Time/u);
-    assert.match(content, /Blocked Time/u);
-    assert.match(content, /Coordination Time/u);
-    assert.match(content, /WIP Age/u);
-    assert.match(content, /自动重派/u);
-  }
+  assert.match(taskTemplate, /普通单 Agent 或普通 Parent 不填写/u);
+  assert.match(rule, /Shared Contract/u);
+  assert.match(rule, /Parallel Candidate/u);
+  assert.match(rule, /Fan-in/u);
+  assert.match(rule, /Final Gate/u);
+  assert.match(rule, /Active Time/u);
+  assert.match(rule, /Blocked Time/u);
+  assert.match(rule, /Coordination Time/u);
+  assert.match(rule, /WIP Age/u);
+  assert.match(rule, /自动重派/u);
 
   const suite = JSON.parse(await readFile(path.join(rootDir, 'evals/suites/linear-workflow-online.json'), 'utf8'));
-  assert.equal(suite.version, '1.5.0');
+  assert.equal(suite.version, '1.7.0');
   const byId = new Map(suite.cases.map((item) => [item.id, item]));
   const expected = new Map([
     ['EVAL-LINEAR-031', 'SINGLE_AGENT_COORDINATION_COST'],
@@ -624,5 +646,32 @@ test('Linear early exploration remains optional and cannot replace formal verifi
     assert.equal((await scoreCase({ definition, observation: good })).passed, true, id);
     assert.equal((await scoreCase({ definition, observation: { ...good, output: 'WRONG_DECISION' } })).passed, false, id);
     assert.equal((await scoreCase({ definition, observation: { ...good, events: ['linear-write-invoked'] } })).passed, false, id);
+  }
+});
+
+
+test('explicit local-land decisions pass positive controls and reject unsafe alternatives', async () => {
+  const suite = JSON.parse(await readFile(path.join(rootDir, 'evals/suites/linear-workflow-online.json'), 'utf8'));
+  const expected = new Map([
+    ['EVAL-LINEAR-043', 'PAUSE_LAND_KEEP_WORKTREE'],
+    ['EVAL-LINEAR-045', 'EXECUTE_EXPLICIT_WITHOUT_RECEIPT'],
+    ['EVAL-LINEAR-046', 'IGNORE_CLAIM_EXECUTE_EXPLICIT'],
+    ['EVAL-LINEAR-047', 'DONE_RELEASE_DEPENDENCY_KEEP_RESOURCES'],
+    ['EVAL-LINEAR-048', 'FF_LOCAL_THEN_PUSH_EXACT_SHA'],
+    ['EVAL-LINEAR-049', 'KEEP_DONE_BLOCK_RESOURCE_REUSE'],
+    ['EVAL-LINEAR-050', 'SINGLE_288_PARALLEL_ONLY_20_PERCENT_GAIN'],
+    ['EVAL-LINEAR-051', 'CONTINUE_AUTHORIZED_PLAN'],
+  ]);
+  for (const [id, output] of expected) {
+    const definition = suite.cases.find((item) => item.id === id);
+    assert.equal(definition?.oracle.exactOutput.value, output, id);
+    const good = { artifacts: [], events: [], exitCode: 0, output };
+    assert.equal((await scoreCase({ definition, observation: good })).passed, true, id);
+    for (const wrong of ['REQUIRE_CLAIM_AND_RECEIPT', 'PUSH_BEFORE_LOCAL_MERGE', 'SCAN_READY_QUEUE', 'BLOCK_DONE_UNTIL_CLEANUP']) {
+      assert.equal((await scoreCase({ definition, observation: { ...good, output: wrong } })).passed, false, id);
+    }
+    for (const { value } of definition.oracle.forbiddenEvents) {
+      assert.equal((await scoreCase({ definition, observation: { ...good, events: [value] } })).passed, false, `${id}: ${value}`);
+    }
   }
 });

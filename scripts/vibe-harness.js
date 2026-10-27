@@ -84,6 +84,12 @@ import { assertNoUnsupportedLegacyAssets } from './lib/project-layout.js';
 import { findNestedInstallations, nestedInstallMigrationCommands } from './lib/nested-install.js';
 import { sanitizePublicReport } from './lib/tool-provisioning/subprocess.js';
 import { AUDIT_KINDS, runProjectAudit } from './lib/project-audit.js';
+import {
+  createFindQuestionPacket,
+  renderFindQuestionMarkdown,
+  validateFindQuestionPacket,
+  writeFindQuestionPacket,
+} from './lib/find-question.js';
 import { buildImpactMapping, collectChangedDetails, collectChangedPaths } from './lib/change-impact.js';
 import { buildVerificationPlan } from './lib/verification-plan.js';
 import { enqueueVerification } from './verification-queue.js';
@@ -409,13 +415,22 @@ async function install(args) {
   if (Object.hasOwn(args, 'rtk-hooks')) throw new Error('--rtk-hooks has been retired; use install --upgrade to migrate existing configuration.');
   const allowedOptions = new Set([
     '_', 'allow-degraded', 'allow-preview', 'confirm-red-zone', 'dry-run', 'force', 'modules', 'output',
-    'plugin', 'preset', 'preserve-retired', 'profile', 'project', 'provision', 'target', 'upgrade', 'verbose', 'write',
+    'plugin', 'preset', 'preserve-retired', 'preserve-user-modified', 'profile', 'project', 'provision', 'skip-provision', 'target', 'upgrade', 'verbose', 'write',
   ]);
   const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
   if (unknownOption) throw new Error(`Unknown install option: --${unknownOption}`);
   const isMvpMode = true;
   const writeRequested = Boolean(args.write);
   const dryRunRequested = Boolean(args['dry-run']) || !writeRequested;
+  if (args['preserve-user-modified'] && !args.upgrade) {
+    throw new Error('--preserve-user-modified requires --upgrade.');
+  }
+  if (args['preserve-user-modified'] && args.force) {
+    throw new Error('--preserve-user-modified cannot be combined with --force.');
+  }
+  if (args['skip-provision'] && args.provision) {
+    throw new Error('Use --provision or --skip-provision, not both.');
+  }
   if (args.write && args['dry-run']) {
     throw new Error('Use --write or --dry-run, not both.');
   }
@@ -437,7 +452,10 @@ async function install(args) {
   const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, existingState, args.target);
   const adapterId = selectedTargets[0];
   const adapter = await resolveAdapter(rootDir, adapterId);
-  const installSurface = resolveInstallSurface({ args, config, installState: existingState });
+  const resolvedInstallSurface = resolveInstallSurface({ args, config, installState: existingState });
+  const installSurface = args['skip-provision']
+    ? { ...resolvedInstallSurface, provision: false, provisionSource: 'cli-skipped' }
+    : resolvedInstallSurface;
   const profile = validateProfileName(installSurface.profile);
   const effectiveConfig = {
     ...config,
@@ -525,6 +543,7 @@ async function install(args) {
     requestedModules,
     requestedPlugins,
     preserveRetired: Boolean(args['preserve-retired']),
+    preserveUserModified: Boolean(args['preserve-user-modified']),
     renderData,
     rootDir,
     selectedTargets,
@@ -599,6 +618,9 @@ async function install(args) {
   const retainedProjectOwned = (plan.actions ?? [])
     .filter((action) => action.projectContentRetained === true)
     .map((action) => ({ reason: 'project-owned-drift', target: action.relativeTarget }));
+  const retainedUserModified = (plan.actions ?? [])
+    .filter((action) => action.kind === 'user-modified' && !action.projectOwned)
+    .map((action) => ({ reason: 'user-modified-file-preserved', target: action.relativeTarget }));
   const warnings = [
     ...(provisionExecuted
       ? toolWarnings(tools)
@@ -611,6 +633,11 @@ async function install(args) {
       code: 'PROJECT_OWNED_FILE_RETAINED',
       message: 'Kept project-owned content and re-recorded it as the baseline: '
         + retainedProjectOwned.map((item) => item.target).join(', ') + '.',
+    }] : []),
+    ...(retainedUserModified.length > 0 ? [{
+      code: 'USER_MODIFIED_FILES_PRESERVED',
+      message: 'Preserved user-modified files without advancing their install-state baselines: '
+        + retainedUserModified.map((item) => item.target).join(', ') + '.',
     }] : []),
     ...(seedMirrors ? [{
       code: 'WORKTREE_MIRRORS_SEEDED',
@@ -689,6 +716,7 @@ async function install(args) {
     requestedModules: plan.requestedModules,
     requestedPlugins: plan.requestedPlugins,
     preserveRetired: plan.preserveRetired,
+    preserveUserModified: plan.preserveUserModified,
     resolvedModules: plan.resolvedModules,
     roleProjections: plan.roleProjections ?? {},
     runtimeHooks,
@@ -705,6 +733,7 @@ async function install(args) {
     retiredToolConfiguration: toolMigration.removed,
     retained: result.retained,
     retainedProjectOwned,
+    retainedUserModified,
     skipped: result.skipped,
     written: result.written,
   }, args);
@@ -864,55 +893,22 @@ async function verify(args) {
   const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, installState, args.target);
   validateProjectConfig(config);
   const enforcementPolicy = resolveEnforcementPolicy(config);
-  const installSurface = resolveInstallSurface({ args, config, installState });
-  const requestedModules = installSurface.modules;
-  const requestedPlugins = installSurface.plugins;
   const adapter = await resolveAdapter(rootDir, selectedTargets[0]);
   const projectProfile = await detectProjectProfile({ config, targetDir });
   const validationCommands = validationCommandView(projectProfile, config);
-  const renderData = { ...config, projectProfile, validationCommands };
-  const target = await diffMultiTargetInstall({
-    allowPreview: true,
-    enforcementPolicy,
-    managedAgentsBlock: true,
-    profile: installSurface.profile,
-    requestedModules,
-    requestedPlugins,
-    renderData,
-    rootDir,
-    selectedTargets,
-    targetDir,
-    targets,
-  });
-  if (!target.ok) {
-    throw createVerificationPreflightError({
-      kind: 'installation',
-      message: 'Project installation is not consistent; run vibe-harness validate --project first.',
-      report: target,
-      targetDir,
-    });
-  }
-  const pack = await validatePack(rootDir);
-  if (!pack.ok) {
-    throw createVerificationPreflightError({
-      kind: 'pack',
-      message: 'Vibe-Harness pack validation failed.',
-      report: pack,
-      targetDir,
-    });
-  }
   const commandStatus = await inspectValidationCommands({ commands: validationCommands, targetDir });
   // The verification receipt also carries the Hook enforcement posture: under
   // hooks.enforcement "strict" an unproven or denied posture must not read as
   // a green verification run.
   const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
+  const strictEnforcementRefusals = [];
   const hookPolicyWarnings = [
     ...safetyPostureWarnings(adapter),
     ...runtimeHookWarnings(runtimeHooks, {
       definitionChanged: await hookDefinitionDrift(adapter, targetDir, installState),
       enforcementPolicy,
     }),
-    ...strictEnforcementWarnings(target.strictEnforcementRefusals),
+    ...strictEnforcementWarnings(strictEnforcementRefusals),
   ];
   const blockingHookFailure = blockingHookWarning(hookPolicyWarnings);
   if (args.tier !== undefined && args.full) {
@@ -993,11 +989,10 @@ async function verify(args) {
   }
   const verificationReport = await runVerificationPlan({
     allowManual: Boolean(args['allow-manual']),
-    // A cache hit reconstructs the review from the stored receipt instead of
-    // this caller's `--reviewed` declaration, which would let a declaration
-    // from an earlier invocation authorize a receipt-required completion. Reuse
-    // therefore stays off wherever a completion receipt is required.
-    reuse: Boolean(args.reuse) && !delivery.requireReceipt,
+    // A passing receipt is reusable only for the same workspace, plan and
+    // content fingerprint. --no-reuse is the explicit escape hatch.
+    budgetMs: config.verification?.budgetMs,
+    reuse: !args['no-reuse'],
     commandStatus,
     plan: planned,
     reviewed: Array.isArray(args.reviewed) ? args.reviewed : [],
@@ -1021,7 +1016,7 @@ async function verify(args) {
   // commands contradict the completion claim — including a workspace that
   // changed under passing checks, where the commands alone would read green.
   // Whether the draft is `passed` is what `task check --complete` and
-  // `worktree land/cleanup` re-derive from a `complete` receipt.
+  // `worktree cleanup` re-derive from a `complete` receipt.
   const completionBlocked = completion !== null && completion.status === 'blocked';
   const reportOk = verificationReport.ok && !blockingHookFailure && !completionBlocked;
   emitReport({
@@ -1050,7 +1045,7 @@ async function verify(args) {
     verificationScope: planned.scope ?? null,
     scopeStatus: verificationReport.verification?.scopeStatus ?? 'complete',
     status: reportOk ? 'ready' : 'invalid',
-    strictEnforcementRefusals: target.strictEnforcementRefusals ?? [],
+    strictEnforcementRefusals,
     ...(args.verbose ? { targetDir } : {}),
     tierFallback: verificationReport.verification?.tierFallback ?? null,
     tierSource: verificationReport.verification?.tierSource ?? null,
@@ -1205,6 +1200,37 @@ async function auditProject(args) {
   });
   emitReport(report, args, { error: report.status === 'degraded' });
   if (report.status === 'degraded') process.exitCode = 1;
+}
+
+async function findQuestion(args) {
+  if (args._[1] !== 'question' || args._.length !== 2) throw new Error('find requires exactly the question subcommand.');
+  if (typeof args.project !== 'string' || !args.project.trim()) throw new Error('find question requires --project <path>.');
+  const allowed = new Set(['_', 'depth', 'focus', 'output', 'json', 'project', 'report', 'scope', 'verbose', 'write']);
+  const unknownOption = Object.keys(args).find((key) => !allowed.has(key));
+  if (unknownOption) throw new Error('Unknown find question option: --' + unknownOption);
+  for (const flag of ['depth', 'focus', 'output', 'report', 'scope']) {
+    if (args[flag] !== undefined && (typeof args[flag] !== 'string' || !args[flag].trim())) throw new Error(`--${flag} requires a value.`);
+  }
+  for (const flag of ['write', 'json', 'verbose']) {
+    if (args[flag] !== undefined && args[flag] !== true) throw new Error(`--${flag} is a boolean flag.`);
+  }
+  if (args.json && args.output && args.output !== 'json') throw new Error('--json conflicts with --output.');
+  const output = args.output ?? (args.json ? 'json' : 'markdown');
+  if (!['markdown', 'json'].includes(output)) throw new Error('find question --output must be markdown or json.');
+  const packet = await createFindQuestionPacket({
+    depth: typeof args.depth === 'string' ? args.depth : 'deep',
+    focus: typeof args.focus === 'string' ? args.focus : [],
+    projectDir: path.resolve(args.project),
+    report: typeof args.report === 'string' ? args.report : undefined,
+    scope: typeof args.scope === 'string' ? args.scope : [],
+  });
+  await validateFindQuestionPacket(packet, rootDir);
+  if (args.write) await writeFindQuestionPacket(packet, args.project);
+  if (output === 'json') {
+    console.log(JSON.stringify(sanitizePublicReport(packet, args.project), null, args.verbose ? 2 : 0));
+  } else {
+    console.log(renderFindQuestionMarkdown(sanitizePublicReport(packet, args.project)));
+  }
 }
 
 /** @param {Record<string, any>} tools @param {string} profile @param {{adapterId?: string, mvp?: boolean}} options */
@@ -1583,7 +1609,8 @@ async function recover(args) {
 }
 
 async function printUsage() {
-  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--targets codex,zcode,opencode (仅 init)] [--all-targets] [--profile minimal|core|full|docs-only] [--preset everything] [--modules list] [--plugin -all|linear-mcp|linear-mcp-readonly ...] [--tool id] [--write] [--dry-run] [--output json|summary] [--verbose] [--verify] [--full] [--tier quick|standard|deep] [--scope affected|layer|full] [--async] [--plan] [--force] [--upgrade] [--preserve-retired] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision]');
+  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|find question|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--targets codex,zcode,opencode (仅 init)] [--all-targets] [--profile minimal|core|full|docs-only] [--preset everything] [--modules list] [--plugin -all|linear-mcp|linear-mcp-readonly ...] [--tool id] [--write] [--dry-run] [--output json|summary|markdown] [--verbose] [--verify] [--full] [--tier quick|standard|deep] [--scope affected|layer|full] [--async] [--plan] [--no-reuse] [--force] [--upgrade] [--preserve-retired] [--preserve-user-modified] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision|--skip-provision]');
+  console.log('find question：默认 deep、只读生成审查包；支持 --scope、--focus、--output markdown|json、--report 和 --write。');
   console.log('所有项目命令使用 --project <path>；--target 只选择 adapter，--targets 只在 init 时声明多宿主目标，--write 执行真实写入。旧版 --apply 和取路径值的 --target 已移除。');
 }
 
@@ -1592,9 +1619,13 @@ async function main() {
   const command = args._[0] ?? 'help';
   // help/usage is the lowest-friction surface; resolve it before legacy guards so
   // `vibe-harness` / `vibe-harness help` / `vibe-harness unknown-cmd` never trip obsolete-flag errors.
-  const knownCommands = new Set(['init', 'install', 'provision', 'validate', 'verify', 'baseline', 'eval', 'audit', 'doctor', 'diff', 'rollback', 'uninstall', 'recover']);
+  const knownCommands = new Set(['init', 'install', 'provision', 'validate', 'verify', 'baseline', 'eval', 'audit', 'find', 'doctor', 'diff', 'rollback', 'uninstall', 'recover']);
   if (command === 'help' || !knownCommands.has(command)) {
     await printUsage();
+    return;
+  }
+  if (command === 'find') {
+    await findQuestion(args);
     return;
   }
   if (args.apply) throw new Error('Legacy --apply was removed; use --project <path> with --write.');
@@ -1666,6 +1697,6 @@ try {
       ...(error.details ? { details: error.details } : {}),
       message: error.message,
     },
-  }, args, { error: true });
+  }, args._[0] === 'find' ? { ...args, project: typeof args.project === 'string' ? args.project : undefined, output: 'json' } : args, { error: true });
   process.exitCode = 1;
 }

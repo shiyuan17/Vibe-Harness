@@ -1,26 +1,20 @@
 ---
 name: vb-linear-worktree-develop
-description: Use only when explicitly requested as Vb Linear Worktree Develop, $vb-linear-worktree-develop, or legacy lwflow to sync a plan to Linear and deliver only its new tasks through develop worktrees; excludes ordinary Linear queries.
+description: Use only when explicitly requested as Vb Linear Worktree Develop or legacy lwflow to execute the current authorized plan through isolated worktrees into local develop.
 ---
 
 # Vb Linear Worktree Develop
 
-调用标识：`vb-linear-worktree-develop` / `$vb-linear-worktree-develop`；显示名：`Vb Linear Worktree Develop`。兼容旧触发词 `lwflow` / `$lwflow`，均选择本 Skill，不安装重复入口。
+调用标识：`vb-linear-worktree-develop` / `$vb-linear-worktree-develop`；显示名 Vb Linear Worktree Develop。旧触发词 lwflow / `$lwflow` 指向同一入口。
 
-`vb-linear-worktree-develop` / `$vb-linear-worktree-develop` 只处理当前会话已确定的任务计划；不是普通 Linear 查询或自动领单。同步归属：`docs/rules/linear-workflow.md` 的「显式 vb-linear-worktree-develop」及 `docs/rules/git-rules.md` 的「显式 develop flow」，修改须同步。必须有可写 Linear connector、有效执行授权、工作区与宿主核验信息及持久 provider 原子 Claim；缺一则停止，不伪造同步或领取。回退边界：Linear 只读、不可达或不能确认写入时不执行本模式，不转为未登记的本地执行。每次本地落地仅临时使用 `--delivery local-land`，不改默认交付配置。
+常驻合同见 `docs/rules/linear-workflow.md` 与 `docs/rules/git-rules.md`；修改须同步。只处理当前授权计划，不扫描或认领队列外任务，同一 Issue 不允许重复并行执行。
 
-执行前逐项核对：
+Linear MCP 不可用时回退到用户提供的 Issue 上下文，并明确标记未同步；不伪造写入结果。
 
-- **授权**：使用 `vibe-harness.execution-envelope/v2`，绑定 requestId、sessionId、targetIssueIds、mode=execute、activeObjective、allowedEffects、forbiddenEffects、terminalCondition 和 riskClass=high。逐项确认 Linear 写入、工作区写入、分支、提交、推送及实际需要的其他 effects，禁止项优先。
-- **工作区**：核对 canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots；externalTargets 只含目标类型、标识与环境。
-- **宿主**：hostContext 必须由宿主提供，source=host，包含 filesystem、approval、process=isolated、network、observedAt。Agent 不得自造；缺授权暂停对应写入，缺宿主能力不得靠重复询问用户解除。
-- **兼容**：`vibe-harness.execution-envelope/v1` 仅作 contract-only/degraded 兼容，不能授权凭据、宿主/外部写入、红区、高风险间接写入或 worktree 拓扑变化。
+1. 核对授权、canonicalCwd、allowedWriteRoots、Issue 和必要原生依赖；缺授权只暂停对应动作。跨边界效果需要真实 hostContext（source=host、process=isolated、observedAt），Agent 不得自造；旧 v1 Envelope 仅作 contract-only/degraded 兼容。
+2. 只执行本轮已确认 ID 的封闭集合，计划内可按依赖接续。显式执行不要求 Claim 或 Start/Terminal Receipt；历史活动记录仍参与冲突检查。
+3. 普通 write 优先接收宿主创建的隔离树，并用 `--task <ISSUE-ID>:<branch>` 精确归因；没有可用树时用 `worktree bootstrap` 建立仓库外 worktree。普通单 Agent 不创建 DAG 或墙钟估算，普通 Issue 不要求 Parent；已有 Linear DAG 必须遵循。
+4. local-land 先运行 `worktree stage`：从本地 develop 快照 no-ff 合并任务提交、验证并持久化为 `local_staged`，此阶段不 fetch、不移动主检出。准备发布时运行 `worktree publish --batch <id>`，重新对齐唯一实际 `origin/develop`；远端前进则重建并重验，随后精确推送并重读 SHA。
+5. 推送确认后标记 Done / succeeded；主检出脏、位于其它分支或本地领先时只记录 `localRefSync` 为 `deferred` / `diverged`，不修改用户改动。清理失败记录 `integrated_cleanup_pending`，不阻塞后继但保留资源占用，重试只清理。Linear 尚未尝试写入且上下文充分时可继续并标记未同步；写入结果不明时停止受影响节点。没有既有 DAG 时保持 single，需要拆分能力不可用时也退化 single。
 
-1. 将计划映射为一个 `aggregate` Parent、必要的 read/write 子任务、Scope、验收、验证、共享合同 owner 与 blocked-by / blocks 原生依赖。先核对团队、仓库和计划边界；不能从计划推断的高影响决定先澄清。默认单 Agent、按 DAG 拓扑顺序执行；只有已有隔离证明与实际收益才并行。
-2. 只对本轮要创建的 Parent/子任务与关系写入 Linear；每个非幂等写入均先读取并校验目标、使用稳定幂等键或写后重读核对 ID、Parent、字段及原生依赖。结果未知时按同一键查询，绝不盲目重建；记录本轮创建节点 ID 的封闭集合。创建失败或重读不完整时停止并保留已创建的节点清单。
-3. 只从这个封闭集合中挑选节点：Goal、Context、Repository、精确 Target branch ref、Scope、Out of Scope、Contract、Acceptance Criteria、Dependencies、Verification 齐全；原生 blocked-by / blocks 依赖满足，无环、缺失前驱、Scope 或 Resource Lock 冲突。related 不算依赖，共享契约只有一个 writer。不扫描、轮询或领取其他 Ready/Todo Issue。
-4. 领取顺序为 provider 原子 Claim → Delegate → `vibe-harness.linear-execution/v3` Start Receipt → 重读确认。保留人类 Assignee，检查无其他 Delegate 或活动执行；Claim 固定 claimId、executionId、leaseExpiresAt、fencingToken、claimProvider，Receipt 绑定这些字段和当前身份。结果不明先查同一幂等键，不申请第二套 ID；部分登记、互斥缺失、lease 过期或 fencing 失配时 fail-closed，保留现场供人工核对。每次状态写入都“读取 → 校验 → 写入 → 重读确认”。
-5. 每个 write 节点先 fetch 并核实最新 `origin/develop`，主检出须为干净且可快进的 `develop`；从该基线建仓库外 worktree 与 `<type>/<ISSUE-ID>-<slug>` 分支。在该 worktree 会话根内实施、验证并提交 `Refs <ISSUE-ID>`。先 dry-run，再在仍与远端一致的主检出执行 `node .agents/runtime/commands/run.mjs worktree land --project <main-repo> --task <task-id> --base-ref develop --delivery local-land --write --push`，补充已逐项审定的 `--reviewed` check ID。`--base-ref` 是断言，不是切换参数；不得手动合并绕过验证。高风险缺少肯定的 Independent Review Receipt 时不得落地；目标前进则重建基线并重验。read 节点只提交约定输出及 Verification 证据，不创建实现 worktree。
-6. 仅当 write 节点具有最新基线的验证通过、no-ff 合并、`origin/develop` 推送成功及 worktree/分支清理证据时才标记该节点 Done；read 节点按约定输出与验证确认。所有必需节点成功后从已合并结果做 Parent fan-in 验证，通过后才更新 Parent 为 Done。报告 Linear ID、Claim/Receipt、状态和 Git/验证证据。
-
-本模式不创建 PR/MR，不操作 `main`。普通 closing PR 的 Done 语义保持不变。Linear 写入不可用、基线漂移、冲突、验证/推送/清理失败时保留现场和已创建 ID，停止当前节点及依赖后继；不把本地成功或未确认请求描述为 Done，不自动回滚、force push、删除未确认合并的分支或强制清理。已推送但清理失败时报告残留，不重放合并。
+`--target-mode primary` 只保留在旧 `worktree land` 兼容路径，新 stage/publish 不需要；`--target-mode remote` 已退役。不创建 PR/MR、不改默认 delivery、不操作 main，不 force push 或重放已确认的合并与推送。普通 PR/MR 继续保留 In Review 与 closing 合并证据；独立审查可选，项目明确门禁继续生效。

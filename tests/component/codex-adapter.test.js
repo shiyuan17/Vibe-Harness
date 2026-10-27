@@ -35,7 +35,7 @@ test('codex adapter and plugin metadata track the package version', async () => 
   assert.equal(adapter.version, pkg.version);
   assert.equal(plugin.version, pkg.version);
   assert.equal(Object.hasOwn(hooks, 'notes'), false);
-  assert.deepEqual(Object.keys(hooks.hooks).sort(), ['PermissionRequest', 'PreToolUse']);
+  assert.deepEqual(Object.keys(hooks.hooks).sort(), ['PreToolUse']);
 });
 
 test('Codex Hook projection embeds one bootstrap source and no duplicated Windows override', async () => {
@@ -47,7 +47,7 @@ test('Codex Hook projection embeds one bootstrap source and no duplicated Window
   // safety policy; `.*` is anchored by the host and keeps the check in one
   // place instead of relying on the special meaning of `*`.
   assert.equal(rendered.hooks.PreToolUse[0].matcher, '.*');
-  for (const event of ['PreToolUse', 'PermissionRequest']) {
+  for (const event of ['PreToolUse']) {
     const handler = rendered.hooks[event][0].hooks[0];
     assert.equal(handler.type, 'command', event);
     assert.equal(handler.timeout, 10, event);

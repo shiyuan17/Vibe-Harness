@@ -11,7 +11,7 @@ import { runSkillsAudit } from '../../scripts/lib/skills-audit.js';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
 const execFileAsync = promisify(execFile);
-const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'vb-git-split-push', 'vb-git-develop-flow', 'systematic-debugging', 'bug-finding', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation'];
+const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'vb-git-split-push', 'vb-git-develop-flow', 'systematic-debugging', 'performance-optimization', 'bug-finding', 'find-question', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation'];
 const fullSkills = ['api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 const nativeSkills = [...coreSkills, ...fullSkills];
 const retiredSkills = [
@@ -20,11 +20,11 @@ const retiredSkills = [
   'loop-planning', 'subagent-driven-development',
 ];
 
-test('manifest exposes fourteen native and four explicit integration Skills', async () => {
+test('清单声明十六个原生和四个显式集成 Skills', async () => {
   const manifest = await readJson(path.join(rootDir, 'manifests/skills.json'));
   assert.deepEqual(manifest.items.filter((item) => item.kind === 'native').map((item) => item.id), nativeSkills);
   assert.deepEqual(manifest.items.filter((item) => item.kind === 'integration').map((item) => item.id), ['browser-verification', 'agentmemory', 'linear-workflow', 'vb-linear-worktree-develop']);
-  assert.equal(manifest.items.length, 18);
+  assert.equal(manifest.items.length, 20);
   for (const item of manifest.items) {
     assert.deepEqual(item.requiresSkills, []);
     assert.deepEqual(item.optionalSkills, []);
@@ -40,7 +40,7 @@ test('vb-git-split-push remains explicit and preserves Git safety boundaries', a
   ]);
   assert.equal(metadata.triggers.includes('$vb-git-split-push'), true);
   assert.match(openai, /allow_implicit_invocation: false/u);
-  for (const term of ['归属不明', 'staged diff', 'no-verify', 'upstream', 'origin', 'main', 'master', 'develop', 'release', 'force push', '推送失败时保留本地提交']) {
+  for (const term of ['归属不明', 'staged 对应的工作树快照', 'no-verify', 'upstream', '实际 push URL', '精确目标 ref', 'main', 'master', 'develop', 'release', 'force push', '失败保留本地提交']) {
     assert.match(content, new RegExp(term, 'u'));
   }
 });
@@ -65,17 +65,17 @@ test('native Skill descriptions, bodies, resources, and OpenAI metadata stay wit
     const resources = (await readdir(skillDir)).filter((name) => !['SKILL.md', 'metadata.json', 'agents'].includes(name));
     assert.ok(resources.length <= 2, `${item.id} resource budget`);
   }
-  assert.ok(lines <= 450);
+  assert.ok(lines <= 510);
   // Mirrors the pack-validation identity budget. The English-description era
   // (2026-09 unification) costs roughly 4 bytes/token, so the ceiling keeps the
   // always-loaded routing surface under ~450 tokens. The per-Skill entry budget
   // rose to 150 lines for `stale-cleanup`, whose cleanup boundaries need more
   // room than a pure review Skill; the aggregate rose with it so the pack does
   // not have to compress unrelated Skills to pay for it.
-  assert.ok(identityCharacters <= 2200);
+  assert.ok(identityCharacters <= 2350);
 });
 
-test('core and full install exactly eleven and fourteen native Skills', async () => {
+test('core 和 full 分别安装十三和十六个原生 Skills', async () => {
   for (const [profile, expected] of [['core', coreSkills], ['full', nativeSkills]]) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: path.join(rootDir, `.tmp-skills-${profile}`) });
     const installed = plan.actions
@@ -147,8 +147,8 @@ test('retirement catalog covers every removed Router and flow Skill', async () =
 
 test('skills audit derives the compact inventory and executes the graph validator', async () => {
   const { stdout } = await execFileAsync(process.execPath, ['scripts/skills-audit.js'], { cwd: rootDir });
-  assert.match(stdout, /总数：18/u);
-  assert.match(stdout, /native：14/u);
+  assert.match(stdout, /总数：20/u);
+  assert.match(stdout, /native：16/u);
   assert.match(stdout, /integration：4/u);
   assert.deepEqual((await runSkillsAudit(rootDir)).errors, []);
 });

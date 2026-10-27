@@ -54,6 +54,7 @@ verify 输出本轮 ID、时间和可用的 Git 工作树指纹；检查期间�
 | 宿主 Skill 根目录下已安装的 Skill 入口 | `.agents/skills/<id>/SKILL.md` |
 | 以其 ADR 索引作为触发清单与流程来源 | `docs/adr/README.md`，字段见 `templates/adr/adr-template.md` 与 `schemas/adr.schema.json` |
 | 项目提供的状态锚点入口与锚点存放目录 | `.vibe-harness/tasks/`（task 命令 `node .agents/runtime/commands/run.mjs task <init|update|status|list>` 读写） |
+| 规则中的「宿主 worktree 能力」 | Codex 的 worktree 创建与会话切换入口（把会话根切到该 worktree）；项目需要镜像、端口分段或依赖链接时由 `run.mjs worktree bootstrap` 承担同一入口 |
 | 项目自己的贡献指南和测试配置 | 本文件的「测试实现（本仓库）」一节 |
 
 `pnpm validate` 的规则可移植性门禁与规则交叉引用门禁会阻止这些私有事实回流到规则正文，也会阻挡指向不存在规则文件的同目录引用。
@@ -102,6 +103,14 @@ installer 集成验证应覆盖已有文件拒写、红区确认、目标路径�
 
 ## 测试实现（本仓库）
 
+### 减少返修试点
+
+新验收覆盖诊断先全部告警观察，不改变既有退出码、完成收据或阻断条件。`task plan-check` 的 `acceptanceCoverage` 只检查受管计划的声明映射；`task check --complete` 补充单元与证据缺口，`--unit` 只代表该单元。缺失计划、旧执行块、人工判据与证据不可用均明确说明；映射或收据有效不证明需求语义已完整覆盖，不据此声称行为通过。
+
+工程验证后，以自然发生的最多 30 个任务或 4 周（先到者为准）进行人工观察；每个交付任务保留 7 天反馈窗口，未结束窗口单列。沿用现有任务/交付记录，按任务类型、风险、模型条件记录首次验收、交付后返修、耗时、同类复发与总成本。新增需求不算原任务质量返修；无反馈记未确认，未知耗时不填零。没有可比基线或样本不足只报告证据不足，不启动后台监控、不自动读取历史聊天或 Memory、不自动启用阻断门禁。
+
+H24-H29 为显式选择的在线试点，不进入默认或影响面派生的夜间门禁。前后固定 fixture、runner、模型、预算及评分；修改前已有未提交改动无法映射到不可变 RED 基线时，保留指纹并将比较记为 blocked，不换用不同历史状态。工程落地、在线行为验证、真实返修改善三层结论分别交付；reference 更新继续单独批准。
+
 `docs/rules/test-rules.md` 是运行器无关的行为契约；以下事实只描述 Vibe-Harness 自身仓库，随规则安装到目标项目时不构成对运行器、依赖或超时的要求：
 
 - 使用 Node.js 内置测试运行器和 node:assert/strict，不引入第三方测试依赖。
@@ -137,8 +146,9 @@ rules、runtime hooks 或 config 内容变更会使 `evals/references/` 的 asse
 - `pnpm adr:new --title <标题> --owner <owner> [--write]`：按 `templates/adr/adr-template.md` 生成下一个 `docs/adr/ADR-0000-*.md`，并调用同一投影补齐 catalog、DECISIONS 与索引。非 ASCII 标题需要同时给出 `--slug`。
 - `pnpm eval:sync [--write]`：按 `adapters/install-map.json` 重生成 `.agents/evals/` 镜像；孤儿镜像项与缺失 source 只报告、不删除。
 - `pnpm release:readiness [--sha <sha>] [--require-clean] [--tarball <path>]`：核对版本一致性、changelog 条目与可选的发布边界事实，输出可随发布附带的就绪收据。
-- `pnpm envelope plan [--mode <mode>] [--issue <ID>] [--effect <effect>] --objective <text> --terminal <text> [--base-ref <ref>] [--host-context <file>] [--request-id <id>] [--session-id <id>] [--emit receipt|envelope] [--out <path>] [--write]`：从当前工作区身份生成 Execution Envelope v2 草稿（canonical cwd、worktree root、Git dir、branch、冻结 base SHA、allowed write roots 与 mode effect 上限），并只把 `requestId`、`sessionId`、`hostContext` 留作宿主注入——命令不自造宿主证明，草稿在宿主补齐前保持 invalid。`pnpm envelope check --file <path> [--cwd <path>]` 用发布 schema、runtime 解析器与当前工作区复核信封：越界 effect、allowed/forbidden 冲突、过期、陈旧宿主证明、工作区或 HEAD/base ref 漂移、checkpoint 失配与无法核对工作区都按 fail-closed 报错。
-- `pnpm receipt start|event|handoff|check`：固化 Linear 执行回执与交接协议。`start` 默认生成 v1 回执和新的 `executionId`、`runtimeInstanceId`（不复制宿主 thread、session、用户名、主机名或本地路径）；仅 `--source authorized-auto-claim --grant-id <uuid>` 生成 v2 回执，`grantId` 只引用宿主保存的授权，不证明授权有效。`event` 生成终结事件（`handed-off` 必须携带预生成的 successor ID），`handoff` 生成 `vibe-harness.handoff/v1` 载荷（声明 complete 必须同时满足 accepted 与 reviewed/passed 的 finalCheck），`check --file <comments.json> [--issue <ID>]` 同时分析 v1/v2 回执历史：同 ID 不同内容、同一 Issue 多个 active execution、孤儿或重复终结事件、交接 successor 的 source 或目标 Issue 不符都报冲突并退出非零，交接未确认等合法中间态以 pending 报出。三个生成命令默认只打印记录，`--write` 时才写入 `--out`，且都不会写入 Linear 或派发任务。
+- `pnpm envelope plan [--mode <mode>] [--issue <ID>] [--effect <effect>] --objective <text> --terminal <text> [--base-ref <ref>] [--host-context <file>] [--session-id <id>] [--emit receipt|envelope] [--out <path>] [--write]`：从当前工作区身份生成 Execution Envelope v2 草稿与随机 requestId，默认五分钟到期；sessionId 和 hostContext 只由宿主提供。`pnpm envelope check --file <path> [--cwd <path>]` 核对 schema、效果、时效与工作区；结构合格的 `source: "host"` 不等于可信签发，高风险检查返回 `HOST_PROOF_UNVERIFIED`。
+- `node .agents/runtime/commands/run.mjs review ocr --task <ISSUE-ID> --target <https-model-endpoint>` 只作受限预检，配置不就绪或协议不支持返回脱敏错误；即使预检成功也返回 `HOST_BROKER_REQUIRED`，不会启动 OCR 或生成独立评审回执。当前可使用真正独立的宿主原生 Reviewer 按既有审计契约提交回执。OCR 外发使用 v2 `dataEgress` 效果且须限定模型目标；管理员的旧 v2 兼容窗口不能授权新外发效果，具体配置与风险见 governance-core。
+- `pnpm receipt start|event|handoff|check`：固化 Linear 执行回执与交接协议。`start` 默认生成显式执行 v1 回执和新的 `executionId`、`runtimeInstanceId`（不复制宿主 thread、session、用户名、主机名或本地路径）；历史宿主管理的 Claim-bearing 运行使用 v3 并包含宿主提供的 `grantId`；v2/v3 仅供历史读取，活动队列自动派发已退役，显式执行不要求 Claim 或 Start/Terminal Receipt。`grantId` 只引用宿主保存的授权，不证明授权有效；Claim/Grant 字段由宿主产生，不要求用户补填。`event` 生成终结事件（`handed-off` 必须携带预生成的 successor ID），`handoff` 生成 `vibe-harness.handoff/v1` 载荷（声明 complete 必须同时满足 accepted 与 reviewed/passed 的 finalCheck），`check --file <comments.json> [--issue <ID>]` 同时分析 v1/v2/v3 回执历史：同 ID 不同内容、同一 Issue 多个 active execution、孤儿或重复终结事件、交接 successor 的 source 或目标 Issue 不符都报冲突并退出非零，交接未确认等合法中间态以 pending 报出。三个生成命令默认只打印记录，`--write` 时才写入 `--out`，且都不会写入 Linear 或派发任务。
 - `pnpm task-dag check --file <dag.json> [--require-ready] [--json]`：按 `docs/rules/ai-collab-rules.md` 的节点字段校验派发前的轻量 Task DAG——节点契约、依赖边与环、writeScope 重叠、resourceLocks、ready 集与结构哈希；`hash` 输出确定性结构哈希供 checkpoint 记录。错误 fail-closed（未知前驱、环、自依赖、非法 writeScope、read 节点带写范围、write 节点无写范围、共享路径或锁且无依赖路径的两个 write 节点都不 ready），`--require-ready` 在无可派发节点时退出非零。命令只读，不写任何文件。`docs/templates/task.md` 的表格仍是人读记录，不被解析。
 - `pnpm worktree list|check|plan`：用 `git worktree list --porcelain -z` 做 worktree 隔离审计。`check` 按登记任务（`--task <ISSUE-ID>[:<branch>[:<path>]]`，路径可省略，默认取仓库同级 `<repo>-worktrees/<ISSUE-ID>`）核对分支命名 `<type>/<ISSUE-ID>-<slug>`、worktree 位于仓库外部且不互相嵌套、非主工作区绑定命名分支、同一分支不被两个 worktree 占用，并报告 merge-back 事实（分支是否已并入 `--base-ref`、merge-base 是否偏离 `--base-sha`）与 `--deep` 的未提交改动。主检出存在 `.vibe-harness/worktree-ports.json` 时，`check` 一并报告每个 worktree 的端口块与它的 env 文件是否仍与登记表一致（env 漂移、env 未忽略与主检出缺依赖都是 warning）。错误 fail-closed，警告（未创建的登记 worktree、未纳管 worktree、未 merge-back、脏工作区）可用 `--strict` 升级为失败；`plan` 只打印 `git worktree add` 命令。三个子命令都只读，命令绝不执行 `git worktree remove`、`git worktree prune` 或删除分支，未合并的 worktree 只阻止宣称“已集成”。实际创建、依赖链接、端口分配、崩溃恢复与清理走项目面入口 `node .agents/runtime/commands/run.mjs worktree <bootstrap|recover|cleanup> --project . --json`（默认 dry-run，`--write` 落盘，`recover` 只清理带归因证据的崩溃残留，见 git-rules 的 Worktree 节）；两个入口的子命令集不同，分工见 `docs/rules/git-rules.md` Worktree 节。
 - `vibe-harness audit --project <path> --kind cleanup`：只读扫描死代码、过期引用、过期文档、过期资源、过期记忆与过期索引，输出 `audit-report` 收据，`details.cleanup` 记录扫描面、已确认项与候选线索计数以及本次未覆盖的判定。扫描器把高置信结构与启发式候选分开标记，绝不删除或改写文件，`--write` 对 `cleanup` 一律拒绝；`--kind all` 仍只聚合 memory、review 与 improvements，清理需显式指定。
@@ -151,9 +161,9 @@ rules、runtime hooks 或 config 内容变更会使 `evals/references/` 的 asse
 
 PR 说明目标、影响范围、实际验证、未验证项和必要的回滚路径。一个 commit 表达一个逻辑目的；不要用格式化或无关重构掩盖行为变化。
 
-高风险 PR 的独立审查收据由 `independent-review` job 校验，脚本默认 shadow 模式：收据结论（mode、status、risk level、evidence codes、receiptId）追加写入 GitHub step summary，degraded 不阻断合并。v2 收据还必须至少包含一个与实施者身份和 context 都不同的 reviewer，且 `contextIndependence` 不得为 `unavailable`（`attested` 可支持 approved），普通变更仍可用 v1，高风险变更一律要求 v2（v1 报 `REVIEW_SCHEMA_V2_REQUIRED`）。切换为 required 模式（在 ci.yml 的 `independent-review` job 注入 `VIBE_HARNESS_INDEPENDENT_REVIEW_MODE=required`，degraded 即失败）需同时满足：过去 20 个高风险 PR 或连续 14 天（以先到者为准）内没有 `REVIEW_FINGERPRINT_STALE`、`REVIEW_SAME_IDENTITY` 类 degraded，且收据率（携带有效收据的高风险 PR 占比）大于 80%。指标从 step summary 与 job 运行历史回收，切换 PR 需在说明中附上统计证据；任一条件失守即移除该环境变量回退 shadow 并重新累计。本仓库 `main` 与该门禁在同一批次建立，尚无可用历史指标，因此当前先以 required 作为初始姿态，并在此后按上述阈值复核，而不是把「没有历史」读成「满足条件」；`develop` 按 ADR-0013 不启用服务器端 ruleset，高风险变更即使走本地 `worktree land` 直落，也仍须携带同等 Risk Evidence 与 Independent Review Receipt。
+高风险 PR 的独立审查收据由 `independent-review` job 校验，脚本默认 shadow 模式：收据结论（mode、status、risk level、evidence codes、receiptId）追加写入 GitHub step summary，degraded 不阻断合并。v2 收据还必须至少包含一个与实施者身份和 context 都不同的 reviewer，且 `contextIndependence` 不得为 `unavailable`（`attested` 可支持 approved），普通变更仍可用 v1，高风险变更一律要求 v2（v1 报 `REVIEW_SCHEMA_V2_REQUIRED`）。切换为 required 模式（在 ci.yml 的 `independent-review` job 注入 `VIBE_HARNESS_INDEPENDENT_REVIEW_MODE=required`，degraded 即失败）需同时满足：过去 20 个高风险 PR 或连续 14 天（以先到者为准）内没有 `REVIEW_FINGERPRINT_STALE`、`REVIEW_SAME_IDENTITY` 类 degraded，且收据率（携带有效收据的高风险 PR 占比）大于 80%。指标从 step summary 与 job 运行历史回收，切换 PR 需在说明中附上统计证据；任一条件失守即移除该环境变量回退 shadow 并重新累计。本仓库 `main` 与该门禁在同一批次建立，尚无可用历史指标，因此当前先以 required 作为初始姿态，并在此后按上述阈值复核，而不是把「没有历史」读成「满足条件」；`develop` 按 ADR-0013 不启用服务器端 ruleset，高风险变更即使走本地 `worktree stage` / `publish` 直落，也仍须携带同等 Risk Evidence 与 Independent Review Receipt。
 
-普通功能与修复从最新 <code>develop</code> 创建短期 <code>feat/*</code> 或 <code>fix/*</code> 分支，并以 squash merge 合入 <code>develop</code>；按 ADR-0013，<code>develop</code> 不配置服务器端 required gate，任务分支也可用 <code>worktree land --delivery local-land --write --push</code> 以 no-ff 方式直接落回 <code>develop</code>。紧急线上修复从 <code>main</code> 创建 <code>hotfix/*</code>，合入 <code>main</code> 后立即把 <code>main</code> 回同步到 <code>develop</code>。正式发布以 merge commit 将 <code>develop</code> 提升到 <code>main</code>；不得创建长期 <code>release/*</code> 分支。发布成功后必须将 <code>main</code> 回同步到 <code>develop</code>，版本文件未回同步时不得开始下一次发布提升。
+普通功能与修复从最新 <code>develop</code> 创建短期 <code>feat/*</code> 或 <code>fix/*</code> 分支，并以 squash merge 合入 <code>develop</code>；按 ADR-0013，<code>develop</code> 不配置服务器端 required gate，任务也可先以 <code>worktree stage</code> 生成本地已验证候选，再由 <code>worktree publish --batch &lt;id&gt;</code> 从最新 <code>origin/develop</code> 重建、验证、no-ff 发布并回读远端 SHA。紧急线上修复从 <code>main</code> 创建 <code>hotfix/*</code>，合入 <code>main</code> 后立即把 <code>main</code> 回同步到 <code>develop</code>。正式发布以 merge commit 将 <code>develop</code> 提升到 <code>main</code>；不得创建长期 <code>release/*</code> 分支。发布成功后必须将 <code>main</code> 回同步到 <code>develop</code>，版本文件未回同步时不得开始下一次发布提升。
 
 ## 发布
 

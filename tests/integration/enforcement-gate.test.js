@@ -471,7 +471,7 @@ test('CLI verify 在 strict 阻断下即使检查全绿也判 invalid', async ()
   }
 });
 
-test('strict 阻断下的完成收据标记为 blocked 并记录 Hook 未验证项', async () => {
+test('strict 阻断不制造完成收据但仍保留 Hook 验证阻断', async () => {
   const target = await enforcementProject('codex', 'strict', { withChecks: true });
   try {
     const configPath = path.join(target, 'vibe-harness.config.json');
@@ -492,12 +492,12 @@ test('strict 阻断下的完成收据标记为 blocked 并记录 Hook 未验证�
       (error) => {
         const report = JSON.parse(error.stderr);
         // A receipt that read `passed` while the Hook gate blocked the run would
-        // be consumed as successful delivery evidence.
-        assert.equal(report.completion.status, 'blocked');
-        assert.ok(
-          report.completion.unverified.some((item) => /^hook:/u.test(item)),
-          JSON.stringify(report.completion.unverified),
-        );
+        // be consumed as successful delivery evidence. Verify therefore reports
+        // its own blocked status without manufacturing a separate completion
+        // receipt; the strict Hook gate remains independently blocking.
+        assert.equal(report.completion, undefined);
+        assert.equal(report.status, 'invalid');
+        assert.equal(report.enforcementPolicy, 'strict');
         return true;
       },
     );

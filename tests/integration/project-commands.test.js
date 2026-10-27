@@ -58,72 +58,34 @@ async function installedProject(project, { validationCommands = { test: 'node -e
   ], { cwd: rootDir });
 }
 
-test('CLI verify 只承认显式 --reviewed 作为完成审阅证据', async () => {
+test('CLI verify 的选中层通过不要求完成收据或显式审阅', async () => {
   const project = await tempProject();
   try {
     await installedProject(project);
-    // Without the declaration the checked commands are not review evidence, so
-    // the receipt the CLI reports stays incomplete instead of self-attesting.
-    // The caller never supplied the evidence, so the draft records it as
-    // unverified rather than blocked: nothing contradicts the completion, and
-    // only `passed` completes a delivery.
     const unreviewed = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json']);
-    assert.equal(unreviewed.completion.status, 'unverified', JSON.stringify(unreviewed.completion));
-    assert.equal(unreviewed.completion.verificationAcceptance.status, 'blocked');
-
-    const reviewed = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reviewed', 'all']);
-    assert.equal(reviewed.completion.verificationAcceptance.status, 'accepted', JSON.stringify(reviewed.completion));
-    assert.equal(reviewed.completion.status, 'passed');
-    assert.ok(reviewed.completion.review.reviewedCheckIds.length > 0);
-    // The receipt a receipt-required delivery accepts has to resolve to the
-    // record this run wrote, so the gate can be satisfied after the fact.
-    const attestation = await attestCompletionProvenance(project, reviewed.completion);
-    assert.equal(attestation.ok, true, JSON.stringify(attestation));
-    // The record store is inside the project, so a caller can rewrite it: only a
-    // record whose authentication still matches counts as tool-written evidence.
-    const directory = path.join(project, '.vibe-harness/verification/receipts');
-    const [file] = await readdir(directory);
-    const recordPath = path.join(directory, file);
-    const stored = JSON.parse(await readFile(recordPath, 'utf8'));
-    await writeFile(recordPath, JSON.stringify({ ...stored, writeFingerprint: 'forged' }), 'utf8');
-    const forged = await attestCompletionProvenance(project, reviewed.completion);
-    assert.equal(forged.ok, false, JSON.stringify(forged));
-    // A receipt may not relabel a recorded check as a manual criterion: the
-    // command is the evidence, and a criterion cannot stand in for it.
-    const relabelled = structuredClone(reviewed.completion);
-    relabelled.acceptance = relabelled.acceptance.map((item, index) => (index === 0
-      ? { id: item.id, status: 'passed', criterion: 'reviewed by hand', scope: item.scope }
-      : item));
-    const criterion = await attestCompletionProvenance(project, relabelled);
-    assert.equal(criterion.ok, false, JSON.stringify(criterion));
-    // Neither may it cite a stronger command than the one this run reported.
-    const replaced = structuredClone(reviewed.completion);
-    replaced.acceptance = replaced.acceptance.map((item, index) => (index === 0
-      ? { ...item, command: 'pnpm verify:all' }
-      : item));
-    const command = await attestCompletionProvenance(project, replaced);
-    assert.equal(command.ok, false, JSON.stringify(command));
+    assert.equal(unreviewed.ok, true);
+    assert.ok(unreviewed.verification.selectedChecks.length > 0);
+    assert.equal(unreviewed.verification.acceptance.status, 'accepted');
+    assert.equal(unreviewed.completion, undefined);
   } finally {
     await rm(project, { recursive: true, force: true });
   }
 });
 
-test('CLI verify 在需要完成收据时关闭 --reuse，收据只认本次声明', async () => {
+test('CLI verify 仅复用相同输入的确定性检查，不继承旧审阅结论', async () => {
   const project = await tempProject();
   try {
     await installedProject(project, { validationCommands: { checks: [{ id: 'test', command: 'node -e 0', deterministic: true }] } });
-    // A cache hit reconstructs the review from the stored receipt instead of
-    // this caller's `--reviewed`, so reuse would let an earlier invocation's
-    // declaration authorize this run. It is refused wherever a completion
-    // receipt is required, and the run falls back to a real execution.
+    // A cache hit never replays the stored review verdict: this invocation's
+    // `--reviewed` declaration is applied to the reused check set again.
     const first = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reviewed', 'all', '--reuse']);
-    assert.equal(first.completion.verificationAcceptance.status, 'accepted', JSON.stringify(first.completion));
+    assert.equal(first.verification.acceptance.status, 'accepted', JSON.stringify(first.verification));
     const rerun = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reviewed', 'all', '--reuse']);
-    assert.equal(rerun.verification.cache.status, 'not_requested', JSON.stringify(rerun.verification.cache));
-    assert.equal(rerun.completion.verificationAcceptance.status, 'accepted', JSON.stringify(rerun.completion.verificationAcceptance));
+    assert.equal(rerun.verification.cache.status, 'hit', JSON.stringify(rerun.verification.cache));
+    assert.equal(rerun.verification.acceptance.status, 'accepted');
 
-    // A stored review the current plan does not select is not evidence for this
-    // run, so a reuse attempt without this caller's declaration stays blocked.
+    // Altering a cached record invalidates its authentication, but cannot
+    // convert a fresh successful run into a completion-receipt gate.
     const receiptDirectory = path.join(project, '.vibe-harness/verification/receipts');
     const [receiptFile] = await readdir(receiptDirectory);
     const receiptPath = path.join(receiptDirectory, receiptFile);
@@ -133,9 +95,10 @@ test('CLI verify 在需要完成收据时关闭 --reuse，收据只认本次声�
       review: { ...receipt.review, reviewedCheckIds: ['browser'], status: 'relevant' },
     }), 'utf8');
     const undeclared = await runRootCli(['verify', '--project', project, '--allow-manual', '--output', 'json', '--reuse']);
-    assert.equal(undeclared.verification.cache.status, 'not_requested');
-    assert.equal(undeclared.completion.verificationAcceptance.status, 'blocked', JSON.stringify(undeclared.completion.verificationAcceptance));
-    assert.equal(undeclared.completion.status, 'unverified');
+    // The tampered record fails authentication, so the run executes again and
+    // still has no review declaration from this caller.
+    assert.equal(undeclared.verification.cache.status, 'miss');
+    assert.equal(undeclared.verification.acceptance.status, 'accepted');
     // The run itself passed and reported the missing evidence, so the ordinary
     // report status stays valid for the layer that ran instead of claiming the
     // delivery failed.
@@ -314,15 +277,21 @@ test('help 覆盖含 worktree、slice、patch 与 task 在内的全部项目命�
   assert.equal(result.exitCode, 0);
   assert.equal(
     result.report.usage,
-    'run.mjs <env|context|changes|verify|worktree|slice|patch|task> [--project <path>] [--json]（--project 缺省为当前目录）',
+    'run.mjs <env|context|changes|verify|worktree|slice|patch|task|review> [--project <path>] [--json]（--project 缺省为当前目录）',
   );
   assert.equal(result.report.codebaseMemory, undefined);
-  assert.match(result.report.worktree, /worktree <list\|check\|bootstrap\|land\|cleanup\|recover>/u);
-  assert.match(result.report.worktree, /dry-run until --write/u);
-  assert.match(result.report.worktree, /land serializes writes through a shared Git common-dir lock/u);
-  assert.match(result.report.worktree, /merges the attributed worktree in an isolated candidate \(--no-ff\)/u);
+  assert.match(result.report.worktree, /worktree <list\|check\|bootstrap\|stage\|publish\|status\|discard\|cleanup\|recover>/u);
+  assert.match(result.report.worktree, /writes require --write/u);
+  assert.match(result.report.worktree, /only publish takes a repository FIFO turn/u);
+  assert.match(result.report.worktree, /queue position and owners/u);
+  assert.match(result.report.worktree, /stage --task <id> merges a detached candidate from the local base/u);
+  assert.match(result.report.worktree, /never fetches or moves the primary checkout/u);
+  assert.match(result.report.worktree, /publish --batch <id> auto-reconciles against the remote/u);
+  assert.match(result.report.worktree, /no-force push of the exact target, remote SHA readback/u);
+  assert.match(result.report.worktree, /checks cancelled and their leases force-released/u);
+  assert.match(result.report.worktree, /recover takes no --batch\/--archive-integrated/u);
   assert.match(result.report.task, /task <init\|update\|status\|list\|plan-check\|plan-sync\|check\|freeze-tests\|rebaseline-tests>/u);
-  assert.match(result.report.reuse, /--reuse/u);
+  assert.match(result.report.reuse, /--no-reuse/u);
 });
 
 test('the --help flag routes to the help receipt from any command position', async () => {
@@ -373,7 +342,7 @@ test('verify detects a content change to an already-dirty file', async () => {
 
     assert.equal(result.report.checks.test.status, 'passed');
     assert.equal(result.report.verification.stable, false);
-    assert.equal(result.report.verification.status, 'workspace_changed');
+    assert.equal(result.report.verification.status, 'stale');
     assert.equal(result.exitCode, 1);
   } finally {
     await rm(project, { recursive: true, force: true });

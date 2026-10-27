@@ -138,6 +138,42 @@
       "file": "H23-state-machine-invariants.json",
       "testContent": "测试流程修复是否显式检查状态、不变量、非法转换和恢复后的验证。",
       "purpose": "防止只修成功路径而遗漏生命周期边界。"
+    },
+    {
+      "id": "H24",
+      "file": "H24-acceptance-omission.json",
+      "testContent": "明确要求遗漏",
+      "purpose": "明确要求遗漏：结果与工具执行证据分别验收，不从自报推导通过。"
+    },
+    {
+      "id": "H25",
+      "file": "H25-consumer-preservation.json",
+      "testContent": "新行为与旧调用方",
+      "purpose": "新行为与旧调用方：结果与工具执行证据分别验收，不从自报推导通过。"
+    },
+    {
+      "id": "H26",
+      "file": "H26-implicit-bug-reproduction.json",
+      "testContent": "普通缺陷修复",
+      "purpose": "普通缺陷修复：结果与工具执行证据分别验收，不从自报推导通过。"
+    },
+    {
+      "id": "H27",
+      "file": "H27-slice-feedback.json",
+      "testContent": "关键假设与切片反馈",
+      "purpose": "关键假设与切片反馈：结果与工具执行证据分别验收，不从自报推导通过。"
+    },
+    {
+      "id": "H28",
+      "file": "H28-repeated-repair.json",
+      "testContent": "重复猜改",
+      "purpose": "重复猜改：结果与工具执行证据分别验收，不从自报推导通过。"
+    },
+    {
+      "id": "H29",
+      "file": "H29-low-friction.json",
+      "testContent": "低摩擦负控",
+      "purpose": "低摩擦负控：结果与工具执行证据分别验收，不从自报推导通过。"
     }
   ]
 }

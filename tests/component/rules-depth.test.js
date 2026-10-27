@@ -17,10 +17,38 @@ import { scanForForbiddenTerms } from '../../scripts/lib/redaction.js';
 import { assertRuleAnchors } from '../helpers/governed-docs.js';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
-const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'vb-git-split-push', 'vb-git-develop-flow', 'systematic-debugging', 'bug-finding', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation'];
+const coreSkills = ['clarify-requirements', 'define-goal', 'task-decomposition', 'vb-git-split-push', 'vb-git-develop-flow', 'systematic-debugging', 'performance-optimization', 'bug-finding', 'find-question', 'stale-cleanup', 'eval-driven-development', 'security-and-hardening', 'code-navigation'];
 const fullSkills = [...coreSkills, 'api-and-interface-design', 'frontend-design', 'runtime-cross-repo-rollout'];
 
-test('canonical governance and fourteen native Skills are declared', async () => {
+test('返修预防入口可达且不恢复强制规划或角色流程', async () => {
+  const read = (relative) => readFile(path.join(rootDir, relative), 'utf8');
+  const governance = (await read('docs/rules/governance-core.md')).split(FAST_PATH_CARD_DIVIDER)[0];
+  const testing = (await read('docs/rules/test-rules.md')).split(FAST_PATH_CARD_DIVIDER)[0];
+  for (const fragment of ['最小验收', '用户可观察结果', '保留的行为', '关键例子', '验证方式', '不新增文件或确认', '只读与纯文案跳过']) {
+    assert.ok(governance.includes(fragment), fragment);
+  }
+  assert.match(testing, /缺陷修复入口.*真实红灯.*最终修改后复验/u);
+  assert.match(testing, /继续读全文的信号.*缺陷复现与测试资产保护/u);
+  const troubleshooting = await read('docs/rules/troubleshooting.md');
+  const debugging = await read('skills/core/systematic-debugging/SKILL.md');
+  for (const text of [troubleshooting, debugging]) {
+    for (const fragment of ['两次修复仍失败', '没有新的区分性证据', '根因已明确则继续修复', '基础设施重试不计入修复次数', '不是硬门禁或自动终止']) {
+      assert.ok(text.includes(fragment), fragment);
+    }
+  }
+  assert.match(await read('templates/workflow.md'), /行为切片 → 聚焦验证 → 扩展下一切片/u);
+  assert.match(await read('templates/workflow.en-US.md'), /behavioral slice → focused validation → extend the next slice/u);
+  for (const [file, pattern] of [
+    ['templates/delivery.md', /无反馈不算首次验收成功/u],
+    ['templates/delivery.en-US.md', /No feedback is not acceptance/u],
+    ['templates/task.md', /未知留空/u],
+    ['templates/task.en-US.md', /blank if unknown/u],
+    ['templates/plan.md', /acceptanceCoverage.*告警型/u],
+    ['templates/plan.en-US.md', /acceptanceCoverage.*advisory/u],
+  ]) assert.match(await read(file), pattern);
+});
+
+test('清单声明规范治理规则与十六个原生 Skills', async () => {
   const manifests = await loadAllManifests(rootDir);
   const rules = new Set(manifests.rules.items.map((item) => item.id));
   for (const id of ['governance-core', 'git-rules', 'test-rules', 'agent-skill-routing']) assert.equal(rules.has(id), true);
@@ -212,7 +240,7 @@ test('sibling rule references must resolve inside docs/rules', async () => {
 
 // Four full-repo install plans are I/O-bound and exceed the runner's default
 // budget under the suite's --test-concurrency (25.2s solo on 2026-09-19).
-test('profiles install zero, eleven, or fourteen native Skills at intended tiers', { timeout: 120000 }, async () => {
+test('profile 按预期分别安装零或十三或十六个原生 Skills', { timeout: 120000 }, async () => {
   for (const [profile, expected] of [['minimal', []], ['docs-only', []], ['core', coreSkills], ['full', fullSkills]]) {
     const plan = await createInstallPlan({ dryRun: true, profile, rootDir, targetDir: path.join(rootDir, `.tmp-depth-${profile}`) });
     const targets = new Set(plan.actions.map((item) => item.relativeTarget));
@@ -301,7 +329,7 @@ test('规则内部引用、能力入口、操作路径与机器协议标识不�
   }
 });
 
-test('授权、宿主核验、拒绝与独立工作要求缺失时仍阻断规则校验', async () => {
+test('授权、宿主核验、本地核验、拒绝与独立工作要求缺失时仍阻断规则校验', async () => {
   const pack = await mkdtemp(path.join(tmpdir(), 'vibe-rules-safety-'));
   const file = 'docs/rules/governance-core.md';
   try {
@@ -315,6 +343,11 @@ test('授权、宿主核验、拒绝与独立工作要求缺失时仍阻断规�
       'canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots',
       '高风险或不可分类调用缺少有效授权记录、工作区核验或宿主核验信息时 fail-closed',
       'Agent 不得自填这些信息冒充宿主核验',
+      // worktree 生命周期改为本地核验授权后，删掉这些措辞必须判失败，
+      // 否则规则又会把建 worktree 绑回不可获得的宿主证明。
+      'worktree 生命周期只要求本地工作区核验',
+      '宿主核验只用于跨边界效果',
+      '不据此停止整个请求',
       '保留不依赖该操作的安全工作',
     ]) {
       await writeFile(path.join(pack, file), content.replaceAll(term, '已删除约束'), 'utf8');

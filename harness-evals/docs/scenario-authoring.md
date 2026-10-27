@@ -8,7 +8,7 @@ A Harness scenario is a falsifiable experiment against one primary mechanism. It
 
 Every file under `harness-evals/scenarios/` uses `schemaVersion: 3` and contains:
 
-- stable `id` (`H01` through `H23` for the current set), semantic `version`, title, category, mechanism, risk, kind, and objective;
+- stable `id` (`H01` through `H29` for the current set), semantic `version`, title, category, mechanism, risk, kind, and objective;
 - `phase.red`, `phase.green`, at least one `phase.pressure` entry, and `phase.regression`;
 - required and optional backend capabilities;
 - a relative fixture reference and a task prompt with allowed write paths;
@@ -16,6 +16,10 @@ Every file under `harness-evals/scenarios/` uses `schemaVersion: 3` and contains
 - deterministic `checks`, metric IDs, and allowed failure taxonomy codes.
 
 Each check has a stable ID, `type`, a plain-language `observable`, `critical`, and `hidden`. `expected` is present only when the runner needs structured comparison data. Supported evidence types are `file`, `git`, `test`, `process`, and `trace`.
+
+`manualOnly` is optional and defaults to false. A true value excludes a scenario from default tiers and impact-derived selection; the plan reports it in `notSelected` with reason `manual-only`. Only explicit `--scenario` selection opts in. Failures remain failures when explicitly run; this flag never weakens a check or promotes its reference.
+
+H24-H29 are manual-only rework pilots. Their verifier binds command start/result pairs by call ID, known fixture test entrypoints, numeric exits, and observed edits. Agent claims and missing provenance cannot satisfy workflow checks, even with a semantic judge. Hidden tests independently establish outcomes; these bounded workflow checks do not prove private reasoning. H28 starts from a synthetic two-failed-repairs handoff, not two measured repairs in the current episode. Alternate invocation forms without supported evidence remain unverified, not product failures.
 
 ## Authoring sequence
 

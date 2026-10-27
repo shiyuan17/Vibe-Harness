@@ -621,7 +621,7 @@ export function serviceOwnership(entry, observed) {
   // field has to be present on both sides for the same reason.
   return identityProven(entry, observed) && observed.status === 'running';
 }
-function request(entry, action) {
+function request(entry, action, timeoutMs = 7000) {
   return new Promise((resolve) => {
     if (entry.status === 'stopped' && entry.teardownStatus === 'passed') { resolve({ status: 'stopped' }); return; }
     if (!Number.isSafeInteger(entry.pid) || entry.pid <= 0 || !validServiceEndpoint(entry.endpoint)) {
@@ -629,7 +629,10 @@ function request(entry, action) {
     }
     const socket = createConnection(entry.endpoint);
     let buffer = '';
-    const timer = setTimeout(() => { socket.destroy(); resolve({ status: 'blocked', reason: 'supervisor-timeout' }); }, 7000);
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve({ status: 'blocked', reason: 'supervisor-timeout' });
+    }, Math.max(1, Math.min(7000, timeoutMs)));
     socket.on('connect', () => socket.write(JSON.stringify({ action, ...Object.fromEntries(SUPERVISOR_IDENTITY_KEYS.map((key) => [key, entry[key]])) }) + '\n'));
     socket.on('data', (chunk) => {
       buffer += chunk.toString();
@@ -648,7 +651,9 @@ function request(entry, action) {
     socket.on('error', () => { clearTimeout(timer); resolve({ status: 'blocked', reason: 'supervisor-unavailable' }); });
   });
 }
-async function stopEntry(entry, write) {
+async function stopEntry(entry, write, timeoutMs = 7000) {
+  const deadline = Date.now() + Math.max(1, timeoutMs);
+  const remaining = () => Math.max(1, deadline - Date.now());
   // The terminal answers carry the same identity evidence as `running`: a
   // `stopped` reply is only accepted from the supervisor the entry recorded.
   const withEvidence = (value, observed) => (Array.isArray(observed?.treeMembers)
@@ -661,7 +666,7 @@ async function stopEntry(entry, write) {
     for (const source of sources) for (const member of validTreeMembers(source)) members.set(member.pid, member);
     return [...members.values()];
   };
-  const observed = await request(entry, 'status');
+  const observed = await request(entry, 'status', remaining());
   if (observed.status === 'stopped') {
     // The endpoint name is per user, not per supervisor, so after the recorded
     // supervisor exited another process can bind the same endpoint and answer
@@ -681,13 +686,15 @@ async function stopEntry(entry, write) {
     // do instead of doing it: `runtime service stop` without `--write` and
     // `teardownServices(..., false)` must stay free of side effects.
     if (!write) return { ...entry, status: 'planned', teardownStatus: 'unverified', reason: observed.reason };
+    if (Date.now() >= deadline) return { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'cleanup-timeout' };
     return await reclaimTree(entry)
       ? { ...entry, status: 'stopped', teardownStatus: 'passed' }
       : { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'service-tree-survives' };
   }
   if (!serviceOwnership(entry, observed)) return { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'ownership-unproven' };
   if (!write) return { ...entry, status: 'planned', teardownStatus: 'unverified' };
-  const stopped = await request(entry, 'stop');
+  if (Date.now() >= deadline) return { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'cleanup-timeout' };
+  const stopped = await request(entry, 'stop', remaining());
   if (stopped.status === 'stopped') {
     if (!identityProven(entry, stopped)) return withEvidence({ ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'ownership-unproven' }, stopped);
     // The identity proves who answered, not that the tree is really gone: a
@@ -705,6 +712,7 @@ async function stopEntry(entry, write) {
     // The successful `status` reply above is newer evidence than the registry
     // entry, so its tree members travel into the reclaim: on Windows a
     // descendant whose launcher exited is only known through those samples.
+    if (Date.now() >= deadline) return { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'cleanup-timeout' };
     return await reclaimTree({ ...entry, treeMembers: trackedWith(entry.treeMembers, observed.treeMembers) })
       ? { ...entry, status: 'stopped', teardownStatus: 'passed' }
       : { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'service-tree-survives' };
@@ -924,10 +932,11 @@ export async function serviceReport(project, args, tokenize) {
   return { schemaVersion: 1, command: 'runtime', subcommand: `service ${action}`, ...(args.write && action !== 'status' ? await locked(file, operation) : await operation()) };
 }
 
-export async function teardownServices(project, worktree, write = true) {
+export async function teardownServices(project, worktree, write = true, { timeoutMs = 7000 } = {}) {
   const file = registryPath(project);
   const marker = teardownMarkerPath(file, worktree);
   const operation = async () => {
+    const deadline = Date.now() + Math.max(1, timeoutMs);
     // A registry that does not exist yet is still read through the lock and
     // still leaves the marker: a `service start --write` racing this teardown
     // creates the first registry entry, and without either barrier it would
@@ -936,7 +945,12 @@ export async function teardownServices(project, worktree, write = true) {
     const touched = [];
     const worktreeKey = canonicalWorktree(worktree);
     for (const entry of registry.processes.filter((item) => canonicalWorktree(item.worktree) === worktreeKey && item.status !== 'stopped')) {
-      const result = entry.stopOnTeardown ? await stopEntry(entry, write) : { ...entry, status: 'blocked', reason: 'service-opted-out-of-teardown' };
+      const remaining = Math.max(0, deadline - Date.now());
+      const result = remaining === 0
+        ? { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'cleanup-timeout' }
+        : entry.stopOnTeardown
+          ? await stopEntry(entry, write, remaining)
+          : { ...entry, status: 'blocked', reason: 'service-opted-out-of-teardown' };
       results.push(result); touched.push(entry); if (write) Object.assign(entry, result);
     }
     // A `stopped` result is only teardown evidence while the whole tree is

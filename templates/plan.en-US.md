@@ -30,6 +30,8 @@ Describe independently verifiable increments, their files or entry points, depen
 
 Give every acceptance criterion a stable ID, command or manual check, expected result, and required evidence.
 
+For behavior changes, state the observable result, preserved behavior, and discriminating examples without reconfirming supplied requirements. Acceptance IDs identify requirements, not check IDs: one check may cover multiple requirements. Reuse these IDs in delivery and link them to units and current evidence; a passing selection alone does not establish requirement completeness.
+
 | Acceptance ID | Criterion | Command or action | Expected result | Evidence |
 |---|---|---|---|---|
 | A-001 |  |  |  |  |
@@ -37,6 +39,8 @@ Give every acceptance criterion a stable ID, command or manual check, expected r
 ## Execution Units
 
 The machine-readable block below is the handoff and dispatch contract: a reviewer, CI, or `task plan-check` reads only this block to learn what may change, in what order, and which acceptance ID proves each step.
+
+`acceptanceCoverage` in `task plan-check` / `task check` is advisory, not a new gate. Planning checks declared mappings; completion checks add unit and evidence gaps; `--unit` is unit-scoped. Legacy plans without a block and manual-only criteria remain explicitly uncheckable, not passed. No automatic migration or semantic proof is implied.
 `allowedScope` bounds the files this plan may write, `protectedAssets` lists assets no unit may touch; a unit that writes outside the scope, hits a protected asset, depends on an unknown unit or a cycle, or cites an acceptance ID that is missing from the table makes `plan-check` fail with `VIBE_HARNESS_PLAN_SCOPE_VIOLATION`, `VIBE_HARNESS_PLAN_DEPENDENCY_INVALID`, or `VIBE_HARNESS_PLAN_ACCEPTANCE_UNBOUND`.
 Legacy plans may omit the block (reported only as the `VIBE_HARNESS_PLAN_UNITS_MISSING` warning); new plans must fill it in.
 

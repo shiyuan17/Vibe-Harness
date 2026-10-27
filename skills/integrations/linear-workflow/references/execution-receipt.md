@@ -1,5 +1,8 @@
 # Linear 执行回执（Execution Receipt）
 
+> 历史兼容参考：显式执行不要求 Claim 或 Start/Terminal Receipt，活动自动队列派发已退役。本页的 v1/v2/v3、Claim/Grant 与宿主自动派发协议只用于解释历史记录、冲突和交接，不是当前执行入口或门槛。同一 Issue 不得重复并行；历史活动 Receipt、Delegate 和工作区仍须核对。当前规则以 linear-workflow 和 git-rules 为准。
+
+
 Execution Receipt 是 Linear Issue 上不可变、追加式的结构化评论，用来记录具体 Agent 运行实例。人类 Assignee 表示结果责任人，Delegate/App User 表示 Agent 产品身份，Receipt 表示运行实例，Linear Activity Feed 表示委派或身份变更历史。
 
 每条结构化评论只包含一个独立 JSON 对象，不混入自由文本。Receipt 和 terminal event 一经写入不得编辑或删除；解释或修正只能追加新评论。
@@ -20,7 +23,7 @@ Execution Receipt 是 Linear Issue 上不可变、追加式的结构化评论，
       "startedAt": "RFC3339-UTC"
     }
 
-历史自动领取使用独立的 v2 Start Receipt，不能把限时授权伪装成一次具体 Issue 的显式请求。此示例仅用于读取兼容；新的可写执行使用 v3，并要求 provider 原子 Claim：
+显式单次执行使用 v1 Start Receipt，不要求 Claim 或 Grant；`explicit-user-request` 表示本轮用户调用已经提供该次有界执行的授权。调用 `vb-linear-worktree-develop` 时，范围由当前计划与该 Skill 明列的效果确定；普通 Issue 指令只覆盖目标 Issue 的既有执行范围。历史自动领取使用独立的 v2 Start Receipt，不能把限时授权伪装成一次具体 Issue 的显式请求。此示例仅用于读取兼容。宿主自动派发或其他已经处于 Claim 互斥域内的运行才使用 v3，并要求 provider 原子 Claim：
 
     {
       "schema": "vibe-harness.linear-execution/v2",
@@ -37,7 +40,7 @@ Execution Receipt 是 Linear Issue 上不可变、追加式的结构化评论，
       "grantId": "opaque-uuid-v4"
     }
 
-v3 在历史共有身份字段基础上追加 Claim 绑定；自动领单必须将 source 改为 authorized-auto-claim 并增加 grantId：
+v3 在历史共有身份字段基础上追加 Claim 绑定；自动领单必须将 source 改为 authorized-auto-claim 并增加 grantId。显式 v3 不是默认路径，只有宿主明确把运行纳入 Claim 互斥域时才允许使用：
 
     {
       "schema": "vibe-harness.linear-execution/v3",
@@ -59,16 +62,17 @@ v3 在历史共有身份字段基础上追加 Claim 绑定；自动领单必须�
 
 约束：
 
-- v1/v2 保持历史读取兼容；新的可写执行使用 v3，并追加 `claimId`、`leaseExpiresAt`、`fencingToken`、`claimProvider`。v3 自动领取仍要求 UUID v4 `grantId`，source 固定为 authorized-auto-claim。
-- `grantId` 只引用宿主持久的可撤销限时授权，不包含授权内容或个人身份，也不独自证明权限；宿主必须核验队列范围、截止时间、剩余领取数、Agent 身份、effects 和绑定当前 Issue 的执行授权。高风险授权使用 `vibe-harness.execution-envelope/v2`，冻结 request/session、目标、终点、工作区路径与 Git 身份、基线 SHA、allowedWriteRoots 和 externalTargets。hostContext 由宿主提供，source=host，包含 filesystem、approval、process=isolated、network、observedAt；缺失或与当前工作区不符则暂停写入，Agent 不得自造。`vibe-harness.execution-envelope/v1` 只作 contract-only/degraded 兼容，不能授权凭据、宿主/外部写入、红区、高风险间接写入或 worktree 拓扑变化。
+- 显式单次执行使用 v1；v1 不是“缺授权”，而是没有跨实例 Claim 互斥时的最小运行记录。v2 保持历史自动领取读取兼容；宿主自动派发或明确纳入 Claim 互斥域的可写执行使用 v3，并追加 `claimId`、`leaseExpiresAt`、`fencingToken`、`claimProvider`。v3 自动领取仍要求 UUID v4 `grantId`，source 固定为 authorized-auto-claim。用户不填写任何 Claim/Grant 字段。
+- 通用 `receipt start` CLI 只生成 v1。v3 样例仅展示记录结构，不提供签发入口；宿主须从持久 provider 原子取得并按 Issue、executionId、幂等键、claimId、lease 与 fencing 核验。`receipt check` 只分析评论结构，未终结 v3 显示 `RECEIPT_CLAIM_UNVERIFIED`，不能当作已核验领取。
+- `grantId` 只引用宿主持久的可撤销限时授权，不包含授权内容或个人身份，也不独自证明权限；宿主必须核验队列范围、截止时间、剩余领取数、Agent 身份、effects 和绑定当前 Issue 的执行授权。高风险授权使用 `vibe-harness.execution-envelope/v2`，冻结 request/session、目标、终点、工作区路径与 Git 身份、基线 SHA、allowedWriteRoots 和 externalTargets。hostContext 由宿主提供，source=host，包含 filesystem、approval、process=isolated、network、observedAt；缺失或与当前工作区不符则暂停写入，Agent 不得自造。`vibe-harness.execution-envelope/v1` 只作 contract-only/degraded 兼容，不能授权 credentialUse、hostWrite、externalWrite、红区、高风险间接写入或移动活动任务当前绑定的 workspace identity。
 - executionId 和 runtimeInstanceId 是新生成的 UUID v4。runtimeInstanceId 只用于 Receipt 关联，不得复制宿主 thread、session、OAuth session、用户名、主机名或其他真实会话标识。
 - v1 source 只允许 explicit-user-request、existing-delegate、authorized-handoff；v2 source 只允许 authorized-auto-claim；v3 支持四种 source，但自动领取必须携带 grantId。
 - agentKey 和 hostKind 使用稳定、低基数的产品标识；role 只允许 writer。
 - delegateId 是当前原生 Delegate/App User ID；fallback label 模式填写 null。
 - dagRootIssue 为顶层 Parent 标识；独立 Issue 填 null。dagNodeIssue 必须是当前 Issue。
 - startedAt 使用 UTC RFC3339 时间，不得倒签或回填。
-- provider 不支持原子 Claim 时必须 fail-closed，不得使用本地锁替代；lease 过期后必须重新授权并生成新的 fencing token。
-- 顺序为宿主核验授权和 Ready → provider 原子 Claim → 登记 Delegate → 追加 v3 Receipt → 重读确认；登记不完整须保留 Claim 和现场等待核对。过期 Claim 不能由下一次原子 Claim 自动替换，同一运行时未过期的传输重试才可复用幂等键。
+- provider 不支持原子 Claim 时只对自动派发或声明了并发互斥的运行 fail-closed，不得使用本地锁替代；显式 v1 仍须检查已有活动 Receipt 并在冲突时 handoff/release，但这个读前检查不提供原子互斥，同一 Issue 的显式运行按单运行串行。lease 过期后必须重新授权并生成新的 fencing token。
+- 显式单次顺序为读取 Issue/Ready 与活动 Receipt → 登记 Delegate → 追加 v1 Receipt → 重读确认；若宿主为显式并发提供 Claim，则在宿主原子 Claim 后追加 v3。自动顺序为宿主核验授权和 Ready → provider 原子 Claim → 登记 Delegate → 追加带 Grant 引用的 v3 Receipt → 重读确认。登记不完整须保留现场等待核对。过期 Claim 不能由下一次原子 Claim 自动替换，同一运行时未过期且请求内容一致的传输重试才可复用幂等键。
 
 ## 终结事件（Terminal Event）
 

@@ -276,3 +276,20 @@ test('the CLI checks a file, hashes it and fails closed on a broken DAG', async 
     await removeTemporaryDirectory(root);
   }
 });
+
+
+test('integrated cleanup residue releases dependencies but retains occupied resources', () => {
+  const nodes = [
+    node({ id: 'landed', kind: 'write', writeScope: ['src/a/**'], resourceLocks: ['port:one'],
+      result: 'succeeded', cleanupPending: true }),
+    node({ id: 'independent', kind: 'write', writeScope: ['src/b/**'], dependsOn: ['landed'] }),
+    node({ id: 'reuse', kind: 'write', writeScope: ['src/c/**'], resourceLocks: ['port:one'], dependsOn: ['landed'] }),
+    node({ id: 'parent', kind: 'aggregate', dependsOn: ['landed'] }),
+  ];
+  const pending = validateTaskDag({ schema: TASK_DAG_SCHEMA, nodes });
+  assert.equal(pending.ok, true, JSON.stringify(pending.problems));
+  assert.deepEqual(pending.ready, ['independent', 'parent']);
+  assert.equal(pending.blocked.find((entry) => entry.id === 'reuse').code, 'TASK_DAG_RESOURCE_OCCUPIED');
+  const clean = validateTaskDag({ nodes: nodes.map((entry) => ({ ...entry, cleanupPending: false })) });
+  assert.deepEqual(clean.ready, ['independent', 'parent', 'reuse']);
+});

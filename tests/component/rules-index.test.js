@@ -47,12 +47,13 @@ test('规则索引只为带卡片的规则标注 ⚡，并在有卡片时给出�
   const index = await loadRuleIndex(rootDir);
   assert.deepEqual(
     index.filter((item) => item.hasCard).map((item) => item.id).sort(),
-    ['ai-collab-rules', 'codebase-memory-mcp', 'git-rules', 'governance-core', 'linear-workflow', 'test-rules'],
+    ['agent-skill-routing', 'ai-collab-rules', 'codebase-memory-mcp', 'git-rules', 'governance-core', 'linear-workflow', 'response-modes', 'test-rules'],
   );
   const line = renderRuleIndexLine(index);
   assert.match(line, /governance-core（Vibe-Harness 执行内核）⚡/u);
   assert.match(line, /git-rules（Git 规则）⚡/u);
-  assert.equal(line.includes('agent-skill-routing（Skill 编写与路由规则）⚡'), false);
+  assert.match(line, /agent-skill-routing（Skill 编写与路由规则）⚡/u);
+  assert.match(line, /response-modes（表达模式规则）⚡/u);
   assert.match(renderRulesLine(index), /命中索引（⚡ 先读该规则顶部的 Fast Path 卡片）：/u);
 
   // A project whose rules carry no card must not pay for the legend.

@@ -4,11 +4,11 @@
 
 ## Develop ruleset
 
-从干净且最新的 <code>origin/main</code> 创建 <code>develop</code> 后，将 GitHub 默认分支切换到 <code>develop</code>。按 ADR-0013，<code>develop</code> 不配置服务器端 required gate：仓库保持 develop ruleset 为 disabled，集成分支接受直推与本地 <code>worktree land</code> 的 no-ff 直落。
+从干净且最新的 <code>origin/main</code> 创建 <code>develop</code> 后，将 GitHub 默认分支切换到 <code>develop</code>。按 ADR-0013，<code>develop</code> 不配置服务器端 required gate：仓库保持 develop ruleset 为 disabled，集成分支接受直推与本地 <code>worktree stage</code> / <code>worktree publish</code> 的 no-ff 直落。
 
-- 任务分支与 land 落地无需 Pull Request：可直接 <code>git push</code>／<code>git push -u origin develop</code>，不要求人工审批或服务器端 required check。需要 PR 时仍可用 squash merge，合并后删除任务分支。
+- 任务分支与 staged local-land 落地无需 Pull Request：先 <code>worktree stage</code> 生成本地已验候选，再由 <code>worktree publish --batch &lt;id&gt;</code> 对齐最新 <code>origin/develop</code>、精确推送并回读 SHA；也可直接 <code>git push</code>，不要求人工审批或服务器端 required check。需要 PR 时仍可用 squash merge，合并后删除任务分支。
 - 质量责任前移到本地候选合并验证（lint、typecheck、unit，并按 change-plan 追加 component/integration）与提交前检查；<code>merge-gate</code> 聚合 job 保留，但只作为 main 发布边界的 required check。
-- 高风险变更（命中 <code>schemas/</code>、<code>manifests/</code>、<code>adapters/</code>、<code>runtime/</code>、<code>rules/</code>、<code>docs/rules/</code>、<code>skills/core/</code>、<code>templates/</code>、<code>scripts/</code>、<code>.github/workflows/</code> 或 <code>package.json</code>）仍必须携带 Risk Evidence 章节与唯一的 Independent Review Receipt；本地 land 同样按锚点风险等级执行验证与收据检查，收据缺失、过期、与 diff 不匹配或结论为 negative 时不得落地。
+- 高风险变更（命中 <code>schemas/</code>、<code>manifests/</code>、<code>adapters/</code>、<code>runtime/</code>、<code>rules/</code>、<code>docs/rules/</code>、<code>skills/core/</code>、<code>templates/</code>、<code>scripts/</code>、<code>.github/workflows/</code> 或 <code>package.json</code>）仍必须携带 Risk Evidence 章节与唯一的 Independent Review Receipt；本地 stage/publish 同样按锚点风险等级执行验证与收据检查，收据缺失、过期、与 diff 不匹配或结论为 negative 时不得落地。
 - 任务分支目标存活不超过约两个工作日；更大工作使用拆分或 feature flag，而非长期共享 feature 分支。
 
 ## Main ruleset
@@ -21,7 +21,7 @@
 - 禁止 force push 和分支删除。
 - 当前不要求 reviewer 或 CODEOWNERS；有非作者写权限协作者后再启用高风险 owner review。
 
-`develop` 不创建 active ruleset，也不配置 required check：集成分支接受直推与本地 land 直落（ADR-0013）。失败 check 只在发布边界（main、release*）阻断合并。
+`develop` 不创建 active ruleset，也不配置 required check：集成分支接受直推与本地 stage/publish 直落（ADR-0013）。失败 check 只在发布边界（main、release*）阻断合并。
 
 失败 check 会使 merge-gate 失败；PR 新提交会生成新的 check suite，旧 SHA 的结果不能满足最新提交。
 

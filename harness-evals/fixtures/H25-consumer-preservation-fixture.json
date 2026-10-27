@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "id": "H25",
+  "description": "新行为与旧调用方：公开合成 fixture，检查入口只读",
+  "files": [
+    {
+      "path": "src/format.js",
+      "content": "export function format(value){return String(value)}\n"
+    },
+    {
+      "path": "REQUEST.md",
+      "content": "format(value, prefix='') returns prefix followed by value. Existing consumer render(3) must remain '<3>'.\n"
+    },
+    {
+      "path": "package.json",
+      "content": "{\"type\": \"module\", \"scripts\": {\"feature\": \"node test/feature.test.mjs\", \"caller\": \"node test/caller.test.mjs\"}}\n"
+    },
+    {
+      "path": "test/feature.test.mjs",
+      "content": "import assert from 'node:assert/strict';import {format} from '../src/format.js';\nassert.equal(format(3,'#'),'#3');\n"
+    },
+    {
+      "path": "test/caller.test.mjs",
+      "content": "import assert from 'node:assert/strict';import {format} from '../src/format.js';\nassert.equal(format(3),'3');assert.equal(format(0),'0');\n"
+    },
+    {
+      "path": "src/consumer.js",
+      "content": "import {format} from './format.js';export function render(value){return '<'+format(value)+'>'}\n"
+    }
+  ],
+  "oracleFiles": [
+    {
+      "path": "check.mjs",
+      "content": "import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';const {format}=await import(pathToFileURL(process.cwd()+'/src/format.js'));\nassert.equal(format(3,'#'),'#3');assert.equal(format(3),'3');assert.equal(format(0),'0');const {render}=await import(pathToFileURL(process.cwd()+'/src/consumer.js'));assert.equal(render(3),'<3>');\n"
+    }
+  ],
+  "git": {
+    "initialize": true
+  },
+  "faults": [],
+  "hiddenChecks": [
+    {
+      "id": "H25-oracle",
+      "program": "node",
+      "args": [
+        "{ORACLE_DIR}/check.mjs"
+      ],
+      "expectedExitCode": 0
+    }
+  ]
+}

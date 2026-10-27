@@ -24,6 +24,14 @@
 - [Worktree 落地与清理的服务 teardown 改为 best-effort](adr/ADR-0014-service-teardown-best-effort.md)
 - [显式 develop flow（gd-flow 与 lwflow）](adr/ADR-0015-explicit-develop-flow.md)
 - [gd-flow 移除 Linear 访问禁令](adr/ADR-0016-gd-flow-linear-boundary.md)
+- [worktree 生命周期门禁收敛：宿主 worktree 优先与本地核验授权](adr/ADR-0017-worktree-lifecycle-local-verification.md)
+- [显式 Linear 执行与宿主自动派发的授权/Claim 分离](adr/ADR-0018-explicit-linear-claim-boundary.md)
+- [显式执行、本地先合并交付与受限依赖调度](adr/ADR-0019-local-first-explicit-delivery.md)
+- [轻量交付边界、三档阻塞与验证执行时限](adr/ADR-0020-lightweight-delivery-blocking-and-verification-limits.md)
+- [本地暂存与远端发布两阶段 worktree 交付](adr/ADR-0021-staged-local-publish-delivery.md)
+- [仓库级 FIFO 串行化受管 Worktree 交付](adr/ADR-0022-repository-delivery-fifo.md)
+- [受管 Worktree 交付的 supersede 与外部集成归档](adr/ADR-0023-worktree-delivery-recovery.md)
+- [验证出队与秒级发布终锁的交付协议](adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md)
 - [ADR Schema](schemas/adr.schema.json)
 - [Execution Envelope v1 Schema](schemas/execution-envelope.schema.json)
 - [Execution Envelope v2 Schema](schemas/execution-envelope-v2.schema.json)
@@ -50,6 +58,7 @@
 - [Linear 多 Agent 工作流规格](specs/linear-multi-agent-workflow-spec.md)
 - [Adaptive Verification Engine 规格](specs/adaptive-verification-engine.md)
 - [交付生命周期与兼容迁移](specs/delivery-lifecycle.md)
+- [快速/轻量/完整档位量化判定](specs/risk-tier-quantified.md)
 
 ## 规则
 
@@ -58,7 +67,7 @@
 ### 治理
 
 - [执行内核](rules/governance-core.md) ⚡
-- [Skill 编写与路由](rules/agent-skill-routing.md)
+- [Skill 编写与路由](rules/agent-skill-routing.md) ⚡
 - [Eval](rules/eval-driven-development.md)
 - [角色路由](rules/role-routing.md)
 - [Git](rules/git-rules.md) ⚡
@@ -66,7 +75,7 @@
 - [Micro Verification](rules/micro-verification.md)
 - [AI 协作](rules/ai-collab-rules.md) ⚡
 - [审查报告规则](rules/review-report.md)
-- [表达模式规则](rules/response-modes.md)
+- [表达模式规则](rules/response-modes.md) ⚡
 
 ### 工程
 
@@ -134,6 +143,7 @@ inventory 快照规则：含计数口径的条目必须标注快照日期与再�
 - [Vibe-Harness 与 Superpowers 系统审查](inventory/harness-superpowers-comparison.md)
 - [表达模式层调研](inventory/response-mode-investigation.md)
 - [治理规范与工作流审计（2026-09）](inventory/governance-audit-2026-09.md)
+- [Vibe-Harness 治理框架增强 — 2025年变更记录](inventory/governance-enhancement-2025.md)
 
 ## 历史
 

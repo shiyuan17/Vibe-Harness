@@ -113,22 +113,22 @@ function normalizedCachedReview(review, selectedCheckIds, changedPaths) {
   };
 }
 
-/** @param {{review?: any, commandsPassed?: boolean, snapshotComparison?: string, finalFingerprint?: string|null, deferredCount?: number}} options */
-function focusedAcceptance({ review, commandsPassed, snapshotComparison, finalFingerprint, deferredCount = 0 } = {}) {
+/** @param {{review?: any, commandsPassed?: boolean, snapshotComparison?: string, finalFingerprint?: string|null, deferredCount?: number, selectedCount?: number}} options */
+function focusedAcceptance({ review, commandsPassed, snapshotComparison, finalFingerprint, deferredCount = 0, selectedCount = 0 } = {}) {
   const stable = commandsPassed && snapshotComparison === 'match' && typeof finalFingerprint === 'string' && finalFingerprint.length > 0;
-  const relevant = review?.status === 'relevant' && (review.reviewedCheckIds ?? []).length > 0;
   return {
-    status: stable && relevant && deferredCount === 0 ? 'accepted' : 'blocked',
+    status: stable && selectedCount > 0 ? 'accepted' : 'blocked',
     reasonCode: !commandsPassed
       ? 'VERIFICATION_NOT_PASSED'
-      : deferredCount > 0
-        ? 'DEFERRED_CHECKS'
+      : selectedCount === 0
+        ? 'NO_SELECTED_CHECKS'
       : snapshotComparison !== 'match' || !finalFingerprint
         ? 'FINAL_SNAPSHOT_MISMATCH'
-        : relevant ? 'ACCEPTED' : 'NO_REVIEWED_RELEVANT_CHECK',
+        : 'ACCEPTED',
     finalFingerprint: finalFingerprint ?? null,
     selectedCheckIds: [...(review?.selectedCheckIds ?? [])],
     reviewStatus: review?.status ?? 'unreviewed',
+    coverageStatus: deferredCount > 0 ? 'partial' : 'complete',
   };
 }
 
@@ -138,6 +138,10 @@ function normalizedTimeoutMs(timeoutMs) {
     && timeoutMs <= MAX_PROJECT_VERIFICATION_TIMEOUT_MS
     ? timeoutMs
     : DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS;
+}
+
+function normalizedBudgetMs(budgetMs) {
+  return Number.isInteger(budgetMs) && budgetMs > 0 ? budgetMs : null;
 }
 
 function focusedCommandTimeoutMs(command, timeoutMs) {
@@ -241,7 +245,10 @@ function executeVerificationCommand(file, args, { cwd, signal, timeoutMs, verifi
         code: typeof code === 'number' ? code : 1,
       }));
     });
-    timer = setTimeout(() => requestTermination('timeout'), normalizedTimeoutMs(timeoutMs));
+    const waitMs = Number.isInteger(timeoutMs) && timeoutMs > 0
+      ? Math.min(timeoutMs, MAX_PROJECT_VERIFICATION_TIMEOUT_MS)
+      : normalizedTimeoutMs(timeoutMs);
+    timer = setTimeout(() => requestTermination('timeout'), waitMs);
     timer.unref();
     if (signal?.aborted) cancel();
     else signal?.addEventListener('abort', cancel, { once: true });
@@ -251,6 +258,11 @@ function executeVerificationCommand(file, args, { cwd, signal, timeoutMs, verifi
 function commandFailureResult({ category, cause, command, nextCommand, targetDir, timeoutMs, verificationId }) {
   const timedOut = cause.verificationTimedOut === true;
   const cancelled = cause.verificationCancelled === true || (!timedOut && cause.code === 'ABORT_ERR');
+  const outputLimitExceeded = cause.verificationOutputLimitExceeded === true;
+  // A real command exit is product evidence; a timeout, cancellation, missing
+  // executable or output-limit stop means the run could not obtain evidence.
+  const status = timedOut || cancelled || outputLimitExceeded || typeof cause.code !== 'number'
+    ? 'blocked' : 'failed';
   return {
     command,
     category,
@@ -258,11 +270,11 @@ function commandFailureResult({ category, cause, command, nextCommand, targetDir
       ? 'PROJECT_VERIFICATION_TIMEOUT'
       : cancelled
         ? 'PROJECT_VERIFICATION_CANCELLED'
-        : cause.verificationOutputLimitExceeded
+        : outputLimitExceeded
           ? 'PROJECT_VERIFICATION_OUTPUT_LIMIT'
           : 'PROJECT_VERIFICATION_COMMAND_FAILED',
     exitCode: typeof cause.code === 'number' ? cause.code : 1,
-    status: 'failed',
+    status,
     ...(cancelled ? { cancelled: true } : {}),
     ...(timedOut ? { timedOut: true, timeoutMs: normalizedTimeoutMs(timeoutMs) } : {}),
     ...(verificationId ? { verificationId } : {}),
@@ -409,7 +421,14 @@ function hasConfiguredChecks(commandStatus) {
   return Object.values(commandStatus ?? {}).some((item) => item && item.status !== 'not_configured');
 }
 
-function verificationEvidence({ commandsPassed, requireStable, snapshotComparison }) {
+function commandExecutionStatus(results, checksConfigured) {
+  if (!checksConfigured) return 'unverified';
+  if (Object.values(results).some((result) => result.status === 'failed')) return 'failed';
+  if (Object.values(results).some((result) => result.status === 'blocked')) return 'blocked';
+  return 'passed';
+}
+
+function verificationEvidence({ commandStatus, requireStable, snapshotComparison }) {
   const workspaceReason = snapshotComparison === 'match'
     ? 'Git snapshots match before and after verification.'
     : snapshotComparison === 'changed'
@@ -417,7 +436,7 @@ function verificationEvidence({ commandsPassed, requireStable, snapshotCompariso
       : 'Git snapshot evidence is unavailable; command success does not prove workspace stability.';
   return {
     commandExecution: {
-      status: commandsPassed ? 'passed' : 'failed',
+      status: commandStatus,
     },
     snapshotComparison: {
       value: snapshotComparison,
@@ -427,16 +446,26 @@ function verificationEvidence({ commandsPassed, requireStable, snapshotCompariso
   };
 }
 
+function commandResultsStatus(results) {
+  if (results.some((result) => result.status === 'blocked')) return 'blocked';
+  if (results.some((result) => result.status === 'failed')) return 'failed';
+  if (results.length > 0 && results.every((result) => ['passed', 'reused'].includes(result.status))) return 'passed';
+  return 'unverified';
+}
+
 function verificationFailure(results, commandStatus) {
   const [name, result] = Object.entries(results).find(([, item]) => ['blocked', 'failed'].includes(item.status)) ?? [];
   if (!result) return null;
+  if (result.code === 'PROJECT_VERIFICATION_TIMEOUT') {
+    return name + ' timed out after ' + result.timeoutMs + 'ms; retry with: ' + result.next.command;
+  }
+  if (result.code === 'PROJECT_VERIFICATION_CANCELLED') {
+    return name + ' was cancelled; retry with: ' + result.next.command;
+  }
+  if (result.code === 'PROJECT_VERIFICATION_BUDGET_EXHAUSTED') {
+    return name + ' was not run because the configured verification budget was exhausted; retry with: ' + result.next.command;
+  }
   if (result.status === 'failed') {
-    if (result.code === 'PROJECT_VERIFICATION_TIMEOUT') {
-      return name + ' timed out after ' + result.timeoutMs + 'ms; retry with: ' + result.next.command;
-    }
-    if (result.code === 'PROJECT_VERIFICATION_CANCELLED') {
-      return name + ' was cancelled; retry with: ' + result.next.command;
-    }
     const detail = result.stderr || result.stdout || 'Verification command failed.';
     return name + ' failed with exit ' + result.exitCode + ': ' + detail;
   }
@@ -474,7 +503,21 @@ export async function runProjectVerification({
     : before.available === after.available ? 'unavailable' : 'changed';
   const checksConfigured = hasConfiguredChecks(commandStatus);
   const commandsPassed = checksConfigured && !verificationFailed(results);
-  const evidence = verificationEvidence({ commandsPassed, requireStable, snapshotComparison });
+  const commandStatusResult = commandExecutionStatus(results, checksConfigured);
+  const evidence = verificationEvidence({
+    commandStatus: commandStatusResult,
+    requireStable,
+    snapshotComparison,
+  });
+  const status = snapshotComparison === 'changed'
+    ? 'stale'
+    : commandStatusResult === 'failed'
+      ? 'failed'
+      : commandStatusResult === 'blocked'
+        ? 'blocked'
+        : !checksConfigured
+          ? 'unverified'
+          : 'passed';
   const finishedAt = new Date();
   const hasFinalChange = (before.changedFiles ?? 0) > 0 || (after.changedFiles ?? 0) > 0;
   let error;
@@ -489,8 +532,13 @@ export async function runProjectVerification({
       message: 'No project validation commands are configured; configure at least one check before claiming verification.',
     };
   } else if (!commandsPassed) {
+    const blocked = Object.values(results).find((result) => result.status === 'blocked');
     error = {
-      code: 'PROJECT_VERIFICATION_FAILED',
+      code: blocked
+        ? blocked.code === 'PROJECT_VERIFICATION_BUDGET_EXHAUSTED'
+          ? 'PROJECT_VERIFICATION_BUDGET_EXHAUSTED'
+          : 'PROJECT_VERIFICATION_BLOCKED'
+        : 'PROJECT_VERIFICATION_FAILED',
       message: verificationOutput(verificationFailure(results, commandStatus), targetDir),
     };
   } else if (requireStable && snapshotComparison !== 'match') {
@@ -503,6 +551,7 @@ export async function runProjectVerification({
     ...(error ? { error } : {}),
     ok: !error,
     results,
+    status,
     verification: {
       schemaVersion: 2,
       engine: 'vibe-harness-cli',
@@ -525,12 +574,22 @@ export async function runProjectVerification({
         : { status: 'not-needed', hint: 'pnpm verify --project <path>' },
       snapshotComparison,
       startedAt: startedAt.toISOString(),
+      status: snapshotComparison === 'changed'
+        ? 'stale'
+        : commandStatusResult === 'failed'
+          ? 'checks_failed'
+          : commandStatusResult === 'blocked'
+            ? 'checks_blocked'
+            : checksConfigured
+              ? 'verified'
+              : 'no_checks',
     },
   };
 }
 
 export async function runFocusedProjectVerification({
   allowManual = false,
+  budgetMs = null,
   focused,
   requireStable = false,
   signal = undefined,
@@ -542,9 +601,13 @@ export async function runFocusedProjectVerification({
   const before = await createProjectSnapshot(targetDir);
   const results = [];
   let stopped = false;
+  let budgetDeadline = null;
+  let budgetStartedAt = null;
+  let budgetExhausted = false;
+  const budget = normalizedBudgetMs(budgetMs);
   for (const item of focused.commands) {
     if (stopped) {
-      results.push({ ...item, status: 'not_run', verificationId: id });
+      results.push({ ...item, status: 'not_run', reason: 'previous-check-failed', verificationId: id });
       continue;
     }
     let program, args;
@@ -569,12 +632,31 @@ export async function runFocusedProjectVerification({
       results.push({ ...item, status: 'blocked', verificationId: id });
       continue;
     }
+    const commandTimeoutMs = focusedCommandTimeoutMs(item.command, timeoutMs);
+    if (budget !== null && budgetDeadline === null) {
+      budgetStartedAt = Date.now();
+      budgetDeadline = budgetStartedAt + budget;
+    }
+    const remainingBudgetMs = budgetDeadline === null ? null : budgetDeadline - Date.now();
+    if (remainingBudgetMs !== null && remainingBudgetMs <= 0) {
+      results.push({
+        ...item,
+        code: 'PROJECT_VERIFICATION_BUDGET_EXHAUSTED',
+        elapsedMs: budget,
+        next: { command: 'vibe-harness verify --project .' },
+        status: 'blocked',
+        verificationId: id,
+      });
+      budgetExhausted = true;
+      stopped = true;
+      continue;
+    }
     try {
       const { command: exec, preArgs } = executableFor(program);
       const result = await executeVerificationCommand(exec, [...preArgs, ...args], {
         cwd: verificationCwd(targetDir, item.cwd).absolute,
         signal,
-        timeoutMs: focusedCommandTimeoutMs(item.command, timeoutMs),
+        timeoutMs: remainingBudgetMs === null ? commandTimeoutMs : Math.max(1, Math.min(commandTimeoutMs, remainingBudgetMs)),
         verificationId: id,
         context: verificationContextEnvironment(focused),
       });
@@ -587,7 +669,8 @@ export async function runFocusedProjectVerification({
         stdout: verificationOutput(result.stdout, targetDir),
         ...verificationCheckEvidence(verificationOutput(result.stdout, targetDir), verificationOutput(result.stderr, targetDir)),
       });
-      stopped = results.at(-1).status === 'failed';
+      stopped = ['failed', 'blocked'].includes(results.at(-1).status);
+      if (budgetDeadline !== null && Date.now() >= budgetDeadline) budgetExhausted = true;
     } catch (cause) {
       results.push({
         ...item,
@@ -597,12 +680,13 @@ export async function runFocusedProjectVerification({
           command: item.command,
           nextCommand: 'pnpm verify:focused --run',
           targetDir,
-          timeoutMs: focusedCommandTimeoutMs(item.command, timeoutMs),
+          timeoutMs: remainingBudgetMs === null ? commandTimeoutMs : Math.max(1, Math.min(commandTimeoutMs, remainingBudgetMs)),
           verificationId: id,
         }),
         ...(cause.code === 'ENOENT' ? { status: 'blocked', code: 'MISSING_EXECUTABLE' } : {}),
       });
-      stopped = results.at(-1).status === 'failed';
+      stopped = ['failed', 'blocked'].includes(results.at(-1).status);
+      if (budgetDeadline !== null && Date.now() >= budgetDeadline) budgetExhausted = true;
     }
   }
   const after = await createProjectSnapshot(targetDir);
@@ -613,8 +697,14 @@ export async function runFocusedProjectVerification({
   const finishedAt = new Date();
   const hasFinalChange = (before.changedFiles ?? 0) > 0 || (after.changedFiles ?? 0) > 0;
   const failedResult = results.find((result) => ['blocked', 'failed'].includes(result.status));
+  const budgetResult = results.find((result) => result.code === 'PROJECT_VERIFICATION_BUDGET_EXHAUSTED');
   const commandsPassed = results.length > 0 && results.every((result) => result.status === 'passed');
-  const evidence = verificationEvidence({ commandsPassed, requireStable, snapshotComparison });
+  const resultStatus = snapshotComparison === 'changed' ? 'stale' : commandResultsStatus(results);
+  const evidence = verificationEvidence({
+    commandStatus: resultStatus === 'stale' ? commandResultsStatus(results) : resultStatus,
+    requireStable,
+    snapshotComparison,
+  });
   if (!failedResult && !commandsPassed) evidence.commandExecution.status = 'unverified';
   let error;
   if (snapshotComparison === 'changed') {
@@ -622,9 +712,14 @@ export async function runFocusedProjectVerification({
       code: 'PROJECT_VERIFICATION_STALE',
       message: 'The project changed while focused verification was running; run verify:focused again on the final state.',
     };
+  } else if ((budgetExhausted || budgetResult) && failedResult?.status === 'blocked') {
+    error = {
+      code: 'PROJECT_VERIFICATION_BUDGET_EXHAUSTED',
+      message: `Focused verification stopped after ${budget}ms because the configured verification budget was exhausted.`,
+    };
   } else if (failedResult) {
     error = {
-      code: 'PROJECT_VERIFICATION_FAILED',
+      code: failedResult.status === 'blocked' ? 'PROJECT_VERIFICATION_BLOCKED' : 'PROJECT_VERIFICATION_FAILED',
       message: verificationOutput(
         'Focused verification ' + failedResult.status + ': ' + failedResult.command,
         targetDir,
@@ -652,12 +747,23 @@ export async function runFocusedProjectVerification({
     ...(error ? { error } : {}),
     ok: !error,
     results,
+    status: resultStatus,
     verification: {
       schemaVersion: 2,
       engine: 'vibe-harness-cli',
       after,
       before,
       durationMs: finishedAt.getTime() - startedAt.getTime(),
+      budget: budget === null ? null : {
+        configuredMs: budget,
+        elapsedMs: budgetStartedAt === null ? 0 : Math.max(0, Math.min(budget, Date.now() - budgetStartedAt)),
+        exhausted: budgetExhausted || Boolean(budgetResult),
+        notRunChecks: results
+          .filter((result) => result.code === 'PROJECT_VERIFICATION_BUDGET_EXHAUSTED'
+            || result.reason === 'previous-check-failed'
+            || (budgetExhausted && result.status === 'not_run'))
+          .map((result) => result.id ?? result.command),
+      },
       evidence,
       finishedAt: finishedAt.toISOString(),
       focused: {
@@ -681,6 +787,8 @@ export async function runFocusedProjectVerification({
         commandsPassed,
         snapshotComparison,
         finalFingerprint: after.fingerprint,
+        selectedCount: focused.commands.length,
+        deferredCount: (focused.deferredChecks ?? []).length,
       }),
       deliveryBoundaries: {
         ci: 'unverified',
@@ -692,12 +800,14 @@ export async function runFocusedProjectVerification({
       id,
       snapshotComparison,
       startedAt: startedAt.toISOString(),
+      status: resultStatus,
     },
   };
 }
 
 export async function runVerificationPlan({
   allowManual = false,
+  budgetMs = null,
   reuse = false,
   commandStatus = {},
   plan,
@@ -717,6 +827,7 @@ export async function runVerificationPlan({
     : null;
   const focused = hit ? {
     ok: true,
+    status: 'passed',
     error: undefined,
     results: (plan.selectedChecks ?? []).map((check) => ({ ...check, status: 'reused', verificationId: cached.receipt.id })),
     verification: {
@@ -726,24 +837,24 @@ export async function runVerificationPlan({
       evidence: { commandExecution: { status: 'passed', reused: true } },
       changeBoundary: { status: 'unverified' },
       review: reusedReview,
-      // A hit proves the command set, inputs and snapshot are unchanged, so a
-      // current receipt with a relevant review is accepted; a deferred layer
-      // still blocks it. Reporting `blocked` unconditionally would deny a valid
-      // reuse while claiming the snapshot mismatched.
+      // A hit proves the selected command set and snapshot, not deferred layers.
       acceptance: focusedAcceptance({
         review: reusedReview,
         commandsPassed: true,
         snapshotComparison: 'match',
         finalFingerprint: confirmed.snapshot.fingerprint,
         deferredCount: (plan.deferredChecks ?? []).length,
+        selectedCount: (plan.selectedChecks ?? []).length,
       }),
       recovery: { status: 'not-needed' },
     },
   } : await runFocusedProjectVerification({
     allowManual,
+    budgetMs,
     focused: {
       changedPaths: plan.changedPaths ?? [],
       commands: plan.selectedChecks ?? [],
+      deferredChecks: plan.deferredChecks ?? [],
       notes: plan.selectionReasons ?? [],
       impactMapping: plan.impactMapping,
       baseSha: plan.baseSha,
@@ -790,20 +901,28 @@ export async function runVerificationPlan({
         ? 'vibe-harness verify --project .'
         : (failed.next?.command ?? 'pnpm verify --project .');
       let message = `Focused verification ${failed.status}: ${failed.command}`;
-      if (failed.status === 'failed') {
-        if (failed.code === 'PROJECT_VERIFICATION_TIMEOUT') {
-          message = `${name} timed out after ${failed.timeoutMs}ms; retry with: ${retryCommand}`;
-        } else if (failed.code === 'PROJECT_VERIFICATION_CANCELLED') {
-          message = `${name} was cancelled; retry with: ${retryCommand}`;
-        } else {
-          message = `${name} failed with exit ${failed.exitCode}: ${failed.stderr || failed.stdout || 'Verification command failed.'}`;
-        }
+      if (failed.code === 'PROJECT_VERIFICATION_TIMEOUT') {
+        message = `${name} timed out after ${failed.timeoutMs}ms; retry with: ${retryCommand}`;
+      } else if (failed.code === 'PROJECT_VERIFICATION_CANCELLED') {
+        message = `${name} was cancelled; retry with: ${retryCommand}`;
+      } else if (failed.code === 'PROJECT_VERIFICATION_BUDGET_EXHAUSTED') {
+        message = `${name} was not run because the configured verification budget was exhausted; retry with: ${retryCommand}`;
+      } else if (failed.status === 'failed') {
+        message = `${name} failed with exit ${failed.exitCode}: ${failed.stderr || failed.stdout || 'Verification command failed.'}`;
       } else if (commandStatus[name]?.status === 'missing') {
         message = `${name} is missing: ${failed.command}`;
       } else if (commandStatus[name]?.status === 'manual') {
         message = `${name} is manual; pass --allow-manual to execute it explicitly: ${failed.command}`;
       }
-      focused.error = { code: 'PROJECT_VERIFICATION_FAILED', message: verificationOutput(message, targetDir) };
+      focused.error = {
+        code: failed.code === 'PROJECT_VERIFICATION_BUDGET_EXHAUSTED'
+          || focused.verification?.budget?.exhausted === true
+          ? 'PROJECT_VERIFICATION_BUDGET_EXHAUSTED'
+          : failed.status === 'blocked'
+            ? 'PROJECT_VERIFICATION_BLOCKED'
+            : 'PROJECT_VERIFICATION_FAILED',
+        message: verificationOutput(message, targetDir),
+      };
     }
   }
   // The final context is read before the report is assembled so the write
@@ -822,6 +941,7 @@ export async function runVerificationPlan({
   const afterContext = hit ? null : await verificationCacheContext(targetDir, plan);
   const report = {
     ...focused,
+    status: focused.status,
     results,
     verification: {
       ...focused.verification,
@@ -859,6 +979,7 @@ export async function runVerificationPlan({
       scope: plan.scope ?? 'layer',
       scopeConfidence: plan.scopeConfidence ?? 'unknown',
       budgetMs: plan.budgetMs ?? null,
+      budget: focused.verification.budget ?? null,
       estimatedCostMs: plan.estimatedCostMs ?? null,
       environment: plan.environment ?? { mode: 'cold', fallback: 'blocked' },
       impactGroups: [...(plan.impactGroups ?? [])],
@@ -888,16 +1009,10 @@ export async function runVerificationPlan({
       tierSource: plan.tierSource ?? null,
     },
   };
-  if (deferredChecks.length > 0 && report.verification.acceptance) {
-    report.verification.acceptance = {
-      ...report.verification.acceptance,
-      status: 'blocked',
-      reasonCode: 'DEFERRED_CHECKS',
-    };
-  }
   if (!hit) {
     if (afterContext.key !== cacheContext.key) {
       report.ok = false;
+      report.status = 'stale';
       report.error = { code: 'PROJECT_VERIFICATION_INPUTS_CHANGED', message: 'Verification inputs changed while checks were running.' };
       report.verification.inputsStable = false;
       // The acceptance was computed from the inputs the checks ran against; once
@@ -911,8 +1026,13 @@ export async function runVerificationPlan({
         };
       }
     }
+    const receiptStatus = afterContext.key !== cacheContext.key
+      ? 'stale'
+      : focused.results.some((item) => item.status === 'blocked')
+        ? 'blocked'
+        : report.ok && focused.results.every((item) => item.status === 'passed') ? 'passed' : 'failed';
     await storeVerificationReceipt(targetDir, cacheContext, {
-      ...report.verification, status: report.ok && focused.results.every((item) => item.status === 'passed') ? 'passed' : 'failed',
+      ...report.verification, status: receiptStatus,
     }, {
       // The per-check commands this run reported, so a later completion receipt
       // can be checked against them instead of being taken on its own word. The

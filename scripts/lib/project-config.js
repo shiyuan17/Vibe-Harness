@@ -110,8 +110,8 @@ export const defaultProjectConfig = {
   delivery: {
     default: 'managed-mr',
     profiles: {
-      'managed-mr': { merge: 'squash', cleanup: 'evidence-compatible', requireReceipt: true },
-      'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: true },
+      'managed-mr': { merge: 'squash', cleanup: 'evidence-compatible', requireReceipt: false },
+      'local-land': { merge: 'no-ff', cleanup: 'ancestor', requireReceipt: false },
       'inspect-only': { write: false, requireReceipt: false },
     },
   },
@@ -518,6 +518,23 @@ export function validateProjectConfig(config) {
       && (!Number.isInteger(config.verification.budgetMs) || config.verification.budgetMs < 0)) {
       throw new Error('verification.budgetMs must be null or a non-negative integer');
     }
+    if (Object.hasOwn(config.verification, 'reuse')) {
+      assertObject(config.verification.reuse, 'verification.reuse');
+      const reuse = config.verification.reuse;
+      if (reuse.mode !== undefined && !['workspace', 'tree-content'].includes(reuse.mode)) {
+        throw new Error('verification.reuse.mode must be workspace or tree-content');
+      }
+      if (reuse.envAllowlist !== undefined) {
+        assertUniqueStringArray(reuse.envAllowlist, 'verification.reuse.envAllowlist');
+        if (reuse.envAllowlist.some((name) => !/^[A-Z][A-Z0-9_]*$/u.test(name))) {
+          throw new Error('verification.reuse.envAllowlist must contain environment variable names');
+        }
+      }
+      if (reuse.ttlMs !== undefined
+        && (!Number.isInteger(reuse.ttlMs) || reuse.ttlMs < 60000 || reuse.ttlMs > 7776000000)) {
+        throw new Error('verification.reuse.ttlMs must be between 60000 and 7776000000');
+      }
+    }
     if (Object.hasOwn(config.verification, 'environment')) {
       assertObject(config.verification.environment, 'verification.environment');
       const environment = config.verification.environment;
@@ -563,6 +580,12 @@ export function validateProjectConfig(config) {
       if (!['advisory', 'strict'].includes(config.hooks.enforcement)) {
         throw new Error('hooks.enforcement must be advisory or strict');
       }
+    }
+    if (Object.hasOwn(config.hooks, 'mode') && !['off', 'observe', 'guarded'].includes(config.hooks.mode)) {
+      throw new Error('hooks.mode must be off, observe, or guarded');
+    }
+    if (Object.hasOwn(config.hooks, 'profile') && !['minimal', 'standard', 'strict'].includes(config.hooks.profile)) {
+      throw new Error('hooks.profile must be minimal, standard, or strict');
     }
     if (Object.hasOwn(config.hooks, 'rtk')) throw new Error('hooks.rtk has been retired; run install --upgrade.');
   }

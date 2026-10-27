@@ -23,7 +23,7 @@ async function run(args) {
 const codex = {
   id: 'codex',
   capabilities: { hooks: 'stable', mcp: 'stable' },
-  hookEvents: { preToolUse: 'stable', permissionRequest: 'stable', stop: 'unsupported' },
+  hookEvents: { preToolUse: 'stable', permissionRequest: 'not-projected', stop: 'unsupported' },
   redZonePrefixes: ['.codex/'],
 };
 const antigravity = {
@@ -64,11 +64,12 @@ test('every adapter in the catalog has a consistent safety posture assessment', 
       assert.equal(posture.degraded, false, 'codex should not be degraded');
     }
     // Adapters with stable hooks AND non-empty redZonePrefixes are not degraded.
-    if (adapter.hookEvents.preToolUse === 'stable' && adapter.hookEvents.permissionRequest === 'stable' && adapter.redZonePrefixes.length > 0) {
+    const permissionCovered = ['stable', 'not-projected'].includes(adapter.hookEvents.permissionRequest);
+    if (adapter.hookEvents.preToolUse === 'stable' && permissionCovered && adapter.redZonePrefixes.length > 0) {
       assert.equal(posture.degraded, false, `${adapter.id} should not be degraded`);
     }
     // Adapters without stable hooks or without redZonePrefixes are degraded.
-    if (adapter.hookEvents.preToolUse !== 'stable' || adapter.hookEvents.permissionRequest !== 'stable' || adapter.redZonePrefixes.length === 0) {
+    if (adapter.hookEvents.preToolUse !== 'stable' || !permissionCovered || adapter.redZonePrefixes.length === 0) {
       assert.equal(posture.degraded, true, `${adapter.id} should be degraded`);
     }
   }

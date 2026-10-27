@@ -165,8 +165,8 @@ test('unclassified commands still require an Execution Envelope', async () => {
       assert.equal(isReadOnlyShellSegment(command), false, command);
       const result = await evaluateCodexHook(input(target, { tool_input: { command } }));
       assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', command);
-      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, command);
-      assert.match(result.hookSpecificOutput.permissionDecisionReason, /不可判定/u, command);
+      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT/u, command);
+      assert.match(result.hookSpecificOutput.permissionDecisionReason, /无法安全判定/u, command);
     }
   });
 });
@@ -206,8 +206,7 @@ test('sync-class git commands pass as read-only while pull --ff-only keeps a cle
         input(target, { tool_input: { command } }),
         { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } },
       );
-      assert.equal(denied.hookSpecificOutput.permissionDecision, 'deny', command);
-      assert.match(denied.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, command);
+      assert.deepEqual(denied, {}, command);
     }
   });
 });
@@ -493,7 +492,7 @@ test('host tools that mutate host state or drive another agent still require an 
       assert.equal(classifyExecutionEffects(normalized).readOnly, false, toolName);
       const result = await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName }));
       assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', toolName);
-      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, toolName);
+      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT|HOST_AUTHORIZATION_REQUIRED/u, toolName);
     }
   });
 });
@@ -516,7 +515,7 @@ test('read-only MCP tools pass while write-class MCP tools still need an Envelop
     for (const toolName of ['mcp__codebase_memory_mcp__write', 'mcp__codex_app__create_thread']) {
       const unclassified = await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName }));
       assert.equal(unclassified.hookSpecificOutput.permissionDecision, 'deny', toolName);
-      assert.match(unclassified.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, toolName);
+      assert.match(unclassified.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT/u, toolName);
     }
 
     // A write with a known effect still needs an Envelope when the project
@@ -527,8 +526,11 @@ test('read-only MCP tools pass while write-class MCP tools still need an Envelop
       ['mcp__filesystem__write_file', { path: path.join(target, 'notes.md') }],
     ]) {
       const result = await evaluateCodexHook(input(target, { tool_input: toolInput, tool_name: toolName }), { environment });
-      assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', toolName);
-      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_/u, toolName);
+      if (toolName === 'mcp__filesystem__write_file') assert.deepEqual(result, {}, toolName);
+      else {
+        assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', toolName);
+        assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, toolName);
+      }
     }
   });
 });
@@ -564,8 +566,7 @@ test('codebase-memory 工具面按显式契约判定，不按动词猜测', asyn
       input(target, { tool_input: { mode: 'update' }, tool_name: manageToolName }),
       { environment: { VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED: '1' } },
     );
-    assert.equal(manageDenied.hookSpecificOutput.permissionDecision, 'deny');
-    assert.match(manageDenied.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u);
+    assert.deepEqual(manageDenied, {});
 
     // `delete_project` destroys a whole project's graph and stays refused with
     // and without the project-level Envelope requirement.
@@ -575,7 +576,7 @@ test('codebase-memory 工具面按显式契约判定，不按动词猜测', asyn
         environment ? { environment } : undefined,
       );
       assert.equal(deleted.hookSpecificOutput.permissionDecision, 'deny');
-      assert.match(deleted.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u);
+      assert.match(deleted.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT|HOST_AUTHORIZATION_REQUIRED/u);
     }
   });
 });
@@ -610,7 +611,7 @@ test('未登记语义服务的只读动词放行，写入与执行保持门禁',
       assert.equal(classifyExecutionEffects(request(target, { tool_input: {}, tool_name: toolName })).unknown, true, toolName);
       const result = await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName }));
       assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', toolName);
-      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, toolName);
+      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT/u, toolName);
     }
   });
 });
@@ -632,7 +633,7 @@ test('fd 默认放行，exec 旗标保持 Envelope 门禁', async () => {
       assert.equal(isReadOnlyShellSegment(command), false, command);
       const result = await evaluateCodexHook(input(target, { tool_input: { command } }));
       assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', command);
-      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, command);
+      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT/u, command);
     }
   });
 });

@@ -21,17 +21,22 @@ const inheritedEnvironment = Object.fromEntries(
   Object.entries(process.env).filter(([name]) => allowedEnvironmentNames.has(name)),
 );
 const endpoint = await resolveOcrEndpoint({ env: inheritedEnvironment, homeDir: homedir() });
-const childEnvironment = { ...inheritedEnvironment, ...(endpoint.env ?? {}) };
-const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
-  cwd: process.cwd(),
-  env: childEnvironment,
-  stdio: 'inherit',
-  windowsHide: true,
-});
-child.once('error', (error) => {
-  console.error(`Unable to start Open Code Review: ${error.code ?? 'START_FAILED'}`);
+if (endpoint.status !== 'ready') {
+  console.error(`Unable to start Open Code Review: ${endpoint.diagnostic?.code ?? 'OCR_CONFIG_MISSING'}`);
   process.exitCode = 1;
-});
-child.once('exit', (code, signal) => {
-  process.exitCode = code ?? (signal ? 1 : 0);
-});
+} else {
+  const childEnvironment = { ...inheritedEnvironment, ...(endpoint.env ?? {}) };
+  const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
+    cwd: process.cwd(),
+    env: childEnvironment,
+    stdio: 'inherit',
+    windowsHide: true,
+  });
+  child.once('error', (error) => {
+    console.error(`Unable to start Open Code Review: ${error.code ?? 'START_FAILED'}`);
+    process.exitCode = 1;
+  });
+  child.once('exit', (code, signal) => {
+    process.exitCode = code ?? (signal ? 1 : 0);
+  });
+}

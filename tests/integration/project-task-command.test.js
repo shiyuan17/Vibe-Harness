@@ -552,7 +552,7 @@ test('命令集变化时 verify --reuse 回退为正常执行', async () => {
   }
 });
 
-test('缺少匹配锚点时 verify --reuse 回退且校验 task id', async () => {
+test('同树默认复用不要求指定任务锚点且仍校验 task id', async () => {
   const project = await tempProject();
   try {
     await writeConfig(project, { test: 'node -e "process.exit(0)"' });
@@ -561,9 +561,10 @@ test('缺少匹配锚点时 verify --reuse 回退且校验 task id', async () =>
     await recordReceipt(project, 'present', 'u1', first.report);
 
     const miss = await runCommand(['verify', '--project', '.', '--task', 'absent', '--reuse', '--json'], { cwd: project });
-    assert.equal(miss.report.status, 'passed');
-    assert.equal(miss.report.checks.test.status, 'passed');
-    assert.equal(miss.report.reused, undefined);
+    assert.equal(miss.report.status, 'reused');
+    assert.equal(miss.report.checks.test.status, 'reused');
+    assert.equal(miss.report.reused.id, first.report.verification.id);
+    assert.equal(miss.report.reused.taskId, 'present');
 
     const invalid = await runCommand(['verify', '--project', '.', '--task', 'a/b', '--reuse', '--json'], { cwd: project });
     assert.equal(invalid.exitCode, 1);
@@ -584,6 +585,33 @@ test('非 git 工作区中 verify --reuse 正常执行检查', async () => {
     assert.equal(result.report.checks.test.status, 'passed');
     assert.equal(result.report.verification.stable, null);
     assert.equal(result.report.reused, undefined);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('checkpoint 不可用时 verify 只告警且检查结果不变', async () => {
+  const project = await tempProject();
+  try {
+    await writeConfig(project, { test: 'node -e "process.exit(0)"' });
+    const initialized = await runCommand([
+      'task', 'init', 'checkpoint-warning', '--title', 'Checkpoint warning',
+      '--goal', 'Keep verification independent from anchor state', '--write', '--json',
+    ], { cwd: project });
+    assert.equal(initialized.report.status, 'passed');
+
+    const result = await runCommand([
+      'verify', '--project', '.', '--task', 'checkpoint-warning', '--no-reuse', '--json',
+    ], { cwd: project });
+    assert.equal(result.exitCode, 0, JSON.stringify(result.report));
+    assert.equal(result.report.status, 'passed');
+    assert.equal(result.report.checks.test.status, 'passed');
+    assert.deepEqual(
+      result.report.warnings
+        .filter((warning) => warning.code === 'VERIFICATION_CHECKPOINT_WARNING')
+        .map((warning) => warning.stage),
+      ['pre-verify', 'post-verify'],
+    );
   } finally {
     await rm(project, { recursive: true, force: true });
   }
@@ -627,12 +655,13 @@ test('verify --plan 优先于 --reuse', async () => {
   }
 });
 
-test('help 说明锚点目录与重放状态', async () => {
+test('help 说明锚点目录与默认复用入口', async () => {
   const result = await runCommand(['help', '--json'], { cwd: rootDir });
   assert.equal(result.exitCode, 0);
   assert.match(result.report.task, /\.vibe-harness\/tasks\/<task-id>\.json/u);
   assert.match(result.report.task, /task <init\|update\|status\|list\|plan-check\|plan-sync\|check\|freeze-tests\|rebaseline-tests>/u);
-  assert.match(result.report.reuse, /status "reused"/u);
+  assert.match(result.report.reuse, /reused by default/u);
+  assert.match(result.report.reuse, /--no-reuse/u);
 });
 
 test('受管计划绑定、漂移检查与 plan-sync 阻断更新', async () => {
@@ -954,9 +983,88 @@ test('缺少执行块的旧计划只产生警告并保持可绑定', async () =>
     const checked = await runCommand(['task', 'plan-check', 'legacy', '--json'], { cwd: project });
     assert.equal(checked.report.status, 'passed');
     assert.equal(checked.report.units.present, false);
+    assert.equal(checked.report.acceptanceCoverage.availability, 'unavailable');
+    assert.equal(checked.report.acceptanceCoverage.semanticCoverage, 'not_evaluated');
     // Without a block there is no unit list to claim acceptance with, so the
     // only honest signal is "the machine-readable contract is missing".
     assert.deepEqual(checked.report.units.warnings.map((item) => item.code), ['VIBE_HARNESS_PLAN_UNITS_MISSING']);
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('验收覆盖只告警：规划不要求证据，任务指出未认领与缺失单元但不改变退出码', async () => {
+  const project = await tempProject();
+  try {
+    await bindPlan(project, 'coverage', planWithUnits([
+      { id: 'U1', files: ['runtime/a.mjs'], dependsOn: [], acceptance: ['A-001'] },
+    ]));
+    const before = await readFile(anchorPath(project, 'coverage'), 'utf8');
+    const planned = await runCommand(['task', 'plan-check', 'coverage', '--json'], { cwd: project });
+    assert.equal(planned.exitCode, 0);
+    assert.equal(planned.report.acceptanceCoverage.mode, 'advisory');
+    assert.equal(planned.report.acceptanceCoverage.evidenceStatus, 'not_checked');
+    assert.deepEqual(planned.report.acceptanceCoverage.gaps.map((gap) => gap.code), ['ACCEPTANCE_UNCLAIMED']);
+    const checked = await runCommand(['task', 'check', 'coverage', '--json'], { cwd: project });
+    assert.equal(checked.exitCode, 0, 'legacy empty-anchor check stays passed; advisory does not gate it');
+    assert.ok(checked.report.warnings.some((gap) => gap.code === 'ACCEPTANCE_UNIT_MISSING'));
+    assert.equal(await readFile(anchorPath(project, 'coverage'), 'utf8'), before, 'diagnosis is read-only');
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('验收覆盖不能将人工判据或无计划任务推断为机械通过', async () => {
+  const project = await tempProject();
+  try {
+    await runCommand(['task', 'init', 'bare', '--title', 'bare', '--goal', 'manual', '--write', '--json'], { cwd: project });
+    const bare = await runCommand(['task', 'plan-check', 'bare', '--json'], { cwd: project });
+    assert.equal(bare.exitCode, 0);
+    assert.equal(bare.report.acceptanceCoverage.availability, 'unavailable');
+    await bindPlan(project, 'manual', planWithUnits([
+      { id: 'U1', files: ['runtime/a.mjs'], dependsOn: [], acceptance: ['A-001'] },
+    ], {}, ['A-001']).replace('node --test', '人工检查截图'));
+    const manual = await runCommand(['task', 'plan-check', 'manual', '--json'], { cwd: project });
+    assert.equal(manual.exitCode, 0);
+    assert.equal(manual.report.acceptanceCoverage.mappingStatus, 'complete');
+    assert.equal(manual.report.acceptanceCoverage.availability, 'unavailable');
+    assert.equal(manual.report.acceptanceCoverage.items[0].criterionKind, 'manual-or-unknown');
+    assert.ok(manual.report.warnings.some((gap) => gap.code === 'ACCEPTANCE_MANUAL_OR_UNKNOWN'));
+  } finally {
+    await rm(project, { recursive: true, force: true });
+  }
+});
+
+test('验收覆盖区分单元与全任务，多个要求可以引用同一当前收据', async () => {
+  const project = await tempProject();
+  try {
+    await writeFile(path.join(project, 'check.cjs'), 'process.exit(0);\n');
+    await writeConfig(project, { test: 'node check.cjs' });
+    await bindPlan(project, 'bound', planWithUnits([
+      { id: 'U1', files: ['runtime/a.mjs'], dependsOn: [], acceptance: ['A-001', 'A-002'] },
+      { id: 'U2', files: ['runtime/b.mjs'], dependsOn: [], acceptance: ['A-003'] },
+    ], {}, ['A-001', 'A-002', 'A-003']));
+    await initGitProject(project, '.vibe-harness/\n');
+    const receipt = await runCommand(['verify', '--project', '.', '--task', 'bound', '--json'], { cwd: project });
+    assert.equal(receipt.exitCode, 0);
+    await runCommand(['task', 'update', 'bound', '--unit-status', 'U1:done', '--unit', 'U1',
+      '--verification', JSON.stringify(receipt.report), '--write', '--json'], { cwd: project });
+    const scoped = await runCommand(['task', 'check', 'bound', '--unit', 'U1', '--complete', '--json'], { cwd: project });
+    assert.equal(scoped.exitCode, 0);
+    const coverage = scoped.report.acceptanceCoverage;
+    assert.deepEqual(coverage.scope, { kind: 'unit', unitId: 'U1' });
+    assert.deepEqual(coverage.items.map((item) => item.acceptanceId), ['A-001', 'A-002']);
+    assert.equal(coverage.evidenceStatus, 'linked');
+    assert.ok(coverage.items.every((item) => item.evidence[0].verificationId === receipt.report.verification.id));
+    assert.ok(coverage.items.every((item) => item.evidence[0].checkIds.includes('test')));
+    assert.equal(coverage.semanticCoverage, 'not_evaluated');
+    const whole = await runCommand(['task', 'check', 'bound', '--complete', '--json'], { cwd: project });
+    assert.equal(whole.exitCode, 0, 'missing declared U2 remains advisory under legacy gate');
+    assert.ok(whole.report.acceptanceCoverage.gaps.some((gap) => gap.unitId === 'U2' && gap.code === 'ACCEPTANCE_UNIT_MISSING'));
+    await writeFile(path.join(project, 'check.cjs'), 'process.exit(0); // new write\n');
+    const stale = await runCommand(['task', 'check', 'bound', '--unit', 'U1', '--complete', '--json'], { cwd: project });
+    assert.equal(stale.exitCode, 1, 'existing stale-evidence gate remains blocking');
+    assert.equal(stale.report.acceptanceCoverage.evidenceStatus, 'gaps');
   } finally {
     await rm(project, { recursive: true, force: true });
   }
