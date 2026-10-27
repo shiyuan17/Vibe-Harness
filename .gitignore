@@ -1,6 +1,7 @@
 node_modules/
 .pnpm-store/
 .codegraph/
+.claude/
 .cursor/
 .serena/
 .DS_Store
