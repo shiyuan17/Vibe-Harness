@@ -85,6 +85,11 @@ test('node dispatch ignores unrelated conflicts but rejects structural and trans
       node({ id: 'middle', dependsOn: ['failed'], result: 'succeeded' }),
       node({ id: 'last', dependsOn: ['middle'] })];
     assert.equal(checkTaskDagNode(validateTaskDag({ nodes: chain }), 'last').ready, false);
+    chain[1] = { ...chain[1], kind: 'aggregate', trigger: 'all_done' };
+    const reported = validateTaskDag({ nodes: chain });
+    assert.deepEqual(reported.ready, ['last']);
+    assert.equal(checkTaskDagNode(reported, 'last').ready, true);
+    assert.equal(reported.nodes.find((entry) => entry.id === 'failed').result, 'failed');
   } finally { await removeTemporaryDirectory(root); }
 });
 
@@ -137,7 +142,7 @@ test('an explicit dependency serializes a scope conflict into a warning', () => 
   assert.deepEqual(codes(analysis), ['TASK_DAG_SERIALIZED_CONFLICT']);
 });
 
-test('a shared resource lock is a conflict unless a dependency orders the nodes', () => {
+test('共享运行资源只排队，不要求业务依赖', () => {
   const lockAgreement = (dependsOn) => validateTaskDag({
     nodes: [
       node({ id: 'migrate', kind: 'write', output: 'migration', resourceLocks: ['db:staging'], result: 'succeeded', writeScope: ['db/migrations/**'] }),
@@ -145,11 +150,29 @@ test('a shared resource lock is a conflict unless a dependency orders the nodes'
     ],
     schema: TASK_DAG_SCHEMA,
   });
-  assert.equal(lockAgreement(undefined).ok, false);
-  assert.deepEqual(codes(lockAgreement(undefined)).filter((code) => code === 'TASK_DAG_RESOURCE_LOCK_CONFLICT').length, 1);
+  assert.equal(lockAgreement(undefined).ok, true);
+  assert.deepEqual(codes(lockAgreement(undefined)), []);
   assert.deepEqual(lockAgreement(undefined).ready, ['seed']);
   assert.equal(lockAgreement(['migrate']).ok, true);
   assert.deepEqual(lockAgreement(['migrate']).ready, ['seed']);
+  for (const result of ['pending', 'running', 'unverified', 'failed', 'succeeded']) {
+    const nodes = [
+      node({ id: 'a', resourceLocks: ['test-db'], result }),
+      node({ id: 'b', resourceLocks: ['test-db'] }),
+    ];
+    const analysis = validateTaskDag({ nodes });
+    assert.equal(analysis.structureValid, true);
+    assert.deepEqual(analysis.ready, result === 'pending' ? ['a']
+      : ['running', 'unverified'].includes(result) ? [] : ['b'], result);
+    assert.equal(checkTaskDagNode(analysis, 'b').ready, analysis.ready.includes('b'));
+  }
+  const conflicted = validateTaskDag({ nodes: [
+    node({ id: 'a', kind: 'write', writeScope: ['src/shared.js'], resourceLocks: ['test-db'] }),
+    node({ id: 'b', kind: 'write', writeScope: ['src/b.js'], resourceLocks: ['test-db'] }),
+    node({ id: 'c', kind: 'write', writeScope: ['src/shared.js'] }),
+  ] });
+  assert.deepEqual(conflicted.ready, ['b'], '写入冲突节点不能预占资源而阻塞无关节点');
+  assert.equal(checkTaskDagNode(conflicted, 'b').ready, true);
 });
 
 test('node contract violations fail closed', () => {

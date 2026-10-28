@@ -276,7 +276,9 @@ export function validateTaskDag(value, { batchEvidence = null } = {}) {
       const first = writeNodes[left];
       const second = writeNodes[right];
       const hit = writeConflict(first, second);
-      if (hit.locks.length === 0 && hit.scopes.length === 0) continue;
+      // Runtime exclusivity is a scheduling concern, not a business dependency.
+      // Overlapping writes still require explicit ownership/order.
+      if (hit.scopes.length === 0) continue;
       const ordered = reachable(edges, first.id, second.id) || reachable(edges, second.id, first.id)
         || batchEvidence?.ok && batchEvidence.members.includes(first.id) && batchEvidence.members.includes(second.id);
       const detail = [
@@ -359,24 +361,27 @@ function predecessorSatisfied(byId, batchEvidence, consumer, predecessor, trigge
 export function checkTaskDagNode(analysis, id) {
   if (!analysis.structureValid) return { id, ready: false, code: 'TASK_DAG_STRUCTURE_INVALID' };
   if (!analysis.nodes.some((node) => node.id === id)) return { id, ready: false, code: 'TASK_DAG_NODE_UNKNOWN' };
-  const nodes = new Map(analysis.nodes.map((node) => [node.id, node]));
-  const visit = (nodeId, visited = new Set()) => {
-    if (visited.has(nodeId)) return null;
-    visited.add(nodeId);
-    for (const predecessor of nodes.get(nodeId).dependsOn) {
-      if (!predecessorSatisfied(nodes, analysis.batchEvidence, id, predecessor, 'all_success')) return predecessor;
-      const blocked = visit(predecessor, visited);
-      if (blocked) return blocked;
-    }
-    return null;
-  };
-  if (nodes.get(id).trigger === 'all_success') {
-    const predecessor = visit(id);
-    if (predecessor) return { id, ready: false, code: 'TASK_DAG_PREDECESSOR_NOT_SUCCESSFUL', predecessor };
-  }
   if (analysis.ready.includes(id)) return { id, ready: true, code: 'TASK_DAG_NODE_READY' };
   return { id, ready: false, ...(analysis.blocked.find((node) => node.id === id)
     ?? { code: 'TASK_DAG_NODE_NOT_PENDING' }) };
+}
+
+function inconsistentPredecessor(byId, batchEvidence, id, visited = new Set()) {
+  if (visited.has(id)) return null;
+  visited.add(id);
+  const node = byId.get(id);
+  for (const predecessor of node.dependsOn) {
+    if (!predecessorSatisfied(byId, batchEvidence, id, predecessor, node.trigger)) return predecessor;
+    // An all_done report may consume a failed producer. Successful intermediate
+    // nodes still have to satisfy their own triggers; self-reported success
+    // cannot conceal an impossible all_success chain.
+    if (SUCCESSFUL_RESULTS.includes(byId.get(predecessor).result)
+      || batchPredecessorSatisfied(batchEvidence, id, predecessor)) {
+      const invalid = inconsistentPredecessor(byId, batchEvidence, predecessor, visited);
+      if (invalid) return invalid;
+    }
+  }
+  return null;
 }
 
 function scheduleNodes(byId, conflicts, batchEvidence) {
@@ -398,6 +403,11 @@ function scheduleNodes(byId, conflicts, batchEvidence) {
     if (failed.length > 0) blocked.push({ code: 'TASK_DAG_PREDECESSOR_FAILED', id: node.id, reason: failed.join(', ') });
     else if (waiting.length > 0) blocked.push({ code: 'TASK_DAG_WAIT', id: node.id, reason: waiting.join(', ') });
     else {
+      const inconsistent = inconsistentPredecessor(byId, batchEvidence, node.id);
+      if (inconsistent) {
+        blocked.push({ code: 'TASK_DAG_PREDECESSOR_NOT_SUCCESSFUL', id: node.id, predecessor: inconsistent });
+        continue;
+      }
       const occupied = [...byId.values()].filter((other) => other.id !== node.id
         && (other.cleanupPending || ['running', 'unverified'].includes(other.result)
           && !batchPredecessorSatisfied(batchEvidence, node.id, other.id)))
@@ -429,6 +439,16 @@ function scheduleNodes(byId, conflicts, batchEvidence) {
       readySet.delete(id);
       blocked.push({ code: 'TASK_DAG_BATCH_SINGLE_WRITER', id, reason: 'one Parent batch executes one member at a time' });
     }
+  }
+  // Reserve only for dispatchable nodes: a scope conflict or batch restriction
+  // must not let a blocked node retain an otherwise available runtime resource.
+  const reserved = new Set();
+  for (const id of [...readySet].sort()) {
+    const locks = byId.get(id).resourceLocks;
+    if (locks.some((lock) => reserved.has(lock))) {
+      readySet.delete(id);
+      blocked.push({ code: 'TASK_DAG_RESOURCE_WAIT', id, reason: 'runtime resource reserved by another ready node' });
+    } else locks.forEach((lock) => reserved.add(lock));
   }
   return { blocked: blocked.sort((left, right) => left.id.localeCompare(right.id)), ready: [...readySet].sort() };
 }

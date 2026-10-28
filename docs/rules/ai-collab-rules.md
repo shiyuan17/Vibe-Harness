@@ -53,7 +53,7 @@ running → unverified：
   - 未获得完整验证收据
 
 unverified → succeeded/failed/blocked：
-  - 深度验证完成
+  - 与当前完成主张匹配的必要验证完成；修复快速检查失败不自动升级 deep
   - 必须有实际命令或人工判据
   - 关键路径必须 passed
 
@@ -89,7 +89,7 @@ cancelled：
 | `dependsOn` | 直接上游，根节点为空 |
 | `trigger` | 默认 `all_success` |
 | `writeScope` | 只读节点为空 |
-| `resourceLocks` | 逻辑与基础设施级共享资源：API、schema、manifest、迁移、版本或发布状态，包管理器 store 与 lockfile、构建与测试缓存、端口与容器、测试数据库、外部 API 配额，以及同一 clone 的 Git 操作；端口与容器这类基础设施锁以项目登记表为事实 |
+| `resourceLocks` | 运行时互斥资源：包管理器 store、构建与测试缓存、端口与容器、测试数据库、外部 API 配额及同一 clone 的 Git 操作；共享契约的写入归属由 writeScope 和 dependsOn 表达，资源排队不创造业务依赖 |
 | `verification` | 聚焦验证：命令或人工判据、责任方（child 或 parent）与通过标准 |
 | `result` | 统一状态，见下 |
 | `cleanupPending` | 可选布尔值，默认 false；true 保留残留资源占用，不改变成功节点的 result |
@@ -111,8 +111,9 @@ cancelled：
 - 自依赖、任意有向环、不可见前驱或依赖清单无法完整读取时 fail-closed，父 Agent 报告 offending edge 或 path；对自己生成的本地计划可在原授权内修正依赖，外部维护的依赖关系须有相应写入授权。
 - `writeScope` 只接受项目相对精确路径或末尾为 `/**` 的目录范围；比较前统一使用 `/` 并移除前导 `./`，拒绝绝对路径、UNC、空路径、`..`、其他复杂 glob 和无法安全解析的符号链接。
 - Windows 路径比较忽略大小写；范围相同、存在按 path segment 判断的祖先关系或无法可靠判定时按冲突处理。
-- writeScope 重叠或 resourceLocks 相同的 write 节点只有存在传递依赖顺序时才可串行执行，否则冲突节点都不 ready；相同 resourceLocks 代表的共享契约由唯一节点负责写入，其他节点只消费其稳定输出。
-- 路径不重叠但存在接口、Schema、迁移或行为契约耦合的 write 节点，必须由唯一节点写入共享契约并建立显式依赖；无法证明隔离时按冲突处理，不得仅凭路径不重叠并行。
+- writeScope 重叠的 write 节点只有存在传递依赖顺序时才可执行，否则冲突节点都不 ready。共享 resourceLocks 的独立节点按占用与稳定 ID 排队；前一个业务失败不阻塞无依赖的后一个。ready 只是派发计划，实际执行仍须原子取得资源；测试基础设施优先复用验证器的 checks[].resources，不为排队修改 Linear relations。
+- ready 与派发使用同一 trigger 判据；合法 all_done 汇总可以向后提供报告，但不能把失败 Root 判为成功。声明成功的 all_success 中间节点仍须满足自己的前驱，不能用自报成功掩盖失败祖先。
+- 路径不重叠但存在接口、Schema、迁移或行为契约耦合的 write 节点，共享契约必须由唯一节点负责写入并建立显式依赖；无法证明隔离时按冲突处理，不得仅凭路径不重叠并行。
 - 逻辑锁不替代原子性：同一 clone 的 Git 操作、包管理器 store、构建与测试缓存等共享资源要么列入 resourceLocks 串行化，要么在隔离工作区执行。
 
 ### 派发、失败与交接
