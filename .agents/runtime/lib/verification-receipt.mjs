@@ -114,7 +114,7 @@ async function readRecord(file) {
 }
 
 export async function authenticatePushRecord(record) {
-  if (!['push-verification', 'push-attempt'].includes(record?.kind) || record.schemaVersion !== 1) return null;
+  if (!['push-verification', 'push-attempt', 'push-baseline'].includes(record?.kind) || record.schemaVersion !== 1) return null;
   const key = await authenticationKey();
   return key ? { ...record, mac: authenticate(record, key) } : null;
 }

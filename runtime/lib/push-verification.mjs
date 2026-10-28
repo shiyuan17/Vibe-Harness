@@ -30,6 +30,40 @@ async function layout(projectDir) {
   if (lstatSync(store).isSymbolicLink()) throw new Error('push proof store must not be a link');
   return { directory, store, identity: hash(directory) };
 }
+
+/** Freeze the actual branch creation point, using the existing authenticated store. */
+export async function recordPushBaseline(projectDir, branch, sha) {
+  const head = await runGit(['rev-parse', '--verify', `refs/heads/${branch}^{commit}`], projectDir);
+  if (!head.ok || head.stdout.trim() !== sha) return false;
+  const store = await layout(projectDir);
+  const record = await authenticatePushRecord({ schemaVersion: 1, kind: 'push-baseline',
+    repository: store.identity, branch, sha });
+  if (!record) return false;
+  const file = path.join(store.store, `baseline-${hash(branch)}.json`);
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  writeFileSync(temporary, JSON.stringify(record), { flag: 'wx', mode: 0o600 });
+  renameSync(temporary, file);
+  return true;
+}
+
+/** A missing target ref does not erase a proven development baseline. */
+export async function resolvePushBaseline(projectDir, update) {
+  if (!/^0+$/u.test(update.remoteSha)) {
+    const known = await runGit(['cat-file', '-e', `${update.remoteSha}^{commit}`], projectDir);
+    return known.ok ? update.remoteSha : null;
+  }
+  if (!update.localRef.startsWith('refs/heads/')) return null;
+  try {
+    const branch = update.localRef.slice('refs/heads/'.length);
+    const store = await layout(projectDir);
+    const record = await readAuthenticatedPushRecord(path.join(store.store, `baseline-${hash(branch)}.json`));
+    if (record?.kind !== 'push-baseline' || record.repository !== store.identity || record.branch !== branch
+      || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(record.sha ?? '')) return null;
+    const ancestor = await runGit(['merge-base', '--is-ancestor', record.sha, update.sha], projectDir);
+    return ancestor.ok ? record.sha : null;
+  } catch { return null; }
+}
+
 async function inputs(candidate, checks) {
   const config = JSON.parse(readFileSync(path.join(candidate, 'vibe-harness.config.json'), 'utf8'));
   const environment = environmentSnapshot();

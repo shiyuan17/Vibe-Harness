@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { acquireCheckResources, runCheckBatches } from './check-resources.mjs';
 import { candidateEnvironment } from './verification-inputs.mjs';
-import { buildDeliveryVerificationPlan } from './verification-risk.mjs';
+import { buildDeliveryVerificationPlan, verificationRiskMetadata } from './verification-risk.mjs';
 
 import { runMicroCheck } from './micro-runner.mjs';
 import { gitFingerprint, gitTreeFingerprint } from './git-fingerprint.mjs';
@@ -57,7 +57,7 @@ async function verificationTaskBinding(projectDir, taskId, unitId) {
     planFile: typeof anchor.planFile === 'string' ? anchor.planFile : null,
     planRevision: typeof anchor.planRevision === 'string' ? anchor.planRevision : null,
     planDigest: typeof anchor.planDigest === 'string' ? anchor.planDigest : null,
-    ...(anchor.executionBatch && anchor.executionBatch.members.includes(unitId) ? { unitId } : {}),
+    ...(unitId ? { unitId, unitContractDigest: anchor.unitContracts?.[unitId] ?? null } : {}),
   };
 }
 export function verificationProgress(args, phase, detail = {}) {
@@ -85,6 +85,10 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   const timingsMs = { preparation: 0, scopeResolution: 0, snapshotBefore: 0, snapshotAfter: 0,
     inputFingerprint: 0, dependencyScan: 0, coalescingWait: 0, resourceWait: 0, execution: 0, cacheLookup: 0 };
   const startedAt = new Date().toISOString();
+  if (args.full && (args.tier || args.only || args.micro || args.async)) return {
+    schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed',
+    code: 'FULL_FLAGS_CONFLICT', error: '--full cannot be combined with --tier, --only, --micro or --async', checks: {},
+  };
   if (args.micro !== undefined) {
     if (args.tier || args.only || args.async || args.reuse || args.allowManual || args.noReuse) {
       return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'blocked', code: 'MICRO_EXCLUSIVE', error: '--micro cannot be combined with --tier, --only, --async, --reuse, --no-reuse, or --allow-manual.', checks: {} };
@@ -212,7 +216,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   const scopeStartedMs = Date.now();
   try {
     changeScope = verificationChanges(projectDir, { paths: args.paths, base: args.base });
-    tierPlan = args.deliveryEvidence ? buildDeliveryVerificationPlan({
+    tierPlan = args.deliveryEvidence || args.full ? buildDeliveryVerificationPlan({
       changedPaths: args.riskPaths ?? changeScope.changedPaths, config, projectDir, tier: args.tier ?? null,
       scopeConfidence: args.scopeConfidence ?? 'complete', fullRisk: args.fullRisk === true, full: args.full === true,
     }) : resolveVerifyTierPlan({
@@ -223,6 +227,9 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       projectDir,
       explicit: args.tier !== undefined,
     });
+    const riskMetadata = verificationRiskMetadata(changeScope.changedPaths, { config, scope, projectDir });
+    tierPlan = { ...tierPlan, ...riskMetadata, requiredChecks: tierPlan.requiredChecks
+      ?? buildDeliveryVerificationPlan({ changedPaths: changeScope.changedPaths, config, projectDir }).requiredChecks };
   } catch (error) {
     return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed', error: error.message, checks: {} };
   }
@@ -242,8 +249,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   for (const check of tierPlan.allChecks) configured.commands[check.id] = check.command;
   const selectedNames = tierPlan.selectedNames;
   const deferredNames = new Set(tierPlan.deferredChecks.map((item) => item.name));
-  // `--reviewed` is the explicit relevance review; without it the report can
-  // only say `unreviewed` and the acceptance evidence stays blocked.
+  // `--reviewed` is observational metadata, not a mandatory delivery gate.
   const reviewedChecks = resolveReviewedChecks(args.reviewed, selectedNames);
   const reviewWarnings = reviewedChecks.warnings.map((message) => ({
     code: 'VERIFY_REVIEW_METADATA_IGNORED',
@@ -337,12 +343,13 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       }]));
       return {
         schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'reused',
-        tier: tierPlan.tier, scope, ...changeScope, scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
+        tier: tierPlan.tier, scope, ...changeScope, scopeConfidence: tierPlan.scopeConfidence,
+        riskLevel: tierPlan.riskLevel, impactGroups: tierPlan.impactGroups, requiredChecks: tierPlan.requiredChecks,
         checks: reusedChecks, selectedChecks: selectedNames, deferredChecks: tierPlan.deferredChecks,
         warnings: reviewWarnings,
         subsumedChecks: tierPlan.subsumedChecks ?? [], nextTier: tierPlan.nextTier,
         selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
-        minimumTier: null,
+        minimumTier: tierPlan.minimumTier,
         selectedMicroChecks: [], deferredMicroChecks: [], estimatedCostMs: estimateSelectedCost(selectedNames),
         cache: { status: 'hit', reason: cached.reason, lookupMs: cacheLookupMs },
         timingsMs: { ...timingsMs, inputFingerprint: cacheContext.inputFingerprintMs + confirmedContext.inputFingerprintMs,
@@ -583,9 +590,10 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       command: 'verify',
       tier: tierPlan.tier,
       scope,
-      scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
-      riskLevel: null,
-      impactGroups: [],
+      scopeConfidence: tierPlan.scopeConfidence,
+      riskLevel: tierPlan.riskLevel,
+      impactGroups: tierPlan.impactGroups,
+      requiredChecks: tierPlan.requiredChecks,
       deferredChecks: tierPlan.deferredChecks,
       subsumedChecks: tierPlan.subsumedChecks ?? [],
       nextTier: tierPlan.nextTier,
@@ -593,7 +601,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       checks,
       selectedChecks: selectedNames,
       selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
-      minimumTier: null,
+      minimumTier: tierPlan.minimumTier,
       selectedMicroChecks: [],
       deferredMicroChecks: [],
       estimatedCostMs: estimateSelectedCost(selectedNames),
@@ -609,9 +617,10 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       command: 'verify',
       tier: tierPlan.tier,
       scope,
-      scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
-      riskLevel: null,
-      impactGroups: [],
+      scopeConfidence: tierPlan.scopeConfidence,
+      riskLevel: tierPlan.riskLevel,
+      impactGroups: tierPlan.impactGroups,
+      requiredChecks: tierPlan.requiredChecks,
       deferredChecks: tierPlan.deferredChecks,
       subsumedChecks: tierPlan.subsumedChecks ?? [],
       nextTier: tierPlan.nextTier,
@@ -621,7 +630,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       checks,
       selectedChecks: selectedNames,
       selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
-      minimumTier: null,
+      minimumTier: tierPlan.minimumTier,
       selectedMicroChecks: [],
       deferredMicroChecks: [],
       estimatedCostMs: estimateSelectedCost(selectedNames),
@@ -737,7 +746,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     command: 'verify',
     tier: tierPlan.tier,
     scope,
-    scopeConfidence: scope === 'full' ? 'complete' : 'unknown',
+    scopeConfidence: tierPlan.scopeConfidence,
     riskLevel: tierPlan.riskLevel ?? null,
     impactGroups: tierPlan.impactGroups ?? [],
     requiredChecks: tierPlan.requiredChecks ?? [],
@@ -760,7 +769,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     checks,
     selectedChecks: selectedNames,
     selectionReasonsByCheck: tierPlan.selectionReasonsByCheck,
-    minimumTier: null,
+    minimumTier: tierPlan.minimumTier,
     selectedMicroChecks: [],
     deferredMicroChecks: [],
     estimatedCostMs: estimateSelectedCost(selectedNames),

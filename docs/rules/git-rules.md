@@ -49,6 +49,8 @@ finalize 段持有队首；stage、全部验证与清理都在队列外执行。
 Hook 与网络时延会延长 finalize，不承诺固定秒数。不得为缩短占锁时间静默绕过
 项目 Hook。正常推送确认后先释放队列，再尝试本地 ff-only 同步和清理。
 
+受管 bootstrap 新建任务分支时认证并保存实际起点。首次 push 的远端 ref 不存在时，Hook 仅在该起点属于同仓库、同本地分支且仍为推送 SHA 的祖先时使用它计算增量；缺失、篡改或不可证明时保守扫描整树。目标 ref 已存在时始终以实际远端 SHA 为基线，不猜 `HEAD^`。交付内部推导的有效层级不等于用户显式要求；stage、publish 与 Hook 复用同一必要证据选择，显式 tier/full 仍保持其请求语义。
+
 短时互斥只用于分配单调票号；票按 `%012d-<uuid>.json` 保存，状态限定为
 `queued`、`running`、`completed`、`cancelled`、`expired`。只有队首取得
 运行租约，等待者持续心跳并报告 `queue-wait`、`queue-ready`、

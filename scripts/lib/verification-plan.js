@@ -12,7 +12,7 @@ import {
 } from './validation-tiers.js';
 import { verificationCommandIdentity } from '../../runtime/lib/verification-plan.mjs';
 import { TEST_FILE_PATTERN } from './test-enumeration.js';
-import { buildDeliveryVerificationPlan, classifyVerificationRisk, deliveryRiskPolicy, normalize } from '../../runtime/lib/verification-risk.mjs';
+import { buildDeliveryVerificationPlan, classifyVerificationRisk, deliveryRiskPolicy, minimumTierForRisk, normalize } from '../../runtime/lib/verification-risk.mjs';
 export { classifyVerificationRisk } from '../../runtime/lib/verification-risk.mjs';
 import {
   DEFAULT_VERIFICATION_SCOPE,
@@ -49,15 +49,6 @@ const CHECK_COST_TIERS = {
 function costTierForCheck(id) {
   return CHECK_COST_TIERS[id] ?? 'standard';
 }
-
-function minimumTierForRisk(risk, scopeConfidence) {
-  if (risk.configuredZones.red || risk.riskLevel === 'high' || risk.lifecycle) return 'integration';
-  if (scopeConfidence !== 'complete') return 'unit';
-  if (risk.publicContract || ['schemas', 'manifests', 'rules', 'config'].some((group) => risk.impactGroups.includes(group))) return 'slice';
-  if (risk.impactGroups.some((group) => ['scripts', 'tests', 'templates'].includes(group))) return 'unit';
-  return 'micro';
-}
-
 
 async function projectScripts(targetDir) {
   try {

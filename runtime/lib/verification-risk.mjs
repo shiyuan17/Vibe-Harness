@@ -51,6 +51,37 @@ const LOW_IMPACT_CONFIG = /^(?:\.editorconfig|\.npmrc|\.nvmrc|\.prettierrc(?:\.[
 
 const SOURCE_PATH = /^(?:src|app|apps|lib|packages|components|server|client|backend|frontend)\//u;
 
+export function minimumTierForRisk(risk, scopeConfidence) {
+  if (risk.configuredZones.red || risk.riskLevel === 'high' || risk.lifecycle) return 'integration';
+  if (scopeConfidence !== 'complete') return 'unit';
+  if (risk.publicContract || ['schemas', 'manifests', 'rules', 'config'].some((group) => risk.impactGroups.includes(group))) return 'slice';
+  if (risk.impactGroups.some((group) => ['scripts', 'tests', 'templates'].includes(group))) return 'unit';
+  return 'micro';
+}
+
+/**
+ * @param {{scope?: string, focusedChecks?: Array<{reason?: string}>, changedPaths?: string[], coverageAvailable?: boolean}} options
+ */
+export function verificationScopeConfidence({ scope, focusedChecks = [], changedPaths = [], coverageAvailable = false } = {}) {
+  if (scope === 'full' || changedPaths.length === 0) return 'complete';
+  if (scope === 'layer') return coverageAvailable ? 'lower-bound' : 'unknown';
+  if (focusedChecks.some((item) => String(item.reason ?? '').includes('文件级聚焦'))) return 'complete';
+  return coverageAvailable ? 'lower-bound' : 'unknown';
+}
+
+/**
+ * @param {string[]} changedPaths
+ * @param {{config?: {riskZones?: object}, scope?: string, projectDir?: string}} options
+ */
+export function verificationRiskMetadata(changedPaths, { config = {}, scope = 'layer', projectDir } = {}) {
+  let covers = null;
+  try { covers = JSON.parse(readFileSync(path.join(projectDir, 'tests/cases.json'), 'utf8')).covers; } catch { /* no coverage map */ }
+  const risk = classifyVerificationRisk(changedPaths, { riskZones: config.riskZones });
+  const scopeConfidence = verificationScopeConfidence({ scope, changedPaths,
+    coverageAvailable: covers !== null && typeof covers === 'object' && !Array.isArray(covers) });
+  return { ...risk, scopeConfidence, minimumTier: minimumTierForRisk(risk, scopeConfidence) };
+}
+
 export function normalize(value) {
   return String(value).replaceAll('\\', '/').replace(/^\.\//u, '');
 }
@@ -122,8 +153,9 @@ export function buildDeliveryVerificationPlan({
   const requestedTier = full ? 'deep' : tier;
   const selectedIds = new Set([...required, ...all.allChecks.filter((check) =>
     requestedTier && rank[check.costTier] <= rank[requestedTier])].map((check) => check.id));
-  // Risk-derived evidence is mandatory; only default tier plans prune coverage.
-  const subsumption = applyVerificationSubsumption(all.allChecks, { prune: false, eligibleIds: selectedIds });
+  // The risk defines required evidence; a declared covering check may provide
+  // it once. Explicit full requests retain every physical check.
+  const subsumption = applyVerificationSubsumption(all.allChecks, { prune: !full, eligibleIds: selectedIds });
   const subsumedChecks = all.allChecks.filter((check) => subsumption.subsumedBy.has(check.id))
     .map((check) => ({ ...check, subsumedBy: subsumption.subsumedBy.get(check.id) }));
   const selected = all.allChecks.filter((check) => selectedIds.has(check.id) && !subsumption.subsumedBy.has(check.id));

@@ -67,7 +67,7 @@ test('dependency snapshots stream and deduplicate real targets but rescan later 
   } finally { await rm(project, { recursive: true, force: true }); }
 });
 
-test('risk-derived mandatory checks remain selected despite subsumes declarations', async () => {
+test('风险必需证据可由覆盖者提供，显式 full 仍执行全部检查', async () => {
   const project = await mkdtemp(path.join(tmpdir(), 'risk-coverage-'));
   try {
     const config = { validationCommands: {
@@ -76,7 +76,10 @@ test('risk-derived mandatory checks remain selected despite subsumes declaration
         { id: 'full', command: 'node full.mjs', subsumes: ['changed'] }],
     } };
     const plan = buildDeliveryVerificationPlan({ changedPaths: ['unknown.bin'], config, projectDir: project });
-    assert.deepEqual(plan.selectedNames, ['changed', 'full']);
-    assert.deepEqual(plan.subsumedChecks, []);
+    assert.deepEqual(plan.selectedNames, ['full']);
+    assert.equal(plan.subsumedChecks.find((check) => check.id === 'changed').subsumedBy, 'full');
+    const full = buildDeliveryVerificationPlan({ changedPaths: ['unknown.bin'], config, projectDir: project, full: true });
+    assert.deepEqual(full.selectedNames, ['changed', 'full']);
+    assert.deepEqual(full.subsumedChecks, []);
   } finally { await rm(project, { recursive: true, force: true }); }
 });

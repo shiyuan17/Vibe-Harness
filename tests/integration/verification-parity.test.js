@@ -12,6 +12,7 @@ import { buildVerificationPlan } from '../../scripts/lib/verification-plan.js';
 import { runVerificationPlan } from '../../scripts/lib/project-verification.js';
 import { detectProjectProfile } from '../../scripts/lib/project-profile.js';
 import { verificationCheckEvidence } from '../../runtime/lib/verification-plan.mjs';
+import { verifyProject } from '../../runtime/lib/verification-command.mjs';
 import { verificationCacheContext, findVerificationCheckReceipt, storeVerificationCheckReceipt,
   VERIFICATION_RECEIPT_SCHEMA_VERSION } from '../../runtime/lib/verification-receipt.mjs';
 
@@ -62,7 +63,7 @@ for (const tier of ['quick', 'standard', 'deep']) {
       const { report, exitCode } = await runCommand(['verify', '--project', project, '--tier', tier, '--plan']);
       const expected = selectTierChecks({ tier, tiers, commandStatus });
       assert.equal(exitCode, 0);
-      assert.equal(report.minimumTier, null);
+      assert.equal(report.minimumTier, 'micro');
       assert.deepEqual(report.selectedChecks, expected.selectedChecks.map((check) => check.id));
       assert.deepEqual(
         report.selectedChecks.map((id) => report.checks[id].cwd),
@@ -828,5 +829,24 @@ test('bounded parallel checks overlap only with explicit opt-in and disjoint res
     assert.equal(cli.ok, true, JSON.stringify(cli));
     events = (await readFile(path.join(project, 'events.txt'), 'utf8')).trim().split('\n');
     assert.ok(events[0].endsWith(':start') && events[1].endsWith(':start'), events.join(','));
+  });
+});
+
+test('运行时支持 full 且与 CLI 共享风险、范围和最低证据元数据', async () => {
+  await fixture(async (project) => {
+    const tiers = { quick: ['node quick.mjs'], standard: ['node contract.mjs'], deep: ['node matrix.mjs'] };
+    const config = { validationCommands: { tiers } };
+    await configure(project, config.validationCommands);
+    for (const changedPaths of [['schemas/project-config.schema.json'], ['README.md'], ['unknown.bin'], []]) {
+      const cli = await buildVerificationPlan({ config, tiers, targetDir: project, changedPaths, tier: 'quick' });
+      const runtime = await verifyProject(project, { paths: changedPaths }, { planOnly: true });
+      for (const field of ['riskLevel', 'impactGroups', 'scopeConfidence', 'minimumTier']) {
+        assert.deepEqual(runtime[field], cli[field], `${field}: ${changedPaths.join(',')}`);
+      }
+    }
+    const full = await runCommand(['verify', '--project', project, '--full', '--plan']);
+    assert.equal(full.exitCode, 0, JSON.stringify(full.report));
+    assert.deepEqual(full.report.selectedChecks.map((id) => full.report.checks[id].command), Object.values(tiers).flat());
+    assert.equal((await runCommand(['verify', '--project', project, '--full', '--tier', 'quick', '--plan'])).report.code, 'FULL_FLAGS_CONFLICT');
   });
 });

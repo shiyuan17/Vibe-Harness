@@ -40,7 +40,7 @@
 > **配置前提**：以下 `checks[]` 结构适用于已在 `vibe-harness.config.json` 的 `validationCommands` 下声明该数组的项目。当前 config 仅有 `tiers` 入口时，`subsumes`、`cacheScope`、`deterministic` 等字段不生效，验证按 `tiers` 执行即可；无需为此报错或阻塞。
 
 - `validationCommands.checks[].subsumes` 只表达”同一 `cwd` 下，高层检查已经包含低层检查的证据”。覆盖者与被覆盖者必须是同一 `checks` 列表中的稳定 ID；未知 ID、自引用、循环、跨 `cwd` 覆盖和低层覆盖高层都是配置错误。
-- 覆盖只裁剪默认 tier 选择。显式 `--only`、`--full` 和风险派生矩阵永远执行调用者要求的检查，不因覆盖图静默减少命令。
+- 默认 tier 和风险派生计划可用已声明的覆盖关系满足必需证据；覆盖者必须实际通过，被覆盖项只标记 subsumed，不伪装成执行通过。显式 `--only`、`--full` 保持精确执行语义，不因覆盖图减少命令。
 - 计划、预览和执行收据必须暴露 `subsumedChecks`、`subsumedBy` 与逐检查 `selectionReasons`。被覆盖的检查显示 `subsumed-by:<id>`，不得从报告中消失。
 - 覆盖关系必须有真实证据支撑：全仓 lint、typecheck、全量单测或后端全量检查才算覆盖对应的 changed/affected 检查；不能为了让计划变短而声明语义不等价的关系。
 

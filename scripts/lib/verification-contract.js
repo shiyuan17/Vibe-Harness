@@ -171,14 +171,4 @@ export function estimateVerificationCost(checks = [], config = {}) {
 /**
  * @param {{scope?: string, focusedChecks?: Array<{reason?: string}>, changedPaths?: string[], coverageAvailable?: boolean}} options
  */
-export function verificationScopeConfidence({
-  scope,
-  focusedChecks = [],
-  changedPaths = [],
-  coverageAvailable = false,
-} = {}) {
-  if (scope === 'full' || changedPaths.length === 0) return 'complete';
-  if (scope === 'layer') return coverageAvailable ? 'lower-bound' : 'unknown';
-  if (focusedChecks.some((item) => String(item.reason ?? '').includes('文件级聚焦'))) return 'complete';
-  return coverageAvailable ? 'lower-bound' : 'unknown';
-}
+export { verificationScopeConfidence } from '../../runtime/lib/verification-risk.mjs';

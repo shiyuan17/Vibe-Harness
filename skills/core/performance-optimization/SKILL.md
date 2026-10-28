@@ -37,7 +37,7 @@ description: Use when tasks, commands, hooks, or verification feel slow; measure
 
 - 没有基线就给出百分比或“明显更快”的结论。
 - 缓存命中没有绑定相同内容、工具链和范围。
-- `--only`/`--full` 被覆盖图裁剪，或风险派生矩阵被静默去重。
+- `--only`/`--full` 被覆盖图裁剪，或默认风险计划去重后没有报告覆盖者及其真实结果。
 - 多个 worktree 同时跑后端全量、用旧租约强行回收活跃任务，或用关闭 Hook、跳过验证掩盖重复成本。
 
 ## Verification
