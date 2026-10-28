@@ -76,6 +76,7 @@ const SUPERVISOR_ABORT_TIMEOUT_MS = 30000;
 //     observed then — a replacement created after that snapshot is not a member.
 const WINDOWS_TREE_PROBE = [
   "$request = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('<REQUEST>')))",
+  "$ErrorActionPreference = 'Stop'",
   '$root = [int]$request.root',
   '$expected = [string]$request.startIdentity',
   "if ($expected -ne '') {",
@@ -123,10 +124,17 @@ const WINDOWS_TREE_PROBE = [
 // every field out of the code path.
 const WINDOWS_MEMBER_PROBE = [
   "$json = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('<MEMBERS>'))",
+  "$ErrorActionPreference = 'Stop'",
+  // Windows PowerShell 5.1 emits the JSON array as one pipeline object.
+  // Assign it first so foreach enumerates its members rather than a nested array.
+  '$members = ConvertFrom-Json $json',
   '$live = @()',
-  'foreach ($item in @(ConvertFrom-Json $json)) {',
-  '  $process = Get-Process -Id ([int]$item.pid) -ErrorAction SilentlyContinue',
-  "  if ($process -and $process.StartTime.ToUniversalTime().ToString('o') -eq $item.startIdentity) { $live += [int]$item.pid }",
+  'foreach ($item in $members) {',
+  '  try { $process = Get-Process -Id ([int]$item.pid) -ErrorAction Stop } catch {',
+  "    if ($_.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId*') { continue }",
+  '    throw',
+  '  }',
+  "  if ($process.StartTime.ToUniversalTime().ToString('o') -eq $item.startIdentity) { $live += [int]$item.pid }",
   '}',
   'Write-Output ($live -join ",")',
 ].join('\n');
@@ -460,6 +468,15 @@ function portListening(port, { host = '127.0.0.1', timeoutMs = PORT_PROBE_TIMEOU
   });
 }
 
+/** A service terminal state needs tree evidence and, on Windows, a released port. */
+export async function serviceTreeGone(entry) {
+  if (!treeGone(entry.pid, {
+    tracked: validTreeMembers(entry.treeMembers),
+    startIdentity: startIdentityToken(entry.processStartTime),
+  })) return false;
+  return process.platform !== 'win32' || await portListening(entry.port) === false;
+}
+
 /**
  * Retire a service whose supervisor can no longer answer for it.
  *
@@ -504,13 +521,13 @@ async function reclaimTree(entry) {
   const waitGone = async (budgetMs) => {
     const deadline = Date.now() + budgetMs;
     for (;;) {
-      if (treeGone(entry.pid, { tracked, startIdentity: startIdentityToken(entry.processStartTime) })) return true;
+      if (await serviceTreeGone(entry)) return true;
       if (Date.now() >= deadline) return false;
       await new Promise((resolve) => setTimeout(resolve, Math.min(200, Math.max(1, deadline - Date.now()))));
     }
   };
   const recordedIdentity = startIdentityToken(entry.processStartTime);
-  if (treeGone(entry.pid, { tracked, startIdentity: recordedIdentity })) return true;
+  if (await serviceTreeGone(entry)) return true;
   signalTree(entry.pid, 'SIGTERM', { tracked, startIdentity: recordedIdentity });
   if (await waitGone(ORPHAN_REAP_STAGE_MS)) return true;
   signalTree(entry.pid, 'SIGKILL', { tracked, startIdentity: recordedIdentity });
@@ -623,7 +640,6 @@ export function serviceOwnership(entry, observed) {
 }
 function request(entry, action, timeoutMs = 7000) {
   return new Promise((resolve) => {
-    if (entry.status === 'stopped' && entry.teardownStatus === 'passed') { resolve({ status: 'stopped' }); return; }
     if (!Number.isSafeInteger(entry.pid) || entry.pid <= 0 || !validServiceEndpoint(entry.endpoint)) {
       resolve({ status: 'blocked', reason: 'invalid-supervisor-endpoint' }); return;
     }
@@ -654,6 +670,21 @@ function request(entry, action, timeoutMs = 7000) {
 async function stopEntry(entry, write, timeoutMs = 7000) {
   const deadline = Date.now() + Math.max(1, timeoutMs);
   const remaining = () => Math.max(1, deadline - Date.now());
+  // A retired endpoint may already belong to someone else. Revalidate the
+  // recorded tree locally; never fabricate a supervisor reply from the cache.
+  if (entry.status === 'stopped' && entry.teardownStatus === 'passed') {
+    // A replacement can legitimately own the old port or PID by now. A prior
+    // terminal result is rechecked by its recorded identities, not a fresh walk
+    // from a recycled root or a port that belongs to the replacement.
+    const token = startIdentityToken(entry.processStartTime);
+    const members = process.platform === 'win32' && token && Number.isSafeInteger(entry.pid) && entry.pid > 0
+      ? windowsConfirmedMembers([{ pid: entry.pid, startIdentity: token }, ...validTreeMembers(entry.treeMembers)])
+      : null;
+    const gone = members !== null ? members.length === 0 : await serviceTreeGone(entry);
+    return gone
+      ? { ...entry, reason: null }
+      : { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'service-tree-survives' };
+  }
   // The terminal answers carry the same identity evidence as `running`: a
   // `stopped` reply is only accepted from the supervisor the entry recorded.
   const withEvidence = (value, observed) => (Array.isArray(observed?.treeMembers)
@@ -673,13 +704,10 @@ async function stopEntry(entry, write, timeoutMs = 7000) {
     // `stopped` for a tree that is still serving. Only the identity proves who
     // answered, exactly as it does for `running`.
     if (!identityProven(entry, observed)) return withEvidence({ ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'ownership-unproven' }, observed);
-    if (!treeGone(entry.pid, {
-      tracked: trackedWith(entry.treeMembers, observed.treeMembers),
-      startIdentity: startIdentityToken(entry.processStartTime),
-    })) {
+    if (!await serviceTreeGone({ ...entry, treeMembers: trackedWith(entry.treeMembers, observed.treeMembers) })) {
       return withEvidence({ ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'service-tree-survives' }, observed);
     }
-    return withEvidence({ ...entry, status: 'stopped', teardownStatus: write ? 'passed' : 'unverified' }, observed);
+    return withEvidence({ ...entry, status: 'stopped', teardownStatus: write ? 'passed' : 'unverified', reason: null }, observed);
   }
   if (SUPERVISOR_UNREACHABLE.has(observed.reason)) {
     // Reclaiming signals a process tree, so a dry run reports what a write would
@@ -688,10 +716,12 @@ async function stopEntry(entry, write, timeoutMs = 7000) {
     if (!write) return { ...entry, status: 'planned', teardownStatus: 'unverified', reason: observed.reason };
     if (Date.now() >= deadline) return { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'cleanup-timeout' };
     return await reclaimTree(entry)
-      ? { ...entry, status: 'stopped', teardownStatus: 'passed' }
+      ? { ...entry, status: 'stopped', teardownStatus: 'passed', reason: null }
       : { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'service-tree-survives' };
   }
-  if (!serviceOwnership(entry, observed)) return { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'ownership-unproven' };
+  if (!identityProven(entry, observed) || !['running', 'stopping', 'blocked'].includes(observed.status)) {
+    return { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'ownership-unproven' };
+  }
   if (!write) return { ...entry, status: 'planned', teardownStatus: 'unverified' };
   if (Date.now() >= deadline) return { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'cleanup-timeout' };
   const stopped = await request(entry, 'stop', remaining());
@@ -703,10 +733,10 @@ async function stopEntry(entry, write, timeoutMs = 7000) {
     // only evidence together with an observation that no part of the recorded
     // tree is left.
     const tracked = trackedWith(entry.treeMembers, observed.treeMembers, stopped.treeMembers);
-    if (!treeGone(entry.pid, { tracked, startIdentity: startIdentityToken(entry.processStartTime) })) {
+    if (!await serviceTreeGone({ ...entry, treeMembers: tracked })) {
       return withEvidence({ ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'service-tree-survives' }, stopped);
     }
-    return withEvidence({ ...entry, status: 'stopped', teardownStatus: 'passed' }, stopped);
+    return withEvidence({ ...entry, status: 'stopped', teardownStatus: 'passed', reason: null }, stopped);
   }
   if (SUPERVISOR_UNREACHABLE.has(stopped.reason)) {
     // The successful `status` reply above is newer evidence than the registry
@@ -714,7 +744,7 @@ async function stopEntry(entry, write, timeoutMs = 7000) {
     // descendant whose launcher exited is only known through those samples.
     if (Date.now() >= deadline) return { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'cleanup-timeout' };
     return await reclaimTree({ ...entry, treeMembers: trackedWith(entry.treeMembers, observed.treeMembers) })
-      ? { ...entry, status: 'stopped', teardownStatus: 'passed' }
+      ? { ...entry, status: 'stopped', teardownStatus: 'passed', reason: null }
       : { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'service-tree-survives' };
   }
   return withEvidence({ ...entry, status: 'blocked', teardownStatus: 'blocked', reason: stopped.reason ?? 'service-tree-survives' }, stopped);
@@ -796,7 +826,8 @@ export async function serviceReport(project, args, tokenize) {
       if (args.service && !selected.length) return { status: 'blocked', reason: 'service-not-registered', processes: [] };
       const results = [];
       for (const entry of selected) {
-        const result = action === 'stop' ? await stopEntry(entry, args.write) : await request(entry, 'status');
+        const result = action === 'stop' || entry.status === 'stopped' && entry.teardownStatus === 'passed'
+          ? await stopEntry(entry, args.write) : await request(entry, 'status');
         if (action === 'status' && result.status === 'running' && !serviceOwnership(entry, result)) result.status = 'blocked';
         results.push({ ...entry, ...result });
         if (args.write && action === 'stop') Object.assign(entry, result);
@@ -876,7 +907,9 @@ export async function serviceReport(project, args, tokenize) {
     });
     child.unref();
     if (identity.status !== 'running') {
-      const aborted = await abortStart(child, spawned, spawnedStartTime);
+      const terminal = identity.status === 'stopped' && spawned && identityProven(spawned, identity)
+        && await serviceTreeGone({ ...entry, ...identity });
+      const aborted = terminal ? { status: 'stopped' } : await abortStart(child, spawned, spawnedStartTime);
       if (aborted.status !== 'stopped') {
         // The tree could not be proven gone, so it is registered as blocked: a
         // later start or teardown reclaims it through the identity recorded
@@ -886,7 +919,9 @@ export async function serviceReport(project, args, tokenize) {
         await writeRegistry(file, registry);
         return { status: 'blocked', reason: 'service-start-unproven', processes: [pending] };
       }
-      return { status: 'blocked', reason: 'service-supervisor-start-failed', processes: [entry] };
+      return { status: 'blocked', reason: 'service-supervisor-start-failed', processes: [
+        terminal ? { ...entry, ...identity, teardownStatus: 'passed' } : entry,
+      ] };
     }
     // The supervisor read the OS start identity at spawn time; that value is
     // authoritative here because the child may already have exited and had its
@@ -942,32 +977,18 @@ export async function teardownServices(project, worktree, write = true, { timeou
     // creates the first registry entry, and without either barrier it would
     // survive the worktree removal that the caller performs after `passed`.
     const registry = readRegistry(file); const results = [];
-    const touched = [];
     const worktreeKey = canonicalWorktree(worktree);
-    for (const entry of registry.processes.filter((item) => canonicalWorktree(item.worktree) === worktreeKey && item.status !== 'stopped')) {
+    for (const entry of registry.processes.filter((item) => canonicalWorktree(item.worktree) === worktreeKey)) {
       const remaining = Math.max(0, deadline - Date.now());
       const result = remaining === 0
         ? { ...entry, status: 'blocked', teardownStatus: 'blocked', reason: 'cleanup-timeout' }
-        : entry.stopOnTeardown
+        : entry.status === 'stopped' || entry.stopOnTeardown
           ? await stopEntry(entry, write, remaining)
           : { ...entry, status: 'blocked', reason: 'service-opted-out-of-teardown' };
-      results.push(result); touched.push(entry); if (write) Object.assign(entry, result);
-    }
-    // A `stopped` result is only teardown evidence while the whole tree is
-    // observably gone. The reclaim fallback is fail-closed, but the read-back
-    // here is what proves it to the caller: a root PID that went missing is not
-    // proof that the group it led is gone, and this is the boundary that
-    // authorizes removing the worktree and releasing its port.
-    if (write) {
-      results.forEach((result, index) => {
-        if (result.status !== 'stopped' || !Number.isSafeInteger(result.pid) || result.pid <= 0) return;
-        if (treeGone(result.pid, {
-          tracked: validTreeMembers(result.treeMembers),
-          startIdentity: startIdentityToken(result.processStartTime),
-        })) return;
-        Object.assign(result, { status: 'blocked', teardownStatus: 'blocked', reason: 'service-tree-survives' });
-        Object.assign(touched[index], result);
-      });
+      // stopEntry revalidates cached terminal entries as well as supervisor and
+      // orphan-reclaim results. Repeating the same full tree walk here adds cost
+      // and can mistake a replacement PID for the already retired service.
+      results.push(result); if (write) Object.assign(entry, result);
     }
     if (write && results.length) await writeRegistry(file, registry);
     const status = results.some((entry) => entry.status === 'blocked') ? 'blocked' : 'passed';

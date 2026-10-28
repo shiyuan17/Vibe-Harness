@@ -4,7 +4,7 @@ import { chmodSync, lstatSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
 
-import { parseTreeMembers, processStartIdentity, serviceSocketDirectory, signalTree as signalProcessTree, startIdentityToken as recordedIdentityToken, treeGone as processTreeGone, windowsTreeProbeCommand } from './services.mjs';
+import { parseTreeMembers, processStartIdentity, serviceSocketDirectory, serviceTreeGone, signalTree as signalProcessTree, startIdentityToken as recordedIdentityToken, windowsTreeProbeCommand } from './services.mjs';
 
 // A supervisor owns exactly one service process tree. The tree is started as a
 // detached process-group leader on Unix (`taskkill /t` is the Windows
@@ -41,7 +41,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function waitForProof(proof, budgetMs) {
   const deadline = Date.now() + budgetMs;
   for (;;) {
-    if (proof()) return true;
+    if (await proof()) return true;
     if (Date.now() >= deadline) return false;
     await sleep(Math.min(PROOF_POLL_MS, Math.max(1, deadline - Date.now())));
   }
@@ -55,7 +55,8 @@ function startService(input) {
     detached: process.platform !== 'win32',
   });
   let exited = false;
-  let stopping = false;
+  let phase = 'starting';
+  let startupComplete = false;
   let reaping = null;
   let idle = null;
   const startedAt = new Date().toISOString();
@@ -101,6 +102,7 @@ function startService(input) {
     for (let attempt = 0; attempt < IDENTITY_CAPTURE_ATTEMPTS; attempt += 1) {
       const value = processStartIdentity(child.pid);
       if (value !== 'missing' && value !== 'unreadable') return value;
+      if (exited) return value;
       await sleep(IDENTITY_CAPTURE_INTERVAL_MS);
     }
     return processStartIdentity(child.pid);
@@ -116,19 +118,20 @@ function startService(input) {
     ...(trackedMembers.size > 0 ? { treeMembers: memberEvidence() } : {}),
     ...fields,
   });
-  let sampling = false;
+  let sampling = null;
   const sampleTree = () => {
     // Sampled asynchronously: the walk spawns a PowerShell process and the
     // supervisor's own event loop is what answers the launcher's handshake, so
     // blocking here would delay the very registration this evidence protects.
-    if (process.platform !== 'win32' || sampling) return;
-    sampling = true;
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', windowsTreeProbeCommand(child.pid, identityToken() ?? '')], {
-      encoding: 'utf8', timeout: TREE_SAMPLE_TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024,
-    }, (error, stdout) => {
-      sampling = false;
-      if (error) return;
-      for (const member of parseTreeMembers(stdout)) trackedMembers.set(member.pid, member);
+    if (process.platform !== 'win32' || sampling || phase === 'stopping' || phase === 'stopped') return;
+    sampling = new Promise((resolve) => {
+      execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', windowsTreeProbeCommand(child.pid, identityToken() ?? '')], {
+        encoding: 'utf8', timeout: TREE_SAMPLE_TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024,
+      }, (error, stdout) => {
+        if (!error) for (const member of parseTreeMembers(stdout)) trackedMembers.set(member.pid, member);
+        sampling = null;
+        resolve();
+      });
     });
   };
   const sampleTimer = process.platform === 'win32' ? setInterval(sampleTree, TREE_SAMPLE_MS) : null;
@@ -166,7 +169,9 @@ function startService(input) {
     return current === token ? 'owned' : 'reused';
   };
   /** Signal the whole owned tree: the detached group on Unix, `taskkill /t` on Windows. */
-  const signalTree = (signal) => (rootState() === 'owned'
+  // The Windows walk itself compares the root start identity before signalling.
+  // Do not run a second synchronous PowerShell identity probe in front of it.
+  const signalTree = (signal) => ((process.platform === 'win32' ? identityToken() !== null : rootState() === 'owned')
     ? signalProcessTree(child.pid, signal, { tracked: memberEvidence(), startIdentity: recordedIdentityToken(identity.processStartTime) })
     : false);
   /**
@@ -177,8 +182,9 @@ function startService(input) {
    * see, so the root child's exit decides *when* to reap, never whether the
    * tree is gone.
    */
-  const treeGone = () => (rootState() === 'owned'
-    ? processTreeGone(child.pid, { tracked: memberEvidence(), startIdentity: recordedIdentityToken(identity.processStartTime) })
+  const treeGone = () => ((process.platform === 'win32' ? identityToken() !== null : rootState() === 'owned')
+    || exited && identityToken() === null && processStartIdentity(child.pid) === 'missing'
+    ? serviceTreeGone({ ...identity, port: input.port, treeMembers: memberEvidence() })
     : false);
 
   const stayResident = () => {
@@ -196,14 +202,22 @@ function startService(input) {
   /** Graceful signal, wait, forced kill, wait: the proof `stop`/`status` report. */
   const reapTree = () => {
     if (reaping) return reaping;
+    phase = 'stopping';
     const attempt = (async () => {
-      if (treeGone()) return true;
+      // Drain the last observation before proving absence: its members must be
+      // included, and its PowerShell process must release the service cwd before
+      // a terminal reply authorizes worktree cleanup.
+      await sampling;
+      if (await treeGone()) return true;
       signalTree('SIGTERM');
       if (await waitForProof(treeGone, REAP_STAGE_MS)) return true;
       signalTree('SIGKILL');
       return waitForProof(treeGone, REAP_STAGE_MS);
     })();
-    reaping = attempt.finally(() => { reaping = null; });
+    reaping = attempt.then((gone) => {
+      phase = gone ? 'stopped' : 'blocked';
+      return gone;
+    }).finally(() => { reaping = null; });
     return reaping;
   };
   const reply = (socket, body) => socket.end(`${JSON.stringify(body)}\n`);
@@ -213,7 +227,7 @@ function startService(input) {
     // a detached node process and its endpoint resident. A surviving tree keeps
     // being served so `stop` can retry, bounded by the idle lifetime below.
     if (gone) server.close(() => process.exit(0));
-    else { stopping = false; stayResident(); }
+    else stayResident();
   };
   /** Prove the tree gone for the launcher over IPC, before an endpoint exists. */
   const abort = async () => {
@@ -248,14 +262,17 @@ function startService(input) {
         // `status` refresh is often the last message a launcher ever receives
         // from this supervisor, and the reclaim that follows it has no other way
         // to learn about descendants an ancestry walk can no longer reach.
-        if (!exited) { reply(socket, evidencePayload({ status: 'running' })); return; }
+        if (phase === 'stopping') { reply(socket, evidencePayload({ status: 'stopping' })); return; }
+        if (!exited) {
+          reply(socket, phase === 'running' ? evidencePayload({ status: 'running' }) : blocked('descendants-survive'));
+          return;
+        }
         settle(socket, await reapTree());
         return;
       }
-      if (request.action !== 'stop' || stopping) {
+      if (request.action !== 'stop') {
         reply(socket, { status: 'blocked', reason: 'ownership-mismatch' }); return;
       }
-      stopping = true;
       settle(socket, await reapTree());
     });
   });
@@ -275,6 +292,22 @@ function startService(input) {
     if (await reapTree()) { process.exit(code); return; }
     stayResident();
   };
+  // Startup owns the transition until identity capture and endpoint setup have
+  // finished. An exit in that interval must settle the handshake, never resume
+  // a suspended startup continuation and publish `running` for a dead child.
+  const finishStartupExit = async () => {
+    startupComplete = false;
+    const gone = await reapTree();
+    const payload = gone ? evidencePayload({ status: 'stopped' }) : blocked('descendants-survive');
+    const finish = () => {
+      startupComplete = true;
+      if (gone) server.close(() => process.exit(0));
+      else stayResident();
+    };
+    if (process.connected) {
+      try { process.send(payload, finish); } catch { finish(); }
+    } else finish();
+  };
   for (const signal of TERMINATION_SIGNALS.filter((name) => name !== 'SIGBREAK' || process.platform === 'win32')) {
     process.on(signal, () => { void releaseAndExit(0); });
   }
@@ -293,6 +326,7 @@ function startService(input) {
   child.once('error', () => { server.close(); process.exit(1); });
   child.once('exit', () => {
     exited = true;
+    if (!startupComplete) return;
     // The root child's exit is the moment the tree needs reaping, not proof
     // that it is gone: a launcher that exits after spawning a server leaves
     // descendants only the tree probe can see, and nothing else would signal
@@ -310,6 +344,11 @@ function startService(input) {
     // The launcher needs the service identity before the endpoint can answer:
     // that identity is what lets it reclaim this tree if the handshake times out.
     try { process.send?.(evidencePayload({ status: 'spawned' })); } catch { /* the handshake is already abandoned */ }
+    if (exited || identity.processStartTime === 'missing' || phase !== 'starting') {
+      exited = exited || identity.processStartTime === 'missing';
+      await finishStartupExit();
+      return;
+    }
     // A bind failure, or a control socket that cannot be restricted to its
     // owner, must not orphan the tree: the same proof `stop` uses runs before
     // the caller is told anything.
@@ -353,6 +392,9 @@ function startService(input) {
           return;
         }
       }
+      if (exited || phase !== 'starting') { void finishStartupExit(); return; }
+      startupComplete = true;
+      phase = 'running';
       // The launcher confirms that the identity was persisted before this
       // supervisor lets go of the channel. Until then the tree has no recorded
       // owner, so a launcher that dies — or never answers — leaves a service

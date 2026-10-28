@@ -5,13 +5,14 @@ import { realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createServer } from 'node:net';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createConnection, createServer } from 'node:net';
 import test from 'node:test';
 import { runCommand } from '../../runtime/commands/run.mjs';
 import { gitFingerprint } from '../../runtime/lib/git-fingerprint.mjs';
 import { deliveryProfiles, completionReceipt, isReviewRequired, resolveDelivery, validateCompletion, validateDeliveryConfig, overrideWarnings } from '../../runtime/lib/delivery.mjs';
 import { verificationAcceptance, verificationReview } from '../../runtime/lib/verification-plan-support.mjs';
-import { processStartIdentity, releaseServiceTeardown, serviceEndpoint, serviceOwnership, serviceSocketDirectory, startIdentityToken, teardownServices, treeGone, windowsConfirmedMembers, windowsTreeProbeCommand } from '../../runtime/lib/services.mjs';
+import { processStartIdentity, releaseServiceTeardown, serviceEndpoint, serviceOwnership, serviceSocketDirectory, startIdentityToken, teardownServices, treeGone, windowsConfirmedMembers, windowsTreeMembers, windowsTreeProbeCommand } from '../../runtime/lib/services.mjs';
 
 function git(project, ...args) {
   return execFileSync('git', args, { cwd: project, encoding: 'utf8', windowsHide: true }).trim();
@@ -445,8 +446,334 @@ test('服务登记启动、状态、重复启动拒绝和归属核对停止', as
     const duplicate = await command(project, 'runtime', 'service', 'start', '--service', 'web', '--port', String(port), '--write');
     assert.equal(duplicate.report.status, 'blocked');
     assert.equal((await command(project, 'runtime', 'service', 'status')).report.processes[0].status, 'running');
-    assert.equal((await command(project, 'runtime', 'service', 'stop', '--write')).report.processes[0].teardownStatus, 'passed');
+    const stop = await command(project, 'runtime', 'service', 'stop', '--write');
+    assert.equal(stop.report.processes[0].teardownStatus, 'passed', JSON.stringify(stop.report.processes.map(({ status, teardownStatus, reason }) => ({ status, teardownStatus, reason }))));
     assert.equal((await command(project, 'runtime', 'service', 'status')).report.processes[0].status, 'stopped');
+  } finally {
+    await command(project, 'runtime', 'service', 'stop', '--write').catch(() => {});
+    await remove(project);
+  }
+});
+
+test('已停止服务重试停止保持终态且不连接旧端点', async () => {
+  const { project } = await fixture();
+  const child = spawnDetachedFixture();
+  const endpoint = serviceEndpoint();
+  let connections = 0;
+  const impostor = createServer((socket) => { connections += 1; socket.destroy(); });
+  try {
+    const identity = processStartIdentity(child.pid);
+    const exited = new Promise((resolve) => child.once('exit', resolve));
+    killTree(child.pid);
+    await exited;
+    await mkdir(serviceSocketDirectory(), { recursive: true, mode: 0o700 });
+    await new Promise((resolve, reject) => {
+      impostor.once('error', reject);
+      impostor.listen(endpoint, resolve);
+    });
+    await writeServiceRegistry(project, {
+      taskId: 'local', serviceId: 'web', worktree: realpathSync(project), port: await freePort(),
+      commandFingerprint: 'fingerprint', cwd: realpathSync(project), status: 'stopped',
+      teardownStatus: 'passed', stopOnTeardown: true, pid: child.pid, supervisorPid: 1,
+      startedAt: '2026-01-01T00:00:00.000Z', endpoint, processStartTime: identity,
+      reason: 'previous-transient-failure',
+    });
+    for (const action of ['stop', 'stop', 'status']) {
+      const result = await command(project, 'runtime', 'service', action, '--service', 'web', ...(action === 'stop' ? ['--write'] : []));
+      const state = result.report.processes[0];
+      assert.equal(result.report.status, 'passed', JSON.stringify({ status: state.status, reason: state.reason }));
+      assert.equal(state.status, 'stopped');
+      assert.equal(state.teardownStatus, 'passed');
+      assert.equal(state.reason, null);
+    }
+    assert.equal(connections, 0, '终态复验只观察进程树，不重新信任已释放的控制端点');
+  } finally {
+    impostor.close();
+    killTree(child.pid);
+    await remove(project);
+  }
+});
+
+test('已停止登记仍有活进程时不相信缓存也不发信号', async () => {
+  const { project } = await fixture();
+  const child = spawnDetachedFixture();
+  try {
+    await writeServiceRegistry(project, {
+      taskId: 'local', serviceId: 'web', worktree: realpathSync(project), port: await freePort(),
+      commandFingerprint: 'fingerprint', cwd: realpathSync(project), status: 'stopped',
+      teardownStatus: 'passed', stopOnTeardown: true, pid: child.pid, supervisorPid: 1,
+      startedAt: '2026-01-01T00:00:00.000Z', endpoint: unreachableEndpoint(),
+      processStartTime: processStartIdentity(child.pid),
+    });
+    const result = await command(project, 'runtime', 'service', 'stop', '--service', 'web', '--write');
+    assert.equal(result.report.status, 'blocked');
+    assert.equal(result.report.processes[0].reason, 'service-tree-survives');
+    assert.equal(treeGone(child.pid), false);
+  } finally {
+    killTree(child.pid);
+    await remove(project);
+  }
+});
+
+test('teardown 不跳过伪终态登记且不终止未经证明的进程', async () => {
+  const { project } = await fixture();
+  const child = spawnDetachedFixture();
+  try {
+    await writeServiceRegistry(project, {
+      taskId: 'local', serviceId: 'web', worktree: realpathSync(project), port: await freePort(),
+      commandFingerprint: 'fingerprint', cwd: realpathSync(project), status: 'stopped',
+      teardownStatus: 'passed', stopOnTeardown: true, pid: child.pid, supervisorPid: 1,
+      startedAt: '2026-01-01T00:00:00.000Z', endpoint: unreachableEndpoint(),
+      processStartTime: processStartIdentity(child.pid),
+    });
+    const result = await teardownServices(project, project, true);
+    assert.equal(result.status, 'blocked', JSON.stringify(result.processes.map(({ status, reason }) => ({ status, reason }))));
+    assert.equal(result.processes[0].reason, 'service-tree-survives');
+    assert.equal(treeGone(child.pid), false);
+  } finally {
+    killTree(child.pid);
+    await remove(project);
+  }
+});
+
+test('Windows 启动身份握手期间子进程退出后不再发布 running', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('该竞态发生在 Windows 的异步启动身份采集期间');
+    return;
+  }
+  const { project } = await fixture();
+  const endpoint = serviceEndpoint();
+  let supervisor;
+  try {
+    const port = await freePort();
+    await writeFile(path.join(project, 'fast-exit.mjs'), "import { writeFileSync } from 'node:fs'; writeFileSync('exited.txt', 'exited'); process.exit(0);\n");
+    // Hold the real OS identity observation until the child actually exits.
+    // This forces the interleaving without relying on a fast process or sleep.
+    const barrier = path.join(project, 'identity-barrier.mjs');
+    await writeFile(barrier, `
+import cp from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+const original = cp.spawnSync;
+cp.spawnSync = (file, args, options) => {
+  const index = args.indexOf('-Command');
+  const command = index < 0 ? '' : args[index + 1];
+  const pid = command.match(/\\(Get-Process -Id (\\d+) -ErrorAction Stop\\)\\.StartTime/u)?.[1];
+  if (file === 'powershell.exe' && pid) {
+    args = [...args];
+    args[index + 1] = 'Wait-Process -Id ' + pid + ' -Timeout 5 -ErrorAction SilentlyContinue; ' + command;
+  }
+  return original(file, args, options);
+};
+syncBuiltinESMExports();
+`);
+    supervisor = spawn(process.execPath, ['--import', pathToFileURL(barrier).href, fileURLToPath(new URL('../../runtime/lib/service-supervisor.mjs', import.meta.url))], {
+      cwd: project, stdio: ['ignore', 'ignore', 'pipe', 'ipc'], windowsHide: true,
+    });
+    let stderr = '';
+    supervisor.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    const reply = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('启动握手未终结')), 20000);
+      supervisor.on('message', (message) => {
+        if (message?.status === 'spawned') return;
+        clearTimeout(timer);
+        resolve(message);
+      });
+      supervisor.once('error', (error) => { clearTimeout(timer); reject(error); });
+      supervisor.once('exit', (code) => { clearTimeout(timer); resolve({ status: 'exited-without-proof', code, stderr }); });
+      supervisor.send({ cwd: project, tokens: ['node', 'fast-exit.mjs'], port, endpoint });
+    });
+    assert.equal(reply.status, 'stopped', JSON.stringify({ status: reply.status, reason: reply.reason, code: reply.code, stderr: reply.stderr }));
+    assert.equal(await readFile(path.join(project, 'exited.txt'), 'utf8'), 'exited');
+  } finally {
+    supervisor?.kill();
+    await remove(project);
+  }
+});
+
+test('已认证 blocked 服务可重试停止且恢复后清除旧原因', async () => {
+  const { project } = await fixture();
+  const child = spawnDetachedFixture();
+  const endpoint = serviceEndpoint();
+  let stops = 0;
+  const identity = {
+    pid: child.pid, supervisorPid: process.pid, cwd: realpathSync(project),
+    commandFingerprint: 'fingerprint', startedAt: '2026-01-01T00:00:00.000Z',
+    processStartTime: processStartIdentity(child.pid), controlToken: 'fixture-control',
+  };
+  const controller = createServer((socket) => {
+    let buffer = '';
+    socket.on('data', async (chunk) => {
+      buffer += chunk.toString();
+      if (!buffer.includes('\n')) return;
+      const request = JSON.parse(buffer);
+      if (request.action === 'stop') {
+        stops += 1;
+        const exited = new Promise((resolve) => child.once('exit', resolve));
+        killTree(child.pid);
+        await exited;
+        socket.end(`${JSON.stringify({ ...identity, status: 'stopped' })}\n`);
+      } else socket.end(`${JSON.stringify({ ...identity, status: 'blocked', reason: 'descendants-survive' })}\n`);
+    });
+  });
+  try {
+    await mkdir(serviceSocketDirectory(), { recursive: true, mode: 0o700 });
+    await new Promise((resolve, reject) => {
+      controller.once('error', reject);
+      controller.listen(endpoint, resolve);
+    });
+    await writeServiceRegistry(project, {
+      ...identity, taskId: 'local', serviceId: 'web', worktree: realpathSync(project),
+      port: await freePort(), endpoint, status: 'blocked', teardownStatus: 'blocked',
+      stopOnTeardown: true, reason: 'descendants-survive',
+    });
+    const result = await command(project, 'runtime', 'service', 'stop', '--service', 'web', '--write');
+    const state = result.report.processes[0];
+    assert.equal(result.report.status, 'passed', JSON.stringify({ status: state.status, reason: state.reason }));
+    assert.equal(stops, 1);
+    assert.equal(state.status, 'stopped');
+    assert.equal(state.teardownStatus, 'passed');
+    assert.equal(state.reason, null);
+  } finally {
+    controller.close();
+    killTree(child.pid);
+    await remove(project);
+  }
+});
+
+test('同一 supervisor 的并发停止请求共享终结而非误报归属冲突', async () => {
+  const { project, config } = await fixture();
+  const sockets = [];
+  try {
+    await declareService(project, config, servingScript);
+    const started = await command(project, 'runtime', 'service', 'start', '--service', 'web', '--port', String(await freePort()), '--write');
+    assert.equal(started.report.status, 'passed');
+    const entry = started.report.processes[0];
+    for (let index = 0; index < 2; index += 1) {
+      const socket = createConnection(entry.endpoint);
+      sockets.push(socket);
+      await new Promise((resolve, reject) => {
+        socket.once('connect', resolve);
+        socket.once('error', reject);
+      });
+    }
+    const replies = await Promise.all(sockets.map((socket) => new Promise((resolve, reject) => {
+      let buffer = '';
+      socket.setTimeout(15000, () => reject(new Error('停止请求未终结')));
+      socket.on('error', reject);
+      socket.on('data', (chunk) => {
+        buffer += chunk.toString();
+        if (!buffer.includes('\n')) return;
+        socket.destroy();
+        resolve(JSON.parse(buffer));
+      });
+      socket.write(`${JSON.stringify({ ...entry, action: 'stop' })}\n`);
+    })));
+    assert.deepEqual(replies.map((reply) => ({ status: reply.status, reason: reply.reason ?? null })), [
+      { status: 'stopped', reason: null }, { status: 'stopped', reason: null },
+    ]);
+    assert.equal(treeGone(entry.pid), true);
+  } finally {
+    sockets.forEach((socket) => socket.destroy());
+    await command(project, 'runtime', 'service', 'stop', '--write').catch(() => {});
+    await remove(project);
+  }
+});
+
+test('Windows 停止期间等待最后一次成员采样并只报告 stopping', async (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('仅 Windows 使用异步 PowerShell 成员采样');
+    return;
+  }
+  const { project } = await fixture();
+  let supervisor;
+  let stopping;
+  const request = (entry, action) => new Promise((resolve, reject) => {
+    const socket = createConnection(entry.endpoint);
+    let buffer = '';
+    socket.setTimeout(15000, () => { socket.destroy(); reject(new Error('受控停止请求未终结')); });
+    socket.on('error', reject);
+    socket.on('connect', () => socket.write(`${JSON.stringify({ ...entry, action })}\n`));
+    socket.on('data', (chunk) => {
+      buffer += chunk.toString();
+      if (!buffer.includes('\n')) return;
+      socket.destroy();
+      resolve(JSON.parse(buffer));
+    });
+  });
+  try {
+    await writeFile(path.join(project, 'server.mjs'), servingScript);
+    const barrier = path.join(project, 'sample-barrier.mjs');
+    await writeFile(barrier, `
+import cp from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+import { watchFile, unwatchFile, writeFileSync } from 'node:fs';
+const original = cp.execFile;
+let held = false;
+cp.execFile = (file, args, options, callback) => {
+  if (!held && file === 'powershell.exe' && args.some((value) => value.includes('function Snapshot'))) {
+    held = true;
+    writeFileSync('sample-held.txt', 'ready');
+    watchFile('release-sample.txt', { interval: 20 }, (value) => {
+      if (!value.nlink) return;
+      unwatchFile('release-sample.txt');
+      callback(null, '', '');
+    });
+    return;
+  }
+  return original(file, args, options, callback);
+};
+syncBuiltinESMExports();
+`);
+    const endpoint = serviceEndpoint();
+    const port = await freePort();
+    supervisor = spawn(process.execPath, ['--import', pathToFileURL(barrier).href, fileURLToPath(new URL('../../runtime/lib/service-supervisor.mjs', import.meta.url))], {
+      cwd: project, stdio: ['ignore', 'ignore', 'ignore', 'ipc'], windowsHide: true,
+    });
+    const entry = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('受控 supervisor 启动失败')), 15000);
+      supervisor.on('message', (message) => {
+        if (message?.status !== 'running') return;
+        clearTimeout(timer);
+        supervisor.send({ action: 'registered' });
+        resolve({ ...message, endpoint });
+      });
+      supervisor.once('error', (error) => { clearTimeout(timer); reject(error); });
+      supervisor.send({ cwd: project, tokens: ['node', 'server.mjs'], port, endpoint });
+    });
+    assert.equal(await readFile(path.join(project, 'sample-held.txt'), 'utf8'), 'ready');
+    stopping = request(entry, 'stop');
+    stopping.catch(() => {});
+    let observed;
+    const deadline = Date.now() + 10000;
+    do {
+      observed = await request(entry, 'status');
+      if (observed.status !== 'running') break;
+    } while (Date.now() < deadline);
+    assert.equal(observed.status, 'stopping', JSON.stringify({ status: observed.status, reason: observed.reason }));
+    await writeFile(path.join(project, 'release-sample.txt'), 'release');
+    const stopped = await stopping;
+    assert.equal(stopped.status, 'stopped', JSON.stringify({ status: stopped.status, reason: stopped.reason }));
+    assert.equal(treeGone(entry.pid), true);
+  } finally {
+    await writeFile(path.join(project, 'release-sample.txt'), 'release');
+    await stopping?.catch(() => {});
+    supervisor?.kill();
+    await remove(project);
+  }
+});
+
+test('快速退出的启动失败证明清理后可以重新启动', async () => {
+  const { project, config } = await fixture();
+  try {
+    const port = await freePort();
+    await declareService(project, config, 'process.exit(0);\n');
+    const first = await command(project, 'runtime', 'service', 'start', '--service', 'web', '--port', String(port), '--write');
+    assert.equal(first.report.status, 'blocked');
+    assert.equal(first.report.processes[0].status, 'stopped');
+    assert.equal(first.report.processes[0].teardownStatus, 'passed');
+    await declareService(project, config, servingScript);
+    const second = await command(project, 'runtime', 'service', 'start', '--service', 'web', '--port', String(port), '--write');
+    assert.equal(second.report.status, 'passed');
   } finally {
     await command(project, 'runtime', 'service', 'stop', '--write').catch(() => {});
     await remove(project);
@@ -652,14 +979,23 @@ test('服务自行退出后登记可被回收并重新启动', async () => {
   const { project, config } = await fixture();
   try {
     const port = await freePort();
-    const transient = "import http from 'node:http'; const server = http.createServer((request, response) => response.end('ok')); server.listen(Number(process.env.PORT), '127.0.0.1', () => setTimeout(() => process.exit(0), 900));\n";
+    const transient = "import http from 'node:http'; const server = http.createServer((request, response) => { response.end('ok', () => { if (request.url === '/exit') server.close(() => process.exit(0)); }); }); server.listen(Number(process.env.PORT), '127.0.0.1');\n";
     await declareService(project, config, transient);
     const first = await command(project, 'runtime', 'service', 'start', '--service', 'web', '--port', String(port), '--write');
     assert.equal(first.report.status, 'passed', JSON.stringify(first.report));
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const exit = await fetch(`http://127.0.0.1:${port}/exit`);
+    await exit.text();
+    const deadline = Date.now() + 10000;
+    while (processStartIdentity(first.report.processes[0].pid) !== 'missing' && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(processStartIdentity(first.report.processes[0].pid), 'missing', '服务必须实际退出后才能开始替换');
     const restarted = await command(project, 'runtime', 'service', 'start', '--service', 'web', '--port', String(port), '--write');
     assert.equal(restarted.report.status, 'passed', JSON.stringify(restarted.report));
     assert.notEqual(restarted.report.processes[0].pid, first.report.processes[0].pid);
+    const stopped = await command(project, 'runtime', 'service', 'stop', '--service', 'web', '--write');
+    assert.equal(stopped.report.status, 'passed', JSON.stringify(stopped.report.processes.map(({ status, reason }) => ({ status, reason }))));
+    assert.ok(stopped.report.processes.every((entry) => entry.status === 'stopped' && entry.teardownStatus === 'passed'));
   } finally {
     await command(project, 'runtime', 'service', 'stop', '--write').catch(() => {});
     await remove(project);
@@ -814,6 +1150,36 @@ test('冒名端点回答 stopped 时不作为回收证据', async () => {
   }
 });
 
+test('Windows 成员探针逐项核对多个真实进程并排除复用身份', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('该用例执行 Windows PowerShell 5.1 的真实 JSON 数组解析');
+    return;
+  }
+  const children = [spawnDetachedFixture(), spawnDetachedFixture()];
+  try {
+    const members = children.map((child) => ({ pid: child.pid, startIdentity: processStartIdentity(child.pid) }));
+    assert.ok(members.every((member) => startIdentityToken(member.startIdentity)));
+    assert.deepEqual(windowsConfirmedMembers(members), members);
+    assert.deepEqual(windowsConfirmedMembers([
+      members[0], { ...members[1], startIdentity: 'not-the-recorded-process' },
+    ]), [members[0]]);
+  } finally {
+    children.forEach((child) => killTree(child.pid));
+  }
+});
+
+test('Windows 成员探针执行出错时返回未知而不是空成员集', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('该用例在真实 PowerShell 中注入非终止错误');
+    return;
+  }
+  const probe = (command) => execFileSync('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-Command',
+    `function Get-Process { Write-Error 'fixture-probe-failure' }\n${command}`,
+  ], { encoding: 'utf8', windowsHide: true, timeout: 10000, stdio: 'pipe' });
+  assert.equal(windowsConfirmedMembers([{ pid: process.pid, startIdentity: processStartIdentity(process.pid) }], { probe }), null);
+});
+
 test('Windows 成员探针不把登记过的身份拼进脚本', () => {
   const identity = "x'; Remove-Item -Recurse -Force C:\\; '";
   const probeCommands = [];
@@ -826,6 +1192,18 @@ test('Windows 成员探针不把登记过的身份拼进脚本', () => {
   assert.equal(probeCommands[0].includes(identity), false);
   const payload = probeCommands[0].match(/'([A-Za-z0-9+/=]+)'/u)?.[1] ?? '';
   assert.deepEqual(JSON.parse(Buffer.from(payload, 'base64').toString('utf8')), [{ pid: 4321, startIdentity: identity }]);
+});
+
+test('Windows 树快照查询出错时返回未知而不是证明消失', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('该用例在真实 PowerShell 中注入 CIM 查询失败');
+    return;
+  }
+  const probe = (command) => execFileSync('powershell.exe', [
+    '-NoProfile', '-NonInteractive', '-Command',
+    `function Get-CimInstance { Write-Error 'fixture-snapshot-failure' }\n${command}`,
+  ], { encoding: 'utf8', windowsHide: true, timeout: 10000, stdio: 'pipe' });
+  assert.equal(windowsTreeMembers(process.pid, { probe }), null);
 });
 
 test('Windows 树探针把登记过的身份当作数据而不是脚本', () => {
