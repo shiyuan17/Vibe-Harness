@@ -6,11 +6,11 @@
 
 项目阶段、技术债与决策经本文件引用 `docs/memory/PROJECT_STATE.md` 读取，不在此复制其内容；本文件只记录任务级恢复线索。
 
-- 目标: worktree 交付协议重构落地 develop 并推广到 BL-CNAS
-- 当前状态: 已通过新交付流（stage standard 层验证 + publish FIFO 秒级终锁）合入 origin/develop（3eafa50，no-ff 合并 ec68b03）；本地 develop 工作树已 ff 同步；BL-CNAS 已安装新交付面
-- 已验证证据: origin/develop SHA 回读 = 3eafa504（publish pushConfirmed + 独立 ls-remote 双确认）；批次 a8c50047 standard 层候选验证全过（lint/typecheck/test:unit/test:component/test:integration）；deep 层 e2e 44/44、matrix 99/99、smoke true
-- 未完成事项: BL-CNAS turbo --affected 配置批（per-worktree TURBO_CACHE_DIR、确定性检查、分层超时、lefthook 受管旁路）；BL-CNAS 安装产生的 docs 变更未提交
-- 下一步最小动作: BL-CNAS turbo --affected 配置批（分层超时已落地 44754e3；TURBO 缓存隔离待 S5 ACL 诊断）
-- 锚点提交: 44754e34b51666925b8475c3a866ee7573fc9c01
-- 最后更新: 2026-10-27
-- 最后验证: 2026-10-27
+- 目标: 完成 codex/delivery-batch 交付批次的红区配置与验证超时修复
+- 当前状态: cefbe9f 已提交 per-check timeoutMs 覆盖及配套验证资产；候选推送因记忆新鲜度检查过期受阻，正在补充恢复锚点
+- 已验证证据: 全新 detached 候选中的 prepareNativePushCandidate 前后均保留 manifests/red-zone.json；候选 lint 通过（317 files）；标准验证已通过 lint、typecheck、unit、docs、eval-check 与 skills，component 仅因 CURRENT.md 日期落后失败
+- 未完成事项: 重新运行标准候选验证并普通推送冻结 SHA，随后回读远端目标
+- 下一步最小动作: 提交本次记忆刷新，重验 codex/delivery-batch 候选，执行 git push --no-force 并精确回读远端 SHA
+- 锚点提交: cefbe9f3e6f1dd0fddbe3b5c20cb11a9cfdd9a2b
+- 最后更新: 2026-10-29
+- 最后验证: 2026-10-29
