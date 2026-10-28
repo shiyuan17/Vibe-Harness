@@ -78,7 +78,7 @@ REPL 只用于获得短时、可重复的局部证据，不是未声明的任意
 
 | 口径 | 含义 | 超限处理 |
 | --- | --- | --- |
-| 逐项检查上限 | 项目声明的 `verification.timeoutMs` | 超过上限按 blocked 处理：记录命令、已耗时、未执行检查与手工重试入口，不自动重跑 |
+| 逐项检查上限 | 项目声明的 `verification.timeoutMs`；`validationCommands.checks[].timeoutMs` 可仅覆盖该检查 | 超过上限按 blocked 处理：记录命令、已耗时、未执行检查与手工重试入口，不自动重跑 |
 | 可选整轮上限 | 仅当项目显式声明 `verification.budgetMs` 时，从首项命令开始限制选中检查的总墙钟时间；每项等待为 `min(timeoutMs, 剩余budgetMs)` | 预算耗尽按 blocked 处理；不得推断产品失败 |
 | 运行器单用例超时 | 测试运行器对单个用例配置的失败兜底超时 | 按项目测试配置处理，不由墙钟预算替代或改写 |
 

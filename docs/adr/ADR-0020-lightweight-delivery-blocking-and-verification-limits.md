@@ -77,12 +77,13 @@ Start/Terminal 事件或独立审查；`--reviewed` 只是验证相关性元数�
 Vibe-Harness 整包审计。安装一致性由 `validate` 负责，本仓包审计由
 `pnpm check` 负责。
 
-每项检查继续使用 `verification.timeoutMs`。项目显式配置
+每项检查默认使用 `verification.timeoutMs`，检查声明可用
+`validationCommands.checks[].timeoutMs` 单独覆盖该项预算。项目显式配置
 `verification.budgetMs` 时，预算从第一项命令开始计算整轮实际墙钟
-上限；每项等待上限为 `min(timeoutMs, 剩余 budgetMs)`。未配置时没有
-隐式整轮截止。超时返回 `blocked`，记录已耗时、未执行检查与手工重试
-入口，且不自动重跑。任务耗时估算只用于选择 single/parallel，不用于
-中止任务或验证。
+上限；每项等待上限为 `min(检查 timeoutMs, 剩余 budgetMs)`。未配置时
+没有隐式整轮截止。超时返回 `blocked`，记录已耗时、未执行检查与手工
+重试入口，且不自动重跑。任务耗时估算只用于选择 single/parallel，不
+用于中止任务或验证。
 
 同一 workspace、计划与内容指纹且之后无写入时，普通验证默认复用通过
 收据；`--no-reuse` 强制重跑。验证前 checkpoint 是 best-effort，

@@ -80,6 +80,16 @@
         "id": "test",
         "command": "pnpm test:unit",
         "deterministic": true
+      },
+      {
+        "id": "integration",
+        "command": "pnpm test:integration",
+        "timeoutMs": 1800000
+      },
+      {
+        "id": "smoke",
+        "command": "pnpm smoke:lifecycle",
+        "timeoutMs": 1800000
       }
     ]
   },

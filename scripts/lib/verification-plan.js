@@ -435,6 +435,7 @@ export async function buildVerificationPlan({
       cacheScope: configured.cacheScope,
       ...(configured.subsumes !== undefined ? { subsumes: configured.subsumes } : {}),
       ...(configured.estimatedDurationMs !== undefined ? { estimatedDurationMs: configured.estimatedDurationMs } : {}),
+      ...(configured.timeoutMs !== undefined ? { timeoutMs: configured.timeoutMs } : {}),
       ...(configured.resourceClass === 'repo-heavy' ? { resourceClass: 'repo-heavy' } : {}),
     };
   });

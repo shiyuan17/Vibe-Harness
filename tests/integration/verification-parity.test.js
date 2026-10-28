@@ -832,6 +832,27 @@ test('bounded parallel checks overlap only with explicit opt-in and disjoint res
   });
 });
 
+test('CLI 与 runtime 都让逐检查 timeoutMs 覆盖全局预算', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, 'check.mjs'),
+      "import { setTimeout as sleep } from 'node:timers/promises'; await sleep(3000); console.log('completed');\n");
+    const validationCommands = {
+      tiers: { quick: ['node check.mjs'], standard: [], deep: [] },
+      checks: [{ id: 'slow', command: 'node check.mjs', timeoutMs: 15000 }],
+    };
+    const config = { validationCommands, verification: { timeoutMs: 1000 } };
+    await writeFile(path.join(project, 'vibe-harness.config.json'), JSON.stringify(config));
+    await commitFixture(project);
+    const plan = await buildVerificationPlan({ config, targetDir: project, tier: 'quick' });
+    assert.equal(plan.selectedChecks.find((check) => check.id === 'slow').timeoutMs, 15000);
+    const cli = await runVerificationPlan({ targetDir: project, plan, timeoutMs: 1000 });
+    assert.equal(cli.ok, true, JSON.stringify(cli.error));
+    const runtime = await runCommand(['verify', '--project', project, '--no-reuse']);
+    assert.equal(runtime.exitCode, 0, JSON.stringify(runtime.report));
+    assert.equal(runtime.report.checks.slow.status, 'passed');
+  });
+});
+
 test('运行时支持 full 且与 CLI 共享风险、范围和最低证据元数据', async () => {
   await fixture(async (project) => {
     const tiers = { quick: ['node quick.mjs'], standard: ['node contract.mjs'], deep: ['node matrix.mjs'] };

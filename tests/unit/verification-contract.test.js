@@ -38,6 +38,8 @@ test('parallel validation requires explicit resources and survives normalization
   assert.throws(() => normalizeValidationChecks([check]), /named resources/u);
   assert.equal(normalizeValidationChecks([{ ...check, resources: ['test-db'] }])[0].parallel, true);
   assert.throws(() => normalizeValidationChecks([{ ...check, parallel: 'yes' }]), /boolean/u);
+  assert.equal(normalizeValidationChecks([{ id: 'slow', command: 'node check.mjs', timeoutMs: 1800000 }])[0].timeoutMs, 1800000);
+  assert.throws(() => normalizeValidationChecks([{ id: 'slow', command: 'node check.mjs', timeoutMs: 999 }]), /timeoutMs/u);
 });
 
 test('dependency snapshots stream and deduplicate real targets but rescan later snapshots', async () => {

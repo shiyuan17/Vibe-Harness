@@ -146,7 +146,17 @@ function normalizedBudgetMs(budgetMs) {
   return Number.isInteger(budgetMs) && budgetMs > 0 ? budgetMs : null;
 }
 
-function focusedCommandTimeoutMs(command, timeoutMs) {
+function declaredCheckTimeoutMs(timeoutMs) {
+  return Number.isInteger(timeoutMs)
+    && timeoutMs >= MIN_PROJECT_VERIFICATION_TIMEOUT_MS
+    && timeoutMs <= MAX_PROJECT_VERIFICATION_TIMEOUT_MS
+    ? timeoutMs
+    : null;
+}
+
+function focusedCommandTimeoutMs(command, timeoutMs, checkTimeoutMs) {
+  const declared = declaredCheckTimeoutMs(checkTimeoutMs);
+  if (declared !== null) return declared;
   const configured = normalizedTimeoutMs(timeoutMs);
   if (configured !== DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS) return configured;
   return /^(?:pnpm|npm|yarn)\s+(?:test:integration|smoke:lifecycle)(?:\s|$)/u.test(command)
@@ -635,7 +645,7 @@ export async function runFocusedProjectVerification({
       results.push({ ...item, status: 'blocked', verificationId: id });
       return;
     }
-    const commandTimeoutMs = focusedCommandTimeoutMs(item.command, timeoutMs);
+    const commandTimeoutMs = focusedCommandTimeoutMs(item.command, timeoutMs, item.timeoutMs);
     if (budget !== null && budgetDeadline === null) {
       budgetStartedAt = Date.now();
       budgetDeadline = budgetStartedAt + budget;

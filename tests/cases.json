@@ -16948,6 +16948,19 @@
       "addedAt": "2026-10-28"
     },
     {
+      "id": "I-verification-parity-038",
+      "layer": "integration",
+      "file": "tests/integration/verification-parity.test.js",
+      "ordinal": 38,
+      "name": "CLI 与 runtime 都让逐检查 timeoutMs 覆盖全局预算",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-29"
+    },
+    {
       "id": "I-verify-focused-001",
       "layer": "integration",
       "file": "tests/integration/verify-focused.test.js",

@@ -41,6 +41,10 @@ export function normalizeValidationChecks(value) {
       && (!Number.isInteger(item.estimatedDurationMs) || item.estimatedDurationMs < 0)) {
       throw new Error(`validationCommands.checks[${index}].estimatedDurationMs must be a non-negative integer`);
     }
+    if (item.timeoutMs !== undefined
+      && (!Number.isInteger(item.timeoutMs) || item.timeoutMs < 1000 || item.timeoutMs > 3600000)) {
+      throw new Error(`validationCommands.checks[${index}].timeoutMs must be an integer from 1000 to 3600000`);
+    }
     if (item.resourceClass !== undefined && item.resourceClass !== 'repo-heavy') {
       throw new Error(`validationCommands.checks[${index}].resourceClass must be repo-heavy`);
     }
@@ -72,6 +76,7 @@ export function normalizeValidationChecks(value) {
       subsumes: [...new Set(subsumes.map((value) => value.trim()))],
       cwd: item.cwd ?? '.',
       ...(Number.isInteger(item.estimatedDurationMs) ? { estimatedDurationMs: item.estimatedDurationMs } : {}),
+      ...(Number.isInteger(item.timeoutMs) ? { timeoutMs: item.timeoutMs } : {}),
       ...(item.resourceClass === 'repo-heavy' ? { resourceClass: 'repo-heavy' } : {}),
     };
   });
