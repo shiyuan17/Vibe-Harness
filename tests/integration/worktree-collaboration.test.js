@@ -13,7 +13,7 @@ import { acquireCheckResources } from '../../runtime/lib/check-resources.mjs';
 import { buildDeliveryVerificationPlan } from '../../runtime/lib/verification-risk.mjs';
 import { buildVerificationPlan } from '../../scripts/lib/verification-plan.js';
 import { verifyProject } from '../../runtime/lib/verification-command.mjs';
-import { createPushVerification, inspectPushVerification, preparePushAttempt } from '../../runtime/lib/push-verification.mjs';
+import { createPushVerification, inspectPushVerification, preparePushAttempt, resolvePushBaseline } from '../../runtime/lib/push-verification.mjs';
 import { readCandidateResources, saveCandidateResources } from '../../runtime/lib/candidate-resources.mjs';
 import { removeTemporaryDirectory } from '../../scripts/lib/temp-cleanup.js';
 import { taskParentBatchEvidence } from '../../runtime/lib/task-command.mjs';
@@ -714,5 +714,53 @@ test('remote high-risk changes rebuild the required plan and failed integration 
     assert.equal(await git(f.origin, ['rev-parse', 'develop']), remote);
     const state = await f.state(staged.batchId);
     assert.equal(state.risk.riskLevel, 'high');
+  } finally { await removeTemporaryDirectory(f.root); }
+});
+
+test('已认证分支首次推送按开发基线验证，缺失基线仍保守扩大', async () => {
+  const f = await fixture({ validationCommands: {
+    tiers: { quick: ['node check.mjs'], standard: [], deep: ['node -e "process.exit(42)"'] },
+    checks: [{ id: 'test', command: 'node check.mjs' }],
+  } });
+  try {
+    const base = await git(f.repo, ['rev-parse', 'HEAD']);
+    const source = await f.source('A');
+    const head = await git(source, ['rev-parse', 'HEAD']);
+    const update = { localRef: 'refs/heads/feat/A', sha: head, remoteSha: '0'.repeat(40) };
+    assert.equal(await resolvePushBaseline(f.repo, update), base);
+    assert.equal(await resolvePushBaseline(f.repo, { ...update, localRef: 'refs/heads/unknown' }), null);
+    await f.installHook();
+    await git(source, ['push', 'origin', 'feat/A']);
+    assert.equal((await readFile(f.counter, 'utf8')).trim(), head);
+    await writeFile(path.join(source, 'src/A.txt'), 'second change');
+    await git(source, ['commit', '-qam', 'fix: second change']);
+    await git(source, ['push', 'origin', 'feat/A']);
+    assert.equal((await readFile(f.counter, 'utf8')).trim().split('\n').length, 2);
+    await git(source, ['branch', 'unproven']);
+    await assert.rejects(git(source, ['push', 'origin', 'unproven']), /verification|failed|push/iu);
+    await assert.rejects(git(f.origin, ['rev-parse', '--verify', 'refs/heads/unproven']));
+  } finally { await removeTemporaryDirectory(f.root); }
+});
+
+
+test('纯文档 stage 只取必要文档证据，显式 quick 才增加快速层全集', async () => {
+  const f = await fixture({ validationCommands: {
+    tiers: { quick: ['node check.mjs', 'node check.mjs docs'], standard: [], deep: [] },
+    checks: [{ id: 'test', command: 'node check.mjs' }, { id: 'docs', command: 'node check.mjs docs' }],
+  } });
+  try {
+    assert.equal((await f.run('bootstrap', '--task', 'DOC:feat/DOC', '--write')).status, 'passed');
+    const source = path.join(f.root, 'worktrees/DOC');
+    await mkdir(path.join(source, 'docs'));
+    await writeFile(path.join(source, 'docs/note.md'), '# Note\n');
+    await git(source, ['add', '.']);
+    await git(source, ['commit', '-qm', 'docs: note']);
+    const base = ['stage', '--task', 'DOC'];
+    assert.deepEqual((await f.run(...base)).selectedChecks, ['docs']);
+    assert.deepEqual((await f.run(...base, '--tier', 'quick')).selectedChecks, ['test', 'docs']);
+    const staged = await f.run(...base, '--write');
+    assert.equal(staged.status, 'passed', JSON.stringify(staged));
+    assert.deepEqual(staged.integration.selectedChecks, ['docs']);
+    assert.equal((await readFile(f.counter, 'utf8')).trim().split('\n').length, 1);
   } finally { await removeTemporaryDirectory(f.root); }
 });

@@ -8,11 +8,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { DEFAULT_RED_ZONE_PATHS, findProjectRoot, readHookSettings, readProjectConfig } from './lib/context.mjs';
+import { DEFAULT_RED_ZONE_PATHS, findProjectRoot, readHookSettings } from './lib/context.mjs';
 import { redZoneMatcher } from './lib/policy.mjs';
-import { inspectPushVerification } from '../lib/push-verification.mjs';
+import { inspectPushVerification, resolvePushBaseline } from '../lib/push-verification.mjs';
 import { verifyProject } from '../lib/verification-command.mjs';
-import { deliveryRiskPolicy } from '../lib/verification-risk.mjs';
 import { cleanupNativePushCandidate, prepareNativePushCandidate } from '../lib/worktree-command.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -180,20 +179,17 @@ async function prePush(rootDir, url, input) {
     try {
       await git(['-c', `core.hooksPath=${emptyHooks}`, 'worktree', 'add', '--detach', candidate, update.sha]);
       added = true;
-      const config = await readProjectConfig(candidate);
       settings = await prepareNativePushCandidate(rootDir, candidate);
       const changedPaths = new Set();
       for (const target of updates.filter((item) => item.sha === update.sha)) {
-        const baseKnown = !/^0+$/u.test(target.remoteSha)
-          && await git(['cat-file', '-e', `${target.remoteSha}^{commit}`]).then(() => true, () => false);
-        const changed = baseKnown
-          ? await git(['diff', '--name-only', '-z', '--no-renames', target.remoteSha, target.sha])
+        const base = await resolvePushBaseline(rootDir, target);
+        const changed = base
+          ? await git(['diff', '--name-only', '-z', '--no-renames', base, target.sha])
           : await git(['ls-tree', '-r', '--name-only', '-z', target.sha]);
         changed.stdout.split('\0').filter(Boolean).forEach((file) => changedPaths.add(file));
       }
       const paths = [...changedPaths];
-      const policy = deliveryRiskPolicy(paths, { config });
-      const report = await verifyProject(candidate, { tier: policy.selectedTier, paths, deliveryEvidence: true,
+      const report = await verifyProject(candidate, { paths, deliveryEvidence: true,
         reviewPolicy: 'none',
         targetBranch: update.ref.replace('refs/heads/', '') });
       if (!['passed', 'reused'].includes(report.status) || report.verification?.snapshotComparison !== 'match') {
