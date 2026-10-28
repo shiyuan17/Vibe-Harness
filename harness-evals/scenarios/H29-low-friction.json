@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "id": "H29",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "title": "低摩擦负控",
   "category": "internal",
   "manualOnly": true,
@@ -60,7 +60,7 @@
     "ref": "../fixtures/H29-low-friction-fixture.json"
   },
   "task": {
-    "prompt": "The addition bug is already diagnosed: sum subtracts its arguments. Change it to add, keep the export, and run the supplied check.",
+    "prompt": "The addition bug is already diagnosed: sum subtracts its arguments. Change it to add, keep the export, and run the supplied check. This is local delivery: one successful final check is sufficient. Do not run deep tests or repeat an unchanged successful check.",
     "allowedWritePaths": [
       "src/sum.js"
     ]
@@ -111,7 +111,9 @@
       "expected": {
         "finalChecks": [
           "test/check.test.mjs"
-        ]
+        ],
+        "forbiddenChecks": ["test/deep.test.mjs"],
+        "maxSuccessfulRunsPerFinalCheck": 1
       }
     }
   ],

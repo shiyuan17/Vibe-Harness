@@ -46,6 +46,13 @@ export function checkReworkTrace(definition, context) {
   const missing = required.filter((target) => !runs.some((run) =>
     run.target === target && run.started > lastChange && run.exitCode === 0));
   const evidence = { observedChanges: changes.length, requiredChecks: required, missingChecks: missing, runs };
+  const forbidden = definition.expected?.forbiddenChecks ?? [];
+  const limit = definition.expected?.maxSuccessfulRunsPerFinalCheck;
+  if (runs.some((run) => forbidden.includes(run.target))
+    || (Number.isInteger(limit) && required.some((target) => runs.filter((run) =>
+      run.target === target && run.started > lastChange && run.exitCode === 0).length > limit))) {
+    return { passed: false, code: 'REWORK_EXCESSIVE_VERIFICATION', evidence };
+  }
   if (firstChange < 0 || required.length === 0 || missing.length > 0) {
     return { unverified: true, code: 'REWORK_FINAL_CHECK_EVIDENCE_MISSING', evidence };
   }

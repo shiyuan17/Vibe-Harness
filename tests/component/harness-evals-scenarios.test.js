@@ -97,6 +97,14 @@ async function checkReworkControls(id) {
       const unnecessary = await verifier.verify({ ...good, events: [...good.events,
         { type: 'tool-call', evidenceSource: 'tool-call', name: 'request_user_input', arguments: {} }] });
       assert.equal(unnecessary.checks.find((check) => check.id === 'H29-C3').code, 'REWORK_UNNECESSARY_PROCESS');
+      const extraRuns = (target) => [
+        { type: 'tool-call', evidenceSource: 'tool-call', callId: 'extra-check', arguments: { command: `node ${target}` } },
+        { type: 'tool-result', evidenceSource: 'tool-result', callId: 'extra-check', exitCode: 0 },
+      ];
+      for (const target of ['test/check.test.mjs', 'test/deep.test.mjs']) {
+        const excessive = await verifier.verify({ ...good, events: [...good.events, ...extraRuns(target)] });
+        assert.equal(excessive.checks.find((check) => check.id === 'H29-C3').code, 'REWORK_EXCESSIVE_VERIFICATION');
+      }
     }
     if (id === 'H27') {
       lines.length = 0;
