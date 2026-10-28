@@ -122,8 +122,8 @@ export function buildDeliveryVerificationPlan({
   const requestedTier = full ? 'deep' : tier;
   const selectedIds = new Set([...required, ...all.allChecks.filter((check) =>
     requestedTier && rank[check.costTier] <= rank[requestedTier])].map((check) => check.id));
-  // Only explicit subsumption can remove a required command.
-  const subsumption = applyVerificationSubsumption(all.allChecks, { prune: !full, eligibleIds: selectedIds });
+  // Risk-derived evidence is mandatory; only default tier plans prune coverage.
+  const subsumption = applyVerificationSubsumption(all.allChecks, { prune: false, eligibleIds: selectedIds });
   const subsumedChecks = all.allChecks.filter((check) => subsumption.subsumedBy.has(check.id))
     .map((check) => ({ ...check, subsumedBy: subsumption.subsumedBy.get(check.id) }));
   const selected = all.allChecks.filter((check) => selectedIds.has(check.id) && !subsumption.subsumedBy.has(check.id));

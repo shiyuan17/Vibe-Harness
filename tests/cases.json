@@ -2232,6 +2232,45 @@
       "addedAt": "2026-09-24"
     },
     {
+      "id": "U-verification-contract-003",
+      "layer": "unit",
+      "file": "tests/unit/verification-contract.test.js",
+      "ordinal": 3,
+      "name": "parallel validation requires explicit resources and survives normalization",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-28"
+    },
+    {
+      "id": "U-verification-contract-004",
+      "layer": "unit",
+      "file": "tests/unit/verification-contract.test.js",
+      "ordinal": 4,
+      "name": "dependency snapshots stream and deduplicate real targets but rescan later snapshots",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-28"
+    },
+    {
+      "id": "U-verification-contract-005",
+      "layer": "unit",
+      "file": "tests/unit/verification-contract.test.js",
+      "ordinal": 5,
+      "name": "risk-derived mandatory checks remain selected despite subsumes declarations",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-28"
+    },
+    {
       "id": "U-verification-plan-001",
       "layer": "unit",
       "file": "tests/unit/verification-plan.test.js",
@@ -16675,6 +16714,45 @@
       "addedAt": "2026-10-10"
     },
     {
+      "id": "I-verification-parity-034",
+      "layer": "integration",
+      "file": "tests/integration/verification-parity.test.js",
+      "ordinal": 34,
+      "name": "identical deterministic executions coalesce, but --no-reuse still executes",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-28"
+    },
+    {
+      "id": "I-verification-parity-035",
+      "layer": "integration",
+      "file": "tests/integration/verification-parity.test.js",
+      "ordinal": 35,
+      "name": "环境预检非零退出在两个引擎保持 blocked，跳过标记不能掩盖失败",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-28"
+    },
+    {
+      "id": "I-verification-parity-036",
+      "layer": "integration",
+      "file": "tests/integration/verification-parity.test.js",
+      "ordinal": 36,
+      "name": "bounded parallel checks overlap only with explicit opt-in and disjoint resources",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-28"
+    },
+    {
       "id": "I-verify-focused-001",
       "layer": "integration",
       "file": "tests/integration/verify-focused.test.js",
@@ -21941,6 +22019,9 @@
       "runtime/lib/cli-runtime.mjs",
       "runtime/lib/git-fingerprint.mjs",
       "runtime/lib/git-timeouts.mjs",
+      "runtime/lib/verification-inputs.mjs",
+      "runtime/lib/verification-plan.mjs",
+      "runtime/lib/verification-risk.mjs",
       "runtime/lib/worktree-audit.mjs",
       "scripts/lib/verification-contract.js"
     ],

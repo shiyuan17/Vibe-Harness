@@ -518,6 +518,11 @@ export function validateProjectConfig(config) {
       && (!Number.isInteger(config.verification.budgetMs) || config.verification.budgetMs < 0)) {
       throw new Error('verification.budgetMs must be null or a non-negative integer');
     }
+    if (Object.hasOwn(config.verification, 'maxConcurrency')
+      && (!Number.isInteger(config.verification.maxConcurrency)
+        || config.verification.maxConcurrency < 1 || config.verification.maxConcurrency > 8)) {
+      throw new Error('verification.maxConcurrency must be an integer from 1 to 8');
+    }
     if (Object.hasOwn(config.verification, 'reuse')) {
       assertObject(config.verification.reuse, 'verification.reuse');
       const reuse = config.verification.reuse;

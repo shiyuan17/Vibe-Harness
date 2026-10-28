@@ -11,8 +11,8 @@ import { dependencyFingerprint, resourceFingerprintInput } from './verification-
 
 const execute = promisify(execFile);
 const RECEIPTS = '.vibe-harness/verification/receipts';
-export const VERIFICATION_RECEIPT_SCHEMA_VERSION = 6;
-const CHECK_CACHE_RELATIVE = 'vibe-harness/verification-cache/v6';
+export const VERIFICATION_RECEIPT_SCHEMA_VERSION = 7;
+const CHECK_CACHE_RELATIVE = 'vibe-harness/verification-cache/v7';
 // The record store lives inside the project it describes, so the caller that
 // supplies a handcrafted completion receipt can also write a matching record by
 // hand. Each record is therefore authenticated with a per-user key kept outside
@@ -277,7 +277,7 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
   const resourceContext = resourceFingerprintInput(projectDir);
   const reuseMode = config.verification?.reuse?.mode === 'tree-content' ? 'tree-content' : 'workspace';
   // Commands inherit the environment. A legacy allowlist is not evidence that
-  // an inherited variable is irrelevant, so v6 fingerprints the complete input.
+  // an inherited variable is irrelevant, so fingerprints bind the complete input.
   const environment = Object.entries(process.env).filter(([name]) => name !== 'VIBE_HARNESS_VERIFICATION_ID')
       .sort(([left], [right]) => left.localeCompare(right));
   const treeContentFingerprint = reuseMode === 'tree-content'
@@ -388,22 +388,33 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
       ...identity,
       key: digest(identity),
       available: checkAvailable,
-      reason: !check.deterministic ? 'check-not-explicitly-deterministic'
+      reason: !enabled ? 'reuse-disabled'
+        : !check.deterministic ? 'check-not-explicitly-deterministic'
+        : warm ? 'warm-environment-not-attested'
+        : reuseMode === 'tree-content' && sharedDependencies ? 'shared-dependencies-not-attested'
         : !recordable ? 'workspace-evidence-unavailable'
           : reuseMode === 'tree-content' && treeContentFingerprint === null ? 'tree-content-unavailable'
-            : !toolsAvailable ? 'toolchain-unavailable' : 'no-matching-check-receipt',
+            : !dependencies.available ? 'dependency-inputs-unavailable'
+              : !toolsAvailable ? 'toolchain-unavailable'
+                : inputs.some(([, value]) => value === 'unreadable') ? 'configuration-inputs-unreadable' : 'no-matching-check-receipt',
     };
   });
   return {
     fingerprints, key, available, recordable, snapshot: state, mode: reuseMode,
     inputsAvailable: toolsAvailable && !inputs.some(([, value]) => value === 'unreadable'),
     inputFingerprintMs: Date.now() - inputStartedAt,
+    dependencyMetrics: { entries: dependencies.entries, files: dependencies.files, bytes: dependencies.bytes,
+      memoHits: dependencies.memoHits, durationMs: dependencies.durationMs, available: dependencies.available },
     treeContentFingerprint, perCheck, selectionFingerprint,
-    reason: reuseMode === 'tree-content' && !deterministic
+    reason: !enabled ? 'reuse-disabled'
+      : reuseMode === 'tree-content' && sharedDependencies ? 'shared-dependencies-not-attested'
+      : !deterministic
       ? anyDeterministic ? 'some-checks-not-explicitly-deterministic' : 'checks-not-explicitly-deterministic'
       : warm ? 'warm-environment-not-attested'
         : !state.fingerprint ? 'snapshot-unavailable' : !writeEvidenceAvailable ? 'write-snapshot-unavailable'
-          : !toolsAvailable ? 'toolchain-unavailable'
+          : !dependencies.available ? 'dependency-inputs-unavailable'
+            : !toolsAvailable ? 'toolchain-unavailable'
+              : inputs.some(([, value]) => value === 'unreadable') ? 'configuration-inputs-unreadable'
             : reuseMode === 'tree-content' && treeContentFingerprint === null ? 'tree-content-unavailable'
               : 'no-matching-receipt',
     selectedIds: commands.map((check) => check.id),

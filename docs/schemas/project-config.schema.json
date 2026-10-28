@@ -310,6 +310,10 @@
                   "pattern": "^[a-zA-Z0-9][a-zA-Z0-9:._/-]{0,127}$"
                 }
               },
+              "parallel": {
+                "type": "boolean",
+                "description": "Opt in to bounded parallel execution; requires non-empty named resources. Unmarked checks are ordering barriers."
+              },
               "writesDependencies": {
                 "type": "boolean"
               }
@@ -482,6 +486,12 @@
             "null"
           ],
           "minimum": 0
+        },
+        "maxConcurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "default": 1
         },
         "reuse": {
           "type": "object",

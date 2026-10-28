@@ -74,6 +74,13 @@ function taskSummary(report) {
     }
     if ((report.pendingUnits ?? []).length > 0) lines.push(`pendingUnits: ${report.pendingUnits.join(', ')}`);
     if (report.nextAction) lines.push(`nextAction: ${report.nextAction}`);
+    if (report.recovery) lines.push(`recovery: ${report.recovery.status}${report.recovery.drift?.length ? ` (${report.recovery.drift.join(', ')})` : ''}`);
+    if (report.latestCheckpoint?.latestVerification) {
+      const verification = report.latestCheckpoint.latestVerification;
+      lines.push(`latestVerification: ${verification.id ?? 'unknown'} ${verification.finishedAt ?? ''}`);
+    }
+    for (const blocker of report.blockers ?? []) lines.push(`blocker: ${blocker}`);
+    if (report.failures?.length) lines.push(`failures: ${report.failures.length} (see --json for details)`);
     lines.push(`resumeHint: ${report.resumeHint}`);
     return lines.join('\n');
   }

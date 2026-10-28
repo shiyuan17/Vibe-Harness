@@ -55,6 +55,9 @@ export function normalizeValidationChecks(value) {
     if (!Array.isArray(subsumes) || subsumes.some((value) => typeof value !== 'string' || !value.trim())) {
       throw new Error(`validationCommands.checks[${index}].subsumes must contain non-empty check ids`);
     }
+    const resources = normalizeCheckResources(item.resources);
+    if (item.parallel !== undefined && typeof item.parallel !== 'boolean') throw new Error('Check parallel must be boolean.');
+    if (item.parallel === true && !resources.length) throw new Error('Parallel checks require named resources.');
     return {
       id,
       command,
@@ -62,7 +65,8 @@ export function normalizeValidationChecks(value) {
       costTier,
       scopes,
       deterministic: item.deterministic === true,
-      resources: normalizeCheckResources(item.resources),
+      resources,
+      ...(item.parallel !== undefined ? { parallel: item.parallel } : {}),
       writesDependencies: item.writesDependencies === true,
       cacheScope,
       subsumes: [...new Set(subsumes.map((value) => value.trim()))],

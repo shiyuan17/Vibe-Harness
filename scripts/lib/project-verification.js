@@ -9,7 +9,7 @@ import { terminateProcessTree } from './process-tree.js';
 import { maxDiagnosticOutput, redactDiagnosticText } from './tool-provisioning/subprocess.js';
 import { verificationCheckEvidence, verificationContextEnvironment, verificationCwd } from '../../runtime/lib/verification-plan.mjs';
 import { findVerificationReceipt, prepareVerificationReceiptStore, storeVerificationReceipt, verificationCacheContext } from '../../runtime/lib/verification-receipt.mjs';
-import { acquireCheckResources } from '../../runtime/lib/check-resources.mjs';
+import { acquireCheckResources, runCheckBatches } from '../../runtime/lib/check-resources.mjs';
 import { candidateEnvironment } from '../../runtime/lib/verification-inputs.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -593,6 +593,7 @@ export async function runFocusedProjectVerification({
   allowManual = false,
   budgetMs = null,
   focused,
+  maxConcurrency = 1,
   requireStable = false,
   signal = undefined,
   targetDir,
@@ -607,10 +608,10 @@ export async function runFocusedProjectVerification({
   let budgetStartedAt = null;
   let budgetExhausted = false;
   const budget = normalizedBudgetMs(budgetMs);
-  for (const item of focused.commands) {
+  const runCheck = async (item) => {
     if (stopped) {
       results.push({ ...item, status: 'not_run', reason: 'previous-check-failed', verificationId: id });
-      continue;
+      return;
     }
     let program, args;
     const manual = item.command.startsWith('manual:');
@@ -623,7 +624,7 @@ export async function runFocusedProjectVerification({
         verificationId: id,
         next: { command: 'pnpm verify --project .' },
       });
-      continue;
+      return;
     }
     try {
       [program, ...args] = assertSafeCommand(executableCommand);
@@ -632,7 +633,7 @@ export async function runFocusedProjectVerification({
       }
     } catch {
       results.push({ ...item, status: 'blocked', verificationId: id });
-      continue;
+      return;
     }
     const commandTimeoutMs = focusedCommandTimeoutMs(item.command, timeoutMs);
     if (budget !== null && budgetDeadline === null) {
@@ -651,7 +652,7 @@ export async function runFocusedProjectVerification({
       });
       budgetExhausted = true;
       stopped = true;
-      continue;
+      return;
     }
     let resources;
     let resourceStopUnconfirmed = false;
@@ -677,7 +678,7 @@ export async function runFocusedProjectVerification({
         stdout: verificationOutput(result.stdout, targetDir),
         ...verificationCheckEvidence(verificationOutput(result.stdout, targetDir), verificationOutput(result.stderr, targetDir)),
       });
-      stopped = ['failed', 'blocked'].includes(results.at(-1).status);
+      stopped ||= ['failed', 'blocked'].includes(results.at(-1).status);
       if (budgetDeadline !== null && Date.now() >= budgetDeadline) budgetExhausted = true;
     } catch (cause) {
       resourceStopUnconfirmed = cause.verificationTimedOut || cause.verificationCancelled || cause.verificationOutputLimitExceeded;
@@ -693,13 +694,19 @@ export async function runFocusedProjectVerification({
           verificationId: id,
         }),
         ...(cause.code === 'ENOENT' ? { status: 'blocked', code: 'MISSING_EXECUTABLE' } : {}),
+        ...(!resourceStopUnconfirmed && typeof cause.code === 'number'
+          ? verificationCheckEvidence(verificationOutput(cause.stdout, targetDir), verificationOutput(cause.stderr, targetDir), 'failed') : {}),
       });
-      stopped = ['failed', 'blocked'].includes(results.at(-1).status);
+      stopped ||= ['failed', 'blocked'].includes(results.at(-1).status);
       if (budgetDeadline !== null && Date.now() >= budgetDeadline) budgetExhausted = true;
     } finally {
       resources?.release?.({ retain: resourceStopUnconfirmed });
     }
-  }
+  };
+  await runCheckBatches(focused.commands, maxConcurrency, runCheck);
+  const position = (result) => focused.commands.findIndex((item) => item.id === result.id && item.command === result.command
+    && (item.cwd ?? '.') === (result.cwd ?? '.'));
+  results.sort((left, right) => position(left) - position(right));
   const after = await createProjectSnapshot(targetDir);
   const snapshotComparison = before.available && after.available
     ? before.fingerprint === after.fingerprint
@@ -827,7 +834,22 @@ export async function runVerificationPlan({
   targetDir,
   timeoutMs = DEFAULT_PROJECT_VERIFICATION_TIMEOUT_MS,
 }) {
-  const cacheContext = await verificationCacheContext(targetDir, plan);
+  let cacheContext = await verificationCacheContext(targetDir, plan);
+  const sharing = reuse && cacheContext.available
+    ? await acquireCheckResources(targetDir, [`verify:${cacheContext.key}`], { timeoutMs }) : null;
+  if (sharing && !sharing.ok) throw Object.assign(new Error(sharing.code), { code: sharing.code });
+  let retainSharing = false;
+  try {
+  sharing?.begin?.();
+  if (sharing?.contended) {
+    const current = await verificationCacheContext(targetDir, plan);
+    if (current.key !== cacheContext.key) throw Object.assign(new Error('Verification inputs changed while waiting.'), { code: 'INPUTS_CHANGED_WHILE_WAITING' });
+    cacheContext = current;
+  }
+  /** @type {any} */
+  let config = {};
+  try { config = JSON.parse(await readFile(path.join(targetDir, 'vibe-harness.config.json'), 'utf8')); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
   const cached = reuse ? await findVerificationReceipt(targetDir, cacheContext) : null;
   const confirmed = cached?.receipt ? await verificationCacheContext(targetDir, plan) : null;
   const hit = cached?.receipt && confirmed?.key === cacheContext.key;
@@ -862,6 +884,7 @@ export async function runVerificationPlan({
   } : await runFocusedProjectVerification({
     allowManual,
     budgetMs,
+    maxConcurrency: config.verification?.maxConcurrency ?? 1,
     focused: {
       changedPaths: plan.changedPaths ?? [],
       commands: plan.selectedChecks ?? [],
@@ -877,6 +900,8 @@ export async function runVerificationPlan({
     targetDir,
     timeoutMs,
   });
+  retainSharing = focused.results.some((item) => ['PROJECT_VERIFICATION_TIMEOUT', 'PROJECT_VERIFICATION_CANCELLED',
+    'PROJECT_VERIFICATION_OUTPUT_LIMIT'].includes(item.code));
   const deferredChecks = (plan.deferredChecks ?? []).map((item) => ({ ...item }));
   const nextTier = plan.nextTier ?? null;
   focused.results = (focused.results ?? []).map((item) => ({
@@ -1053,6 +1078,9 @@ export async function runVerificationPlan({
     }).catch(() => false);
   }
   return report;
+  } finally {
+    sharing?.release?.({ retain: retainSharing });
+  }
 }
 
 /** @param {{allowManual?: boolean, commandStatus: any, failureMode?: string, signal?: AbortSignal, targetDir: string, timeoutMs?: number, verificationId?: string | null}} options */

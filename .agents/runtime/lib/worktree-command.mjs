@@ -2250,7 +2250,9 @@ function verifyFailureClassification(verification) {
 // Verification runs outside the repository FIFO. Only the owner releases its
 // activity lease; a redundant candidate can stop cooperatively between checks.
 async function runCandidateVerification(projectDir, state, args, verifyArgs) {
+  const setupStartedAt = Date.now();
   const setup = await setupCandidateEnvironment(projectDir, state.candidate, 120000);
+  state.proofTimingsMs = { ...(state.proofTimingsMs ?? {}), setup: Date.now() - setupStartedAt };
   if (!setup.ok) return { status: 'blocked', code: 'LAND_CANDIDATE_SETUP_FAILED', checks: {}, selectedChecks: [] };
   const changed = await runGit(['diff', '--name-only', '-z', '--no-renames',
     state.riskBaseHead ?? state.baseHead, 'HEAD', '--'], state.candidate);
@@ -2282,6 +2284,7 @@ async function runCandidateVerification(projectDir, state, args, verifyArgs) {
     state.pushProof = await createPushVerification(projectDir, state, verification);
     state.proofTimingsMs = { ...(state.proofTimingsMs ?? {}),
       inputFingerprint: verification.timingsMs?.inputFingerprint ?? null,
+      verification: verification.timingsMs ?? null,
       create: Date.now() - proofStarted };
     return verification;
   } finally {
@@ -2999,6 +3002,7 @@ async function cleanupConfirmedPublish(projectDir, primary, settings, state, fil
     localSync: localRefSync,
     reconcileHistory: state.reconcileHistory ?? [],
     supersededCandidates,
+    proofTimingsMs: state.proofTimingsMs ?? null,
     queue: args?._deliveryGate?.report('completed') ?? null,
   };
 }

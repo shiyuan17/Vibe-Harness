@@ -46,12 +46,14 @@
 
 ### 内容寻址缓存与 cacheScope
 
-- 普通验证默认使用同一 workspace、同一计划、同一内容指纹复用通过收据，且之后不得发生写入；`--no-reuse` 强制重跑。`tree-content` 为跨树复用 opt-in：键包含提交树与未提交/未跟踪文件的内容摘要、锁文件、验证命令、`cwd`、平台/架构、工具链版本、验证实现版本和 allowlist 环境摘要；不包含绝对 worktree 路径、HEAD 或分支名，这些只进入 provenance。
+- 普通验证默认使用同一 workspace、同一计划、同一内容指纹复用通过收据，且之后不得发生写入；`--no-reuse` 强制重跑。`tree-content` 为内容复用 opt-in：键包含提交树与未提交/未跟踪文件的内容摘要、锁文件、真实依赖、验证命令、`cwd`、平台/架构、工具链版本、验证实现版本和完整继承环境摘要，旧 `envAllowlist` 不缩窄环境身份。候选 ID、路径、namespace、端口、依赖模式仍绑定资源身份；相同树不保证跨候选复用，shared-immutable 依赖与 warm 当前不可自动复用。
 - `cacheScope: "tree"` 用于全仓 lint、typecheck、全量单测和后端全量检查，可在相同代码树内容的不同 worktree、分支或空提交 HEAD 间复用。默认 `selection` 用于 `*:changed`、`*:affected` 等依赖 base 或 `changedPaths` 的检查，额外绑定 base tree 与变更上下文，禁止跨基线复用。
 - 逐检查缓存：每个检查独立查找与写入。一个非确定性检查 miss 或失败不得使其他已命中的确定性检查失效；只有全部选中检查都有有效证据时才能形成整体通过。
 - 缓存只保存在本机 Git common dir 的共享 store；完整运行收据仍保存在当前 worktree 的 `.vibe-harness`。缓存记录必须通过本机认证，路径、锁文件或工具链不可读、worktree 有歧义、记录被篡改或过期时一律 miss，不 fail-open。缓存按 TTL 清理，不保存 stdout、stderr 或环境明文。
 - 执行中的检查若改动跟踪或未跟踪内容，后续预计算命中立即失效并重新取快照；最终快照与写指纹不一致仍为 `FINAL_SNAPSHOT_MISMATCH`，不得用缓存命中覆盖。
 - 同 workspace 与跨 worktree/tree-content 都只有显式 `deterministic: true` 的检查可进入自动复用。未证明确定性的检查可以执行并形成本轮证据，但不得跨树宣称确定性；须在同一代码内容上连续两次 clean、无缓存运行均通过且树内容前后一致后才可改为 `true`。
+- 相同完整输入的确定性执行先等待同一内容键的持有者，拿到锁后重新核验输入并查找认证收据；没有通过证据仍需执行。非确定性检查仅使用声明的具名资源锁排队，`--no-reuse` 不合并执行。并行默认关闭；只有 `verification.maxConcurrency` 有界开启且检查声明 `parallel: true` 与非空 `resources` 时可并发，未声明的检查是顺序屏障。最终输入复核仍覆盖所有选中检查。
+- 格式、环境和必要编译前置于长测试。正式验证期间候选保持稳定；修复源码前取消受影响检查并确认退出，修复后只补失效的证据。验收行为、证据层级、范围和交付状态分别判断，不机械要求“每单元一次 quick、最后一次 deep”。
 
 ### 重任务锁与最终合并树
 

@@ -12,7 +12,8 @@ import { buildVerificationPlan } from '../../scripts/lib/verification-plan.js';
 import { runVerificationPlan } from '../../scripts/lib/project-verification.js';
 import { detectProjectProfile } from '../../scripts/lib/project-profile.js';
 import { verificationCheckEvidence } from '../../runtime/lib/verification-plan.mjs';
-import { verificationCacheContext, findVerificationCheckReceipt, storeVerificationCheckReceipt } from '../../runtime/lib/verification-receipt.mjs';
+import { verificationCacheContext, findVerificationCheckReceipt, storeVerificationCheckReceipt,
+  VERIFICATION_RECEIPT_SCHEMA_VERSION } from '../../runtime/lib/verification-receipt.mjs';
 
 const execute = promisify(execFile);
 
@@ -38,7 +39,14 @@ async function configureTreeContent(project, checks) {
 
 async function checkCacheDirectory(project) {
   const common = (await execute('git', ['rev-parse', '--git-common-dir'], { cwd: project })).stdout.trim();
-  return path.join(project, common, 'vibe-harness', 'verification-cache', 'v6');
+  return path.join(project, common, 'vibe-harness', 'verification-cache', `v${VERIFICATION_RECEIPT_SCHEMA_VERSION}`);
+}
+
+async function commitFixture(project) {
+  await execute('git', ['init', '--quiet'], { cwd: project });
+  await execute('git', ['add', '.'], { cwd: project });
+  await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
+    'commit', '--quiet', '-m', 'fixture'], { cwd: project });
 }
 
 for (const tier of ['quick', 'standard', 'deep']) {
@@ -339,7 +347,7 @@ test('被篡改的第 6 版检查收据按 miss 处理', async () => {
     const first = await runCommand(['verify', '--project', project]);
     assert.equal(first.report.status, 'passed', JSON.stringify(first.report));
     const common = (await execute('git', ['rev-parse', '--git-common-dir'], { cwd: project })).stdout.trim();
-    const directory = path.join(project, common, 'vibe-harness', 'verification-cache', 'v6');
+    const directory = path.join(project, common, 'vibe-harness', 'verification-cache', `v${VERIFICATION_RECEIPT_SCHEMA_VERSION}`);
     const [name] = (await readdir(directory)).filter((file) => file.endsWith('.json'));
     const file = path.join(directory, name);
     const record = JSON.parse(await readFile(file, 'utf8'));
@@ -742,5 +750,83 @@ test('聚焦入口与两种引擎共享部分配置的显式成本归属', async
     assert.equal(cli.deferredChecks.find((check) => check.command === component.command).costTier, component.costTier);
     assert.equal(runtime.report.deferredChecks.find((check) => check.command === component.command).tier, component.costTier);
     assert.deepEqual(runtime.report.selectedChecks.map((id) => runtime.report.checks[id].command), ['pnpm test:unit']);
+  });
+});
+
+test('identical deterministic executions coalesce, but --no-reuse still executes', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, '.gitignore'), '.vibe-harness/\nruns.txt\n');
+    await writeFile(path.join(project, 'check.mjs'),
+      "import { appendFileSync } from 'node:fs'; appendFileSync('runs.txt', 'run\\n'); await new Promise(r => setTimeout(r, 500));\n");
+    await configureTreeContent(project, [{ id: 'test', command: 'node check.mjs', deterministic: true, cacheScope: 'tree' }]);
+    await commitFixture(project);
+    const runs = await Promise.all([runCommand(['verify', '--project', project]), runCommand(['verify', '--project', project])]);
+    assert.deepEqual(runs.map((run) => run.report.status).sort(), ['passed', 'reused']);
+    assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\n');
+    for (const run of runs) {
+      assert.ok(run.report.timingsMs.total > 0);
+      assert.ok(run.report.dependencyScan.before.files >= 0);
+    }
+    await runCommand(['verify', '--project', project, '--no-reuse']);
+    assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\nrun\n');
+  });
+});
+
+test('环境预检非零退出在两个引擎保持 blocked，跳过标记不能掩盖失败', async () => {
+  await fixture(async (project) => {
+    const tiers = { quick: ['node check.mjs'], standard: [], deep: [] };
+    await configure(project, { tiers });
+    for (const status of ['blocked', 'not_applicable']) {
+      await writeFile(path.join(project, 'check.mjs'),
+        `console.log('[VIBE_HARNESS_CHECK] {"status":"${status}","reason":"preflight"}'); process.exit(2);\n`);
+      const runtime = await runCommand(['verify', '--project', project, '--no-reuse']);
+      const cli = await runVerificationPlan({
+        targetDir: project, plan: selectTierChecks({ tier: 'quick', tiers, projectDir: project }),
+      });
+      const expected = status === 'blocked' ? 'blocked' : 'failed';
+      assert.equal(runtime.report.status, expected);
+      assert.equal(cli.results['check-mjs'].status, expected);
+      assert.equal(cli.ok, false);
+    }
+  });
+});
+
+test('bounded parallel checks overlap only with explicit opt-in and disjoint resources', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, '.gitignore'), '.vibe-harness/\nevents.txt\n');
+    await writeFile(path.join(project, 'check.mjs'),
+      "import { appendFileSync } from 'node:fs'; const id = process.argv[2]; appendFileSync('events.txt', `${id}:start\\n`); await new Promise(r => setTimeout(r, 300)); appendFileSync('events.txt', `${id}:end\\n`);\n");
+    const checks = ['a', 'b'].map((id) => ({ id, command: `node check.mjs ${id}`, parallel: true,
+      resources: [`resource-${id}`], deterministic: false }));
+    const config = { validationCommands: { tiers: { quick: checks.map((check) => check.command), standard: [], deep: [] }, checks },
+      verification: { timeoutMs: 30000, maxConcurrency: 2 } };
+    await writeFile(path.join(project, 'vibe-harness.config.json'), JSON.stringify(config));
+    await commitFixture(project);
+    const first = await runCommand(['verify', '--project', project, '--no-reuse']);
+    assert.equal(first.report.status, 'passed', JSON.stringify(first.report));
+    let events = (await readFile(path.join(project, 'events.txt'), 'utf8')).trim().split('\n');
+    assert.ok(events[0].endsWith(':start') && events[1].endsWith(':start'), events.join(','));
+    await writeFile(path.join(project, 'events.txt'), '');
+    config.validationCommands.checks[1].resources = ['resource-a'];
+    await writeFile(path.join(project, 'vibe-harness.config.json'), JSON.stringify(config));
+    const second = await runCommand(['verify', '--project', project, '--no-reuse']);
+    assert.equal(second.report.status, 'passed');
+    events = (await readFile(path.join(project, 'events.txt'), 'utf8')).trim().split('\n');
+    assert.deepEqual(events.map((event) => event.split(':')[1]), ['start', 'end', 'start', 'end']);
+    await writeFile(path.join(project, 'events.txt'), '');
+    config.validationCommands.checks[1].resources = ['resource-b'];
+    config.validationCommands.checks[1].parallel = false;
+    await writeFile(path.join(project, 'vibe-harness.config.json'), JSON.stringify(config));
+    assert.equal((await runCommand(['verify', '--project', project, '--no-reuse'])).report.status, 'passed');
+    events = (await readFile(path.join(project, 'events.txt'), 'utf8')).trim().split('\n');
+    assert.deepEqual(events.map((event) => event.split(':')[1]), ['start', 'end', 'start', 'end']);
+    await writeFile(path.join(project, 'events.txt'), '');
+    config.validationCommands.checks[1].parallel = true;
+    await writeFile(path.join(project, 'vibe-harness.config.json'), JSON.stringify(config));
+    const cli = await runVerificationPlan({ targetDir: project, plan: { selectedChecks: checks,
+      deferredChecks: [], changedPaths: [], scope: 'layer', executionTier: 'quick' } });
+    assert.equal(cli.ok, true, JSON.stringify(cli));
+    events = (await readFile(path.join(project, 'events.txt'), 'utf8')).trim().split('\n');
+    assert.ok(events[0].endsWith(':start') && events[1].endsWith(':start'), events.join(','));
   });
 });

@@ -150,10 +150,7 @@ publish 确认集成或自动归档后，仅当同一 push endpoint 指纹与精
 - `validationCommands.checks[].resourceClass: "repo-heavy"` 仍是合法声明，
   由验证计划与收据原样透传；它不再触发仓库级互斥或队列集成，重型检查
   与其他检查一样在候选内执行，并行于其他批次。
-- 自定义 `verify:changed` 一类重检查必须改用
-  `node .agents/runtime/commands/run.mjs verify --project . --tier quick
-  --paths <paths...>`，不能只在干净候选树中直接执行底层脚本；`--paths`
-  显式提供变更范围，避免空 diff 回退到不受管的检验路径。
+- 外层验证入口使用 `node .agents/runtime/commands/run.mjs verify --project . --tier quick --paths <paths...>`；调用方向固定为入口 → planner → 项目原子检查。`validationCommands` 引用的 `verify:changed` 是下游原子检查时，不得回调包含自身的聚合入口。下游范围优先显式参数，其次使用 `VIBE_HARNESS_VERIFY_PATHS/BASE/SCOPE` 冻结上下文，独立调用才自行计算；上下文不完整或基线无效时明确失败，不能静默回退开发分支。
 
 ### 版本词汇
 

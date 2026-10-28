@@ -61,7 +61,7 @@ export function verificationContextEnvironment(plan) {
   };
 }
 
-export function verificationCheckEvidence(stdout, stderr = '') {
+export function verificationCheckEvidence(stdout, stderr = '', executionStatus = 'passed') {
   const marker = '[VIBE_HARNESS_CHECK] ';
   const lines = [stdout, stderr].flatMap((stream) => String(stream ?? '').split(/\r?\n/u))
     .filter((value) => value.startsWith(marker));
@@ -77,6 +77,8 @@ export function verificationCheckEvidence(stdout, stderr = '') {
     const rank = { not_applicable: 0, blocked: 1, failed: 2 };
     if (!result || rank[evidence.status] > rank[result.status]) result = evidence;
   }
+  if (executionStatus !== 'passed'
+    && (executionStatus !== 'failed' || result?.status === 'not_applicable')) return null;
   return result ? { status: result.status === 'not_applicable' ? 'not_selected' : result.status, reason: result.reason.slice(0, 500) } : null;
 }
 
@@ -280,7 +282,10 @@ export function selectVerificationChecks({
       ?? VERIFICATION_TIERS.flatMap((name) => tiers[name] ?? []).find((value) => verificationCheckId(value, commandStatus) === item.id);
     if (typeof command !== 'string' || !command.trim()) throw new Error(`Cannot resolve command for check: ${item.id}`);
     const cwd = projectDir ? verificationCwd(projectDir, item.cwd).relative : item.cwd ?? '.';
-    return { ...item, command: command.trim(), cwd, resources: normalizeCheckResources(item.resources) };
+    const resources = normalizeCheckResources(item.resources);
+    if (item.parallel !== undefined && typeof item.parallel !== 'boolean') throw new Error('Check parallel must be boolean.');
+    if (item.parallel === true && !resources.length) throw new Error('Parallel checks require named resources.');
+    return { ...item, command: command.trim(), cwd, resources };
   });
   const seen = new Set();
   const identities = new Map();

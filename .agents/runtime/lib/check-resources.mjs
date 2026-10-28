@@ -12,6 +12,25 @@ export function normalizeCheckResources(values = []) {
   return [...new Set(values)].sort();
 }
 
+/** Unmarked checks are barriers; wait for every started check even on errors. */
+export async function runCheckBatches(checks, maxConcurrency, run) {
+  if (!Number.isInteger(maxConcurrency) || maxConcurrency < 1 || maxConcurrency > 8) {
+    throw new Error('Check concurrency must be an integer from 1 to 8.');
+  }
+  const parallel = (check) => check.parallel === true && check.resources?.length > 0;
+  for (let index = 0; index < checks.length;) {
+    const batch = [checks[index++]];
+    if (parallel(batch[0])) {
+      while (batch.length < maxConcurrency && index < checks.length && parallel(checks[index])) {
+        batch.push(checks[index++]);
+      }
+    }
+    const results = await Promise.allSettled(batch.map(run));
+    const rejected = results.find((result) => result.status === 'rejected');
+    if (rejected) throw rejected.reason;
+  }
+}
+
 /** Named locks protect only one check. Live holders never lose ownership by TTL. */
 export async function acquireCheckResources(projectDir, values, { timeoutMs = 120000 } = {}) {
   const names = normalizeCheckResources(values);
@@ -23,6 +42,7 @@ export async function acquireCheckResources(projectDir, values, { timeoutMs = 12
   const held = [];
   const token = randomUUID();
   const started = Date.now();
+  let contended = false;
   const release = ({ retain = false } = {}) => {
     if (retain) return;
     for (const file of held.reverse()) {
@@ -43,6 +63,7 @@ export async function acquireCheckResources(projectDir, values, { timeoutMs = 12
           break;
         } catch (error) {
           if (error.code !== 'EEXIST') throw error;
+          contended = true;
           try {
             const observed = readFileSync(file, 'utf8');
             const owner = JSON.parse(observed);
@@ -71,7 +92,7 @@ export async function acquireCheckResources(projectDir, values, { timeoutMs = 12
         writeFileSync(file, JSON.stringify({ ...record, phase: 'running' }));
       }
     };
-    return { ok: true, waitMs: Date.now() - started, begin, release };
+    return { ok: true, waitMs: Date.now() - started, contended, begin, release };
   } catch (error) {
     release();
     return { ok: false, code: 'CHECK_RESOURCE_UNAVAILABLE', error: error.message };

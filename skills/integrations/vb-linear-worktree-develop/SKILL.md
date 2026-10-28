@@ -12,7 +12,7 @@ description: Use only when explicitly requested as Vb Linear Worktree Develop or
 Linear MCP 不可用时回退到用户提供的 Issue 上下文，并明确标记未同步；不伪造写入结果。
 
 1. 核对授权、canonicalCwd、allowedWriteRoots、Issue 和必要原生依赖；缺授权只暂停对应动作。跨边界效果需要真实 hostContext（source=host、process=isolated、observedAt），Agent 不得自造；旧 v1 Envelope 仅作 contract-only/degraded 兼容。
-2. 当前计划或已授权 Parent 是执行范围；已有 Issue 直接复用，不限于本轮新建节点，不扫描或认领其他 Parent。Parent 批次读取全部必需后代、原生依赖、验收、范围及精确目标 ref；开始、执行期间和发布前重读。新增、移除成员或影响执行的依赖变化时暂停受影响步骤，确认扩围后记录原因并 plan-sync；不静默漏掉或自动认领新任务。显式执行不要求 Claim 或 Start/Terminal Receipt；历史活动记录仍参与冲突检查。
+2. 当前计划或已授权 Parent 是执行范围；已有 Issue 直接复用，不限于本轮新建节点，不扫描或认领其他 Parent。Parent 批次开始时读取全部必需后代、原生依赖、验收、范围及精确目标 ref；随后在阶段切换、成员或依赖变化通知、恢复且事实已失效、发布前刷新。先比较当前状态/关系/版本元数据，仅对变化节点重读正文；工具不能证明未变化时扩大读取。不在每次命令或轮询重读全部正文。新增、移除成员或影响执行的依赖变化时暂停受影响步骤，确认扩围后记录原因并 plan-sync；不静默漏掉或自动认领新任务。显式执行不要求 Claim 或 Start/Terminal Receipt；历史活动记录仍参与冲突检查。
 3. 同一 Parent 的全部必需子任务默认共用一个任务 worktree、一个分支和一个 Writer；以 `--task <PARENT-ID>:<branch>` 归属环境。优先复用宿主隔离树，否则 worktree bootstrap 一次。Parent 仍是 aggregate，不充当实现叶子。按原生依赖顺序实施，无依赖任务稳定串行，不为串行新增 Linear 依赖边。普通单 Agent 不创建协作 DAG 或墙钟估算；普通 Issue 不强建 Parent。仅明确独立交付或并行写入时另定隔离方案。
 4. 每个代码任务暂存对应实现、测试和文档，核对工作树与 index 一致后运行必要验证，再形成带 Issue ID 的 Conventional Commit；提交后用 `task update <PARENT-ID> --unit <ISSUE-ID> --verification <report> --unit-status <ISSUE-ID>:done --write` 绑定同一提交树。Hook 改树须重验，修复追加提交并重新绑定，不改写已有 SHA。只读或已交付任务不造空提交。锚点的 done 仅是本地执行完成，不是 Linear Done / DAG succeeded；同批后继凭仍为祖先的已验证提交放行，批外仍等待正式交付。
 5. 全部必需任务完成且共享工作区/index 干净后，只以 Parent 和最终 HEAD 执行一次 `worktree stage`，验证整批最终组合与 Parent fan-in，持久化 `local_staged`；不逐子任务 stage 或提前推送。随后 `worktree publish --batch <id>` 对齐唯一实际 `origin/develop`，必要时重建、重验，非强制精确推送并回读。内部临时候选 worktree 不计入任务 worktree 数量。任一必需任务未完成不部分发布；跨批依赖形成交付循环时报告并停止，不绕过依赖。

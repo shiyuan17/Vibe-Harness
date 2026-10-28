@@ -1,32 +1,59 @@
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
-/** Hash actual dependency bytes, following package links with cycle detection. */
+/** Snapshot-local Merkle hashes: stream each real file once, never reuse across snapshots. */
 export function dependencyFingerprint(projectDir, config = {}, checks = []) {
+  const startedAt = Date.now();
   const roots = new Set(['.', ...(config.worktree?.dependencyRoots ?? []), ...checks.map((check) => check.cwd ?? '.')]);
-  const hash = createHash('sha256');
+  const hash = createHash('sha256').update('dependency-merkle-v2\n');
+  const memo = new Map();
+  const buffer = Buffer.allocUnsafe(64 * 1024);
   let count = 0;
-  const walk = (file, label, ancestors = new Set()) => {
+  let files = 0;
+  let bytes = 0;
+  let memoHits = 0;
+  const walk = (file, ancestors = new Set()) => {
     if (++count > 500000) throw new Error('dependency fingerprint exceeds file limit');
     const info = lstatSync(file);
     const real = realpathSync(file);
-    if (ancestors.has(real)) { hash.update(`${label}:cycle\n`); return; }
+    if (ancestors.has(real)) return { digest: 'cycle', cyclic: true };
+    if (memo.has(real)) { memoHits += 1; return memo.get(real); }
     const next = new Set(ancestors).add(real);
     const target = info.isSymbolicLink() ? lstatSync(real) : info;
+    const content = createHash('sha256');
+    let cyclic = false;
     if (target.isDirectory()) {
-      for (const child of readdirSync(real).sort()) walk(path.join(real, child), `${label}/${child}`, next);
+      content.update('directory\n');
+      for (const child of readdirSync(real).sort()) {
+        const result = walk(path.join(real, child), next);
+        content.update(JSON.stringify([child, result.digest]));
+        cyclic ||= result.cyclic;
+      }
     } else if (target.isFile()) {
-      hash.update(`${label}:${target.mode & 0o111}:`);
-      hash.update(readFileSync(real));
+      files += 1;
+      content.update(`file:${target.mode & 0o111}:`);
+      const descriptor = openSync(real, 'r');
+      try {
+        let length;
+        while ((length = readSync(descriptor, buffer, 0, buffer.length, null)) > 0) {
+          content.update(buffer.subarray(0, length));
+          bytes += length;
+        }
+      } finally { closeSync(descriptor); }
     } else throw new Error('unsupported dependency entry');
+    const result = { digest: content.digest('hex'), cyclic };
+    // A cyclic subtree depends on its ancestors; only context-free hashes are memoized.
+    if (!cyclic) memo.set(real, result);
+    return result;
   };
+  const metrics = () => ({ entries: count, files, bytes, memoHits, durationMs: Date.now() - startedAt });
   try {
     for (const root of [...roots].sort()) {
       if (path.isAbsolute(root) || root.split(/[\\/]/u).includes('..')) throw new Error('invalid dependency root');
       const directory = path.join(projectDir, root, 'node_modules');
       hash.update(`${root}:`);
-      if (existsSync(directory)) walk(directory, root);
+      if (existsSync(directory)) hash.update(walk(directory).digest);
       else hash.update('missing');
     }
     const envPaths = new Set(['.env', '.env.local', config.worktree?.ports?.envFile ?? '.vibe-harness/worktree.env',
@@ -35,12 +62,12 @@ export function dependencyFingerprint(projectDir, config = {}, checks = []) {
       if (path.isAbsolute(relative) || relative.split(/[\\/]/u).includes('..')) throw new Error('Invalid environment input');
       hash.update(`${relative}:`);
       const file = path.join(projectDir, relative);
-      if (existsSync(file)) walk(file, relative);
+      if (existsSync(file)) hash.update(walk(file).digest);
       else hash.update('missing');
     }
-    return { available: true, fingerprint: hash.digest('hex'), entries: count };
+    return { available: true, fingerprint: hash.digest('hex'), ...metrics() };
   } catch (error) {
-    return { available: false, fingerprint: null, entries: count, reason: error.message };
+    return { available: false, fingerprint: null, ...metrics(), reason: error.message };
   }
 }
 
