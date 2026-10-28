@@ -53,7 +53,12 @@ export const SUPERVISOR_IDENTITY_KEYS = Object.freeze([
 // and answering it; the abort that follows asks the same supervisor to prove the
 // tree gone before a failed start is reported as clean.
 const SUPERVISOR_START_TIMEOUT_MS = 20000;
-const SUPERVISOR_ABORT_TIMEOUT_MS = 30000;
+// A lifecycle reply can cover draining a Windows tree sample and proving the
+// tree gone across both graceful and forced stages. Those stages launch separate
+// process probes, so cutting the client wait off before that work can finish
+// leaves a stop in flight while reporting it as a local cleanup timeout.
+export const SERVICE_CONTROL_TIMEOUT_MS = 30000;
+const SUPERVISOR_ABORT_TIMEOUT_MS = SERVICE_CONTROL_TIMEOUT_MS;
 // A Windows process tree cannot be asked for a group the way a Unix process
 // group can: `WMI` is walked from the recorded root, because a launcher that
 // exits while the server it spawned keeps running leaves descendants whose
@@ -638,7 +643,7 @@ export function serviceOwnership(entry, observed) {
   // field has to be present on both sides for the same reason.
   return identityProven(entry, observed) && observed.status === 'running';
 }
-function request(entry, action, timeoutMs = 7000) {
+function request(entry, action, timeoutMs = SERVICE_CONTROL_TIMEOUT_MS) {
   return new Promise((resolve) => {
     if (!Number.isSafeInteger(entry.pid) || entry.pid <= 0 || !validServiceEndpoint(entry.endpoint)) {
       resolve({ status: 'blocked', reason: 'invalid-supervisor-endpoint' }); return;
@@ -648,7 +653,7 @@ function request(entry, action, timeoutMs = 7000) {
     const timer = setTimeout(() => {
       socket.destroy();
       resolve({ status: 'blocked', reason: 'supervisor-timeout' });
-    }, Math.max(1, Math.min(7000, timeoutMs)));
+    }, Math.max(1, Math.min(SERVICE_CONTROL_TIMEOUT_MS, timeoutMs)));
     socket.on('connect', () => socket.write(JSON.stringify({ action, ...Object.fromEntries(SUPERVISOR_IDENTITY_KEYS.map((key) => [key, entry[key]])) }) + '\n'));
     socket.on('data', (chunk) => {
       buffer += chunk.toString();
@@ -667,7 +672,7 @@ function request(entry, action, timeoutMs = 7000) {
     socket.on('error', () => { clearTimeout(timer); resolve({ status: 'blocked', reason: 'supervisor-unavailable' }); });
   });
 }
-async function stopEntry(entry, write, timeoutMs = 7000) {
+async function stopEntry(entry, write, timeoutMs = SERVICE_CONTROL_TIMEOUT_MS) {
   const deadline = Date.now() + Math.max(1, timeoutMs);
   const remaining = () => Math.max(1, deadline - Date.now());
   // A retired endpoint may already belong to someone else. Revalidate the
@@ -967,7 +972,7 @@ export async function serviceReport(project, args, tokenize) {
   return { schemaVersion: 1, command: 'runtime', subcommand: `service ${action}`, ...(args.write && action !== 'status' ? await locked(file, operation) : await operation()) };
 }
 
-export async function teardownServices(project, worktree, write = true, { timeoutMs = 7000 } = {}) {
+export async function teardownServices(project, worktree, write = true, { timeoutMs = SERVICE_CONTROL_TIMEOUT_MS } = {}) {
   const file = registryPath(project);
   const marker = teardownMarkerPath(file, worktree);
   const operation = async () => {

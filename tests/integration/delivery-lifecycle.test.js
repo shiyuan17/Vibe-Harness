@@ -1024,6 +1024,57 @@ test('teardown 墓碑阻止同一 worktree 再次启动服务并可显式释放'
   }
 });
 
+test('teardown 等待正在证明终结的 supervisor 完成停止', async () => {
+  const { project } = await fixture();
+  const child = spawnDetachedFixture();
+  const endpoint = serviceEndpoint();
+  const identity = {
+    pid: child.pid, supervisorPid: process.pid, cwd: realpathSync(project),
+    commandFingerprint: 'fingerprint', startedAt: '2026-01-01T00:00:00.000Z',
+    processStartTime: processStartIdentity(child.pid), controlToken: 'fixture-control',
+  };
+  const controller = createServer((socket) => {
+    let buffer = '';
+    socket.on('data', async (chunk) => {
+      buffer += chunk.toString();
+      if (!buffer.includes('\n')) return;
+      const request = JSON.parse(buffer);
+      if (request.action === 'status') {
+        socket.end(`${JSON.stringify({ ...identity, status: 'running' })}\n`);
+        return;
+      }
+      const exited = new Promise((resolve) => child.once('exit', resolve));
+      killTree(child.pid);
+      await exited;
+      // The supervisor can legitimately spend more than seven seconds draining
+      // a Windows tree sample and proving both reap stages. Hold the reply past
+      // that old client deadline without holding it past the protocol budget.
+      await new Promise((resolve) => setTimeout(resolve, 7200));
+      socket.end(`${JSON.stringify({ ...identity, status: 'stopped' })}\n`);
+    });
+  });
+  try {
+    await mkdir(serviceSocketDirectory(), { recursive: true, mode: 0o700 });
+    await new Promise((resolve, reject) => {
+      controller.once('error', reject);
+      controller.listen(endpoint, resolve);
+    });
+    await writeServiceRegistry(project, {
+      ...identity, taskId: 'local', serviceId: 'web', worktree: realpathSync(project),
+      port: await freePort(), endpoint, status: 'running', teardownStatus: 'unverified',
+      stopOnTeardown: true,
+    });
+    const result = await teardownServices(project, realpathSync(project), true);
+    const state = result.processes[0];
+    assert.equal(result.status, 'passed', JSON.stringify({ status: state.status, reason: state.reason }));
+    assert.equal(state.teardownStatus, 'passed');
+  } finally {
+    controller.close();
+    killTree(child.pid);
+    await remove(project);
+  }
+});
+
 test('服务登记指向复用 PID 时不发信号并保持 blocked', async () => {
   const { project } = await fixture();
   const child = spawnDetachedFixture();

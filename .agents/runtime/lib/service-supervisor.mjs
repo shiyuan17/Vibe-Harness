@@ -4,7 +4,7 @@ import { chmodSync, lstatSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
 
-import { parseTreeMembers, processStartIdentity, serviceSocketDirectory, serviceTreeGone, signalTree as signalProcessTree, startIdentityToken as recordedIdentityToken, windowsTreeProbeCommand } from './services.mjs';
+import { parseTreeMembers, processStartIdentity, SERVICE_CONTROL_TIMEOUT_MS, serviceSocketDirectory, serviceTreeGone, signalTree as signalProcessTree, startIdentityToken as recordedIdentityToken, windowsTreeProbeCommand } from './services.mjs';
 
 // A supervisor owns exactly one service process tree. The tree is started as a
 // detached process-group leader on Unix (`taskkill /t` is the Windows
@@ -16,7 +16,7 @@ const REAP_STAGE_MS = 2500;
 // A tree that survived both signals keeps its supervisor resident so `stop` can
 // retry, but not forever: the endpoint is released after this idle lifetime.
 const IDLE_LIFETIME_MS = 10 * 60 * 1000;
-const SOCKET_TIMEOUT_MS = 15000;
+const SOCKET_TIMEOUT_MS = SERVICE_CONTROL_TIMEOUT_MS;
 // A Windows tree proof spawns a PowerShell process, so the wait between two
 // proofs is a poll interval rather than a fixed number of probes.
 const PROOF_POLL_MS = 200;
