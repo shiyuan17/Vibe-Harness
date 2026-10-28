@@ -75,7 +75,7 @@ import { TASK_UNIT_FAILURE_STATUSES, planDependentUnits, planUnitGraph, readTask
 import { verifyProject } from './verification-command.mjs';
 import { buildDeliveryVerificationPlan, deliveryRiskPolicy } from './verification-risk.mjs';
 import { candidateEnvironment } from './verification-inputs.mjs';
-import { createPushVerification, preparePushAttempt } from './push-verification.mjs';
+import { createPushVerification, preparePushAttempt, recordPushBaseline } from './push-verification.mjs';
 import { candidateResourceId, readCandidateResources, saveCandidateResources } from './candidate-resources.mjs';
 import { configuredChecks, executeCommand, parseVerifyTier, resolveReceiptTier, resolveReviewedChecks, timeoutValue } from './verification-plan-support.mjs';
 import {
@@ -1080,6 +1080,9 @@ async function worktreeBootstrapReport(projectDir, args) {
         results.push({ ...plan, error: boundedOutput(added.stderr || added.error?.message || 'git worktree add failed', projectDir), status: 'failed' });
         continue;
       }
+      // Optional optimization: an unavailable record preserves the conservative
+      // first-push fallback rather than blocking local implementation.
+      await recordPushBaseline(projectDir, plan.branch, plan.baseSha).catch(() => false);
     }
     try {
       // A worktree that has to install its own dependencies runs the declared
@@ -2259,11 +2262,11 @@ async function runCandidateVerification(projectDir, state, args, verifyArgs) {
   if (!changed.ok) return { status: 'blocked', code: 'LAND_RISK_SCOPE_UNAVAILABLE', checks: {}, selectedChecks: [] };
   const config = await readProjectConfig(state.candidate);
   const policy = deliveryRiskPolicy(changed.stdout.split('\0').filter(Boolean), {
-    config, tier: state.tier, fullRisk: state.sources.some((source) => source.risk === 'full'),
+    config, tier: state.requestedTier ?? null, fullRisk: state.sources.some((source) => source.risk === 'full'),
   });
   state.risk = policy;
   state.tier = policy.selectedTier;
-  verifyArgs = { ...verifyArgs, tier: policy.selectedTier };
+  verifyArgs = { ...verifyArgs, tier: state.requestedTier ?? undefined };
   const lease = await acquireLandCandidateActivityLease(projectDir, state.id);
   if (!lease.held) {
     return {
@@ -2520,7 +2523,8 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir) {
     if (risk.insufficientRequestedTier) return batchFailure('LAND_BATCH_RISK_TIER', 'High-risk task paths or anchors require at least standard verification', { risk });
     const configured = configuredChecks(config, projectDir);
     if (configured.error) return batchFailure('LAND_BATCH_CHECKS', configured.error);
-    const selected = buildDeliveryVerificationPlan({ changedPaths: [...changedPaths], config, projectDir, tier,
+    const requestedTier = args.tier === undefined ? null : parseVerifyTier(args.tier);
+    const selected = buildDeliveryVerificationPlan({ changedPaths: [...changedPaths], config, projectDir, tier: requestedTier,
       fullRisk: sources.some((item) => item.risk === 'full') });
     const reviewed = resolveReviewedChecks(args.reviewed, selected.selectedNames);
     // The batch produces an integration receipt; deferred checks are an honest
@@ -2538,7 +2542,7 @@ async function worktreeBatchLandUnlocked(projectDir, args, commonDir) {
       return batchFailure('LAND_LOCAL_TARGET_UNAVAILABLE', sync.error);
     }
     if (pushTarget) pushTarget.baseHead = sync.sha;
-    state = { schemaVersion: LAND_TRANSACTION_SCHEMA_VERSION, id, target, baseHead: sync.sha, riskBaseHead: sync.sha, risk, sources, tier,
+    state = { schemaVersion: LAND_TRANSACTION_SCHEMA_VERSION, id, target, baseHead: sync.sha, riskBaseHead: sync.sha, risk, sources, tier, requestedTier,
       selectedChecks: selected.selectedNames, reviewed: reviewed.ids, reviewWarnings: reviewed.warnings,
       candidate, next: 0, resolved: 0, conflicts: [], phase: 'merging',
       startedAt: new Date().toISOString(), single: Boolean(args.single), push: false,
