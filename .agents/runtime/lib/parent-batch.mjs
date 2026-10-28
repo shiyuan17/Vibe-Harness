@@ -112,14 +112,16 @@ export async function parentBatchWorkspace(projectDir, batch) {
 export async function localCompletionValid(projectDir, anchor, unit, configured) {
   const batch = anchor.executionBatch;
   const proof = unit?.localCompletion;
+  const sameContract = proof?.unitContractDigest && proof.unitContractDigest === anchor.unitContracts?.[unit.id];
   if (!batch || !proof || unit.status !== 'done' || !batch.members.includes(unit.id)
     || proof.parentId !== batch.parentId || proof.membershipDigest !== batch.membershipDigest
-    || proof.unitId !== unit.id || proof.planDigest !== anchor.planDigest || !shaPattern.test(proof.commit ?? '')
+    || proof.unitId !== unit.id || proof.planDigest !== anchor.planDigest && !sameContract || !shaPattern.test(proof.commit ?? '')
     || !shaPattern.test(proof.tree ?? '') || configured.error
     || proof.checkDefinitionsDigest !== digest({ commands: configured.commands, definitions: configured.definitions })) return false;
   const receipt = proof.receipt;
   const verification = receipt?.verification;
-  if (verification?.task?.id !== anchor.taskId || verification.task.unitId !== unit.id || verification.task.planDigest !== anchor.planDigest
+  if (verification?.task?.id !== anchor.taskId || verification.task.unitId !== unit.id
+    || verification.task.planDigest !== anchor.planDigest && !(sameContract && verification.task.unitContractDigest === proof.unitContractDigest)
     || verification.verifiedTree !== proof.tree || verification.snapshotComparison !== 'match'
     || !['passed', 'reused'].includes(receipt.status)) return false;
   const checks = Object.entries(receipt.checks ?? {}).filter(([, check]) => typeof check.command === 'string');
@@ -173,7 +175,8 @@ export async function bindLocalCompletion(projectDir, anchor, unit, receipt, con
   }
   const proof = {
     parentId: anchor.executionBatch.parentId, unitId: unit.id, membershipDigest: anchor.executionBatch.membershipDigest,
-    planDigest: anchor.planDigest, commit: ownedCommit, verifiedCommit: workspace.head, tree: tree.stdout.trim(),
+    planDigest: anchor.planDigest, unitContractDigest: anchor.unitContracts?.[unit.id] ?? null,
+    commit: ownedCommit, verifiedCommit: workspace.head, tree: tree.stdout.trim(),
     commits: [...new Set([...prior, ownedCommit])],
     checkDefinitionsDigest: digest({ commands: configured.commands, definitions: configured.definitions }),
     receipt: { command: receipt.command, status: receipt.status, verification: receipt.verification,

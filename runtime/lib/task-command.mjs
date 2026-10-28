@@ -7,8 +7,8 @@
 // Extracted verbatim from `runtime/commands/run.mjs` so that file keeps only
 // argument parsing, dispatch and output selection. Behaviour, field names and
 // exit codes are unchanged; only the module boundary moved.
-import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -18,6 +18,8 @@ import { parseLinearPlanBlock } from './linear-planning.mjs';
 import { boundedOutput, normalizePath } from './cli-output.mjs';
 import { PASS_STATUSES, SCHEMA_VERSION, normalizeSlashes, readProjectConfig, runGit, safeRealpath, stableStringify } from './cli-runtime.mjs';
 import { configuredChecks, displayCommand } from './verification-plan-support.mjs';
+import { attestCompletionProvenance } from './verification-receipt.mjs';
+import { acquireLease, releaseLease } from './lease-lock.mjs';
 import { batchPredecessorSatisfied, bindLocalCompletion, localCompletionValid, parentBatchContract, parentBatchPublication, parentBatchWorkspace, sameParentBatch } from './parent-batch.mjs';
 
 // --- task anchors ------------------------------------------------------------
@@ -93,16 +95,24 @@ async function readManagedPlan(projectDir, value) {
       { code: 'VIBE_HARNESS_PLAN_UNREADABLE' },
     );
   }
-  const digest = createHash('sha256').update(content, 'utf8').digest('hex');
+  // Only standalone explanatory comments outside fenced contracts are inert.
+  // All prose, acceptance, scope and execution blocks remain authoritative.
+  let fenced = false;
+  const contract = content.split(/\r?\n/u).filter((line) => {
+    if (/^\s*```/u.test(line)) fenced = !fenced;
+    return fenced || !/^\s*<!--.*-->\s*$/u.test(line);
+  }).join('\n').trimEnd();
+  const digest = createHash('sha256').update(contract, 'utf8').digest('hex');
   const missing = PLAN_REQUIRED_SECTIONS
     .filter(([, pattern]) => !pattern.test(content))
     .map(([id]) => id);
   return {
     content,
     digest,
+    unitContracts: planUnitContracts(contract),
     missing,
     path: location.relative,
-    revision: digest.slice(0, 12),
+    revision: createHash('sha256').update(content, 'utf8').digest('hex').slice(0, 12),
   };
 }
 /**
@@ -114,6 +124,36 @@ async function readManagedPlan(projectDir, value) {
  * history.
  */
 const PLAN_UNIT_BLOCK_PATTERN = /```(?:json[ \t]+)?plan-units[ \t]*\r?\n([\s\S]*?)```/u;
+function planUnitContracts(content) {
+  const match = PLAN_UNIT_BLOCK_PATTERN.exec(content);
+  if (!match) return {};
+  let block;
+  try { block = JSON.parse(match[1]); } catch { return {}; }
+  if (!Array.isArray(block.units)) return {};
+  const ids = planAcceptanceIds(content);
+  const rows = new Map();
+  const shared = content.replace(match[0], '').split('\n').filter((line) => {
+    const id = line.split('|')[1]?.trim().toUpperCase();
+    if (!ids.has(id)) return true;
+    rows.set(id, line);
+    return false;
+  }).join('\n');
+  const { units, ...global } = block;
+  const digest = (value) => createHash('sha256').update(stableStringify(value)).digest('hex');
+  const contracts = {};
+  const visit = (id, visiting = new Set()) => {
+    if (contracts[id]) return contracts[id];
+    const unit = units.find((item) => item.id === id);
+    if (!unit || visiting.has(id)) return null;
+    const next = new Set(visiting).add(id);
+    contracts[id] = digest({ shared, global, unit,
+      acceptance: (unit.acceptance ?? []).map((key) => rows.get(key.toUpperCase()) ?? null),
+      dependencies: (unit.dependsOn ?? []).map((key) => [key, visit(key, next)]) });
+    return contracts[id];
+  };
+  for (const unit of units) visit(unit.id);
+  return contracts;
+}
 function normalizePlanPath(value) {
   return String(value).replaceAll('\\', '/').replace(/^\.\//u, '').replace(/\/+$/u, '').toLowerCase();
 }
@@ -470,7 +510,7 @@ function acceptanceMappingItems(plan, selected, ids, report) {
   }
 }
 
-function acceptanceUnitEvidence(report, anchor, { taskId, plan, complete, current, config, projectDir }) {
+async function acceptanceUnitEvidence(report, anchor, { taskId, plan, complete, current, config, projectDir }) {
   const anchorUnits = new Map((anchor.units ?? []).map((unit) => [unit.id, unit]));
   for (const item of report.items) for (const unitId of item.unitIds) {
     const actual = anchorUnits.get(unitId);
@@ -479,11 +519,13 @@ function acceptanceUnitEvidence(report, anchor, { taskId, plan, complete, curren
     if (!complete) continue;
     const verification = actual?.verification;
     const valid = Boolean(actual && actual.status === 'done'
-      && currentUnitVerification(actual, current.fingerprint, config, projectDir)
+      && await currentUnitVerification(actual, current, config, projectDir, { taskId, planDigest: plan.digest,
+        unitContractDigest: plan.unitContracts?.[unitId] })
       && typeof verification.id === 'string' && verification.id.length > 0
       && Number.isFinite(Date.parse(verification.finishedAt ?? verification.at))
       && (!verification.taskId || verification.taskId === taskId)
-      && (!verification.planDigest || verification.planDigest === plan.digest));
+      && (!verification.planDigest || verification.planDigest === plan.digest
+        || verification.receipt?.verification?.task?.unitContractDigest === plan.unitContracts?.[unitId]));
     item.evidence.push({
       unitId, verificationId: verification?.id ?? null,
       checkIds: typeof verification?.command === 'string'
@@ -508,8 +550,8 @@ function summarizeAcceptanceCoverage(report, complete) {
   return report;
 }
 
-// Advisory projection only: never participates in status, dispatch, receipt
-// validation, or exit-code decisions. Legacy/unparseable input stays unknown.
+// Mapping remains advisory during planning/status. Whole-task completion rejects
+// declared mapping gaps; legacy/unparseable input stays explicitly unknown.
 async function acceptanceCoverageReport(projectDir, taskId, { unitId = null, complete = false, planOnly = false } = {}) {
   const report = emptyAcceptanceCoverage(unitId, complete, planOnly);
   const unavailable = (message) => {
@@ -537,7 +579,7 @@ async function acceptanceCoverageReport(projectDir, taskId, { unitId = null, com
     const targetIds = unitId ? ids.filter((id) => selected.some((unit) => unit.acceptance.includes(id))) : ids;
     acceptanceMappingItems(plan, selected, targetIds, report);
     if (!planOnly) {
-      acceptanceUnitEvidence(report, read.anchor, {
+      await acceptanceUnitEvidence(report, read.anchor, {
         taskId, plan, complete, projectDir,
         current: complete ? await gitFingerprint(projectDir) : null,
         config: complete ? configuredChecks(await readProjectConfig(projectDir), projectDir) : null,
@@ -600,9 +642,34 @@ export async function readTaskAnchor(projectDir, taskId) {
   }
   return { exists: true, anchor, filePath };
 }
-function writeTaskAnchor(filePath, anchor) {
+function writeTaskAnchor(filePath, anchor, previous = null) {
   mkdirSync(path.dirname(filePath), { recursive: true });
-  writeFileSync(filePath, `${JSON.stringify(anchor, null, 2)}\n`, 'utf8');
+  const lockPath = `${filePath}.lock`;
+  const lock = acquireLease(lockPath);
+  if (!lock.held) throw Object.assign(new Error('task anchor is being updated; reread and retry'), { code: 'VIBE_HARNESS_TASK_UPDATE_CONFLICT' });
+  const temporary = `${filePath}.${randomUUID()}.tmp`;
+  const backup = `${temporary}.previous`;
+  const atomicWrite = (target, value) => {
+    const fd = openSync(target, 'wx', 0o600);
+    try { writeFileSync(fd, value, 'utf8'); fsyncSync(fd); } finally { closeSync(fd); }
+  };
+  try {
+    let raw = null;
+    try { raw = readFileSync(filePath, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (raw === null ? previous !== null : previous === null || stableStringify(JSON.parse(raw)) !== stableStringify(previous)) {
+      throw Object.assign(new Error('task anchor changed; reread before updating'), { code: 'VIBE_HARNESS_TASK_UPDATE_CONFLICT' });
+    }
+    atomicWrite(temporary, `${JSON.stringify(anchor, null, 2)}\n`);
+    if (raw !== null) {
+      atomicWrite(backup, raw);
+      renameSync(backup, `${filePath}.previous`);
+    }
+    renameSync(temporary, filePath);
+  } finally {
+    rmSync(temporary, { force: true });
+    rmSync(backup, { force: true });
+    releaseLease(lockPath);
+  }
 }
 // Idempotency probe: updatedAt and sessions grow with every real write, so
 // they are excluded when deciding whether an update changed anything.
@@ -834,6 +901,10 @@ function taskVerificationFromReceipt(receipt) {
     ...(typeof binding?.id === 'string' ? { taskId: binding.id } : {}),
     ...(typeof binding?.planRevision === 'string' ? { planRevision: binding.planRevision } : {}),
     ...(typeof binding?.planDigest === 'string' ? { planDigest: binding.planDigest } : {}),
+    receipt: { command: receipt.command, status: receipt.status, verification,
+      checks: Object.fromEntries(Object.entries(checks).map(([name, check]) => [name, {
+        status: check.status, command: check.command, cwd: check.cwd ?? '.',
+      }])) },
   };
 }
 export function verificationCommandSet(commands, selectedNames, projectDir, definitions = {}) {
@@ -842,12 +913,28 @@ export function verificationCommandSet(commands, selectedNames, projectDir, defi
     .map((name) => `${name}=${displayCommand(commands[name], projectDir)}${definitions[name]?.cwd && definitions[name].cwd !== '.' ? ` [cwd=${definitions[name].cwd}]` : ''}`)
     .join('\n');
 }
-function currentUnitVerification(unit, fingerprint, configured, projectDir) {
-  if (unit?.verification?.status !== 'passed' || !fingerprint || unit.verification.fingerprint !== fingerprint || configured.error) return false;
+async function currentUnitVerification(unit, current, configured, projectDir, binding = {}) {
+  const fingerprint = current?.fingerprint;
+  if (!PASS_STATUSES.includes(unit?.verification?.status) || !fingerprint || unit.verification.fingerprint !== fingerprint || configured.error) return false;
+  const receipt = unit.verification.receipt;
+  const verification = receipt?.verification;
+  if (!verification || verification.snapshotComparison !== 'match'
+    || !current.writeFingerprint || verification.writeFingerprint !== current.writeFingerprint
+    || verification.fingerprint !== fingerprint || verification.id !== unit.verification.id
+    || verification.task?.id && verification.task.id !== binding.taskId
+    || verification.task?.unitId && verification.task.unitId !== unit.id
+    || verification.task?.planDigest && verification.task.planDigest !== binding.planDigest
+      && (!verification.task.unitContractDigest || verification.task.unitContractDigest !== binding.unitContractDigest)) return false;
   const commandLines = unit.verification.command?.split('\n').filter(Boolean) ?? [];
   const names = commandLines.map((line) => line.slice(0, line.indexOf('=')));
-  return commandLines.length > 0 && names.every((name) => Object.hasOwn(configured.commands, name))
-    && unit.verification.command === verificationCommandSet(configured.commands, names, projectDir, configured.definitions);
+  const selected = verification.acceptance?.selectedCheckIds;
+  return commandLines.length > 0 && Array.isArray(selected) && selected.length === names.length
+    && selected.every((name) => names.includes(name) && ['passed', 'reused'].includes(receipt.checks?.[name]?.status))
+    && names.every((name) => Object.hasOwn(configured.commands, name))
+    && unit.verification.command === taskVerificationFromReceipt(receipt).command
+    && unit.verification.command === verificationCommandSet(configured.commands, names, projectDir, configured.definitions)
+    && (await attestCompletionProvenance(projectDir, { ...receipt,
+      acceptance: names.map((id) => ({ id, command: receipt.checks[id].command })) })).ok;
 }
 export async function findReusableVerification(projectDir, taskId, { fingerprint, commandSet }) {
   if (typeof fingerprint !== 'string') return null;
@@ -933,6 +1020,7 @@ async function taskInitReport(projectDir, args) {
       planFile: plan.path,
       planDigest: plan.digest,
       planRevision: plan.revision,
+      unitContracts: plan.unitContracts,
     } : {}),
     units: execution?.executionBatch ? execution.units.map((unit) => ({ ...unit, status: 'pending', verification: null })) : [],
     ...(execution?.executionBatch ? { executionBatch: execution.executionBatch } : {}),
@@ -976,7 +1064,7 @@ async function taskPlanSyncReport(projectDir, args) {
     return taskFailure('plan-sync', error.message, error.code);
   }
   if (plan.missing.length > 0) return taskFailure('plan-sync', `plan is missing required sections: ${plan.missing.join(', ')}`, 'VIBE_HARNESS_PLAN_INVALID');
-  const changed = read.anchor.planDigest !== plan.digest;
+  const changed = read.anchor.planDigest !== plan.digest || read.anchor.planRevision !== plan.revision;
   const execution = planExecutionUnits(plan.content);
   if (execution.batchPresent && (execution.problems.length || execution.executionBatch?.parentId !== taskId)) {
     return taskFailure('plan-sync', 'invalid Parent batch or execution units', 'VIBE_HARNESS_PARENT_BATCH_INVALID');
@@ -989,6 +1077,7 @@ async function taskPlanSyncReport(projectDir, args) {
     ...read.anchor,
     planDigest: plan.digest,
     planRevision: plan.revision,
+    unitContracts: plan.unitContracts,
     decisions: [...(Array.isArray(read.anchor.decisions) ? read.anchor.decisions : []), `plan-sync: ${args.reason.trim()}`],
     ...(execution.executionBatch ? {
       executionBatch: execution.executionBatch,
@@ -1002,7 +1091,7 @@ async function taskPlanSyncReport(projectDir, args) {
       ...next,
       updatedAt: now,
       sessions: [...(Array.isArray(read.anchor.sessions) ? read.anchor.sessions : []), { at: now, action: 'plan-sync' }],
-    });
+    }, read.anchor);
   }
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -1043,12 +1132,20 @@ export async function taskParentBatchEvidence(projectDir, taskId) {
 }
 async function taskCheckReport(projectDir, args) {
   const report = await taskCheckCore(projectDir, args);
-  return withAcceptanceCoverage(report, await acceptanceCoverageReport(projectDir, args._[2], {
+  const coverage = await acceptanceCoverageReport(projectDir, args._[2], {
     unitId: args.unit ?? null, complete: Boolean(args.complete),
-  }));
+  });
+  if (args.complete && !args.unit && report.status === 'passed' && coverage.mappingStatus === 'gaps') {
+    return withAcceptanceCoverage({ ...report, status: 'failed', code: 'VIBE_HARNESS_TASK_ACCEPTANCE_INCOMPLETE',
+      error: 'declared acceptance is not fully assigned to completed units' }, coverage);
+  }
+  return withAcceptanceCoverage(report, coverage);
 }
 async function taskCheckCore(projectDir, args) {
   const taskId = args._[2];
+  if (args.receipt !== undefined) return taskFailure('check',
+    '--receipt is retired; record the authenticated verify report with task update --unit <id> --verification <file>',
+    'VIBE_HARNESS_TASK_RECEIPT_UNSUPPORTED');
   if (taskId === undefined) return taskFailure('check', 'task check needs a task id: task check <task-id> [--unit <unit-id>] [--dispatch] [--complete]');
   const planCheck = await taskPlanCheckReport(projectDir, taskId);
   if (planCheck.status !== 'passed') return { ...planCheck, subcommand: 'check' };
@@ -1072,9 +1169,12 @@ async function taskCheckCore(projectDir, args) {
   // for the current tree and command set. Only evaluate it for questions that
   // depend on completion so plain status reads stay inexpensive.
   const needsEvidence = Boolean(args.dispatch || args.complete);
-  const currentFingerprint = needsEvidence ? (await gitFingerprint(projectDir)).fingerprint : null;
+  const current = needsEvidence ? await gitFingerprint(projectDir) : null;
   const configured = needsEvidence ? configuredChecks(await readProjectConfig(projectDir), projectDir) : null;
-  const isVerified = (unit) => currentUnitVerification(unit, currentFingerprint, configured, projectDir);
+  const verified = new Set(needsEvidence ? (await Promise.all(units.map(async (unit) =>
+    await currentUnitVerification(unit, current, configured, projectDir, { taskId, planDigest: read.anchor.planDigest,
+      unitContractDigest: read.anchor.unitContracts?.[unit.id] }) ? unit.id : null))).filter(Boolean) : []);
+  const isVerified = (unit) => verified.has(unit.id);
   const batchEvidence = read.anchor.executionBatch ? await taskParentBatchEvidence(projectDir, taskId) : null;
   const effectiveUnits = batchEvidence ? [...units, ...batchEvidence.externalDependencies?.map((node) => ({
     id: node.id, status: node.result === 'succeeded' ? 'done' : node.result,
@@ -1156,7 +1256,8 @@ async function taskCheckCore(projectDir, args) {
     };
   }
   const targetUnits = selected ? [selected] : units;
-  const unfinished = targetUnits.filter((unit) => unit.status !== 'done').map((unit) => unit.id ?? '?');
+  const missing = args.complete && !selected ? declaredUnits.filter((id) => !units.some((unit) => unit.id === id)) : [];
+  const unfinished = [...missing, ...targetUnits.filter((unit) => unit.status !== 'done').map((unit) => unit.id ?? '?')];
   const failedUnits = targetUnits.filter((unit) => unit.status === 'failed').map((unit) => unit.id ?? '?');
   const unverified = targetUnits
     .filter((unit) => {
@@ -1244,7 +1345,7 @@ async function taskFreezeTestsReport(projectDir, args, { rebaseline = false } = 
   const now = new Date().toISOString();
   next.updatedAt = now;
   next.sessions = [...(Array.isArray(next.sessions) ? next.sessions : []), { at: now, action: subcommand }];
-  if (args.write) writeTaskAnchor(read.filePath, next);
+  if (args.write) writeTaskAnchor(read.filePath, next, read.anchor);
   return {
     schemaVersion: SCHEMA_VERSION,
     command: 'task',
@@ -1318,6 +1419,7 @@ async function taskUpdateReport(projectDir, args) {
     next.planFile = requestedPlan.path;
     next.planDigest = requestedPlan.digest;
     next.planRevision = requestedPlan.revision;
+    next.unitContracts = requestedPlan.unitContracts;
     changes.push('plan-bind');
   }
   if (args.stage !== undefined) {
@@ -1427,9 +1529,9 @@ async function taskUpdateReport(projectDir, args) {
     anchor = { ...next, updatedAt: now, sessions: [...next.sessions, { at: now, action: 'update' }] };
     if (args.write) {
       try {
-        writeTaskAnchor(read.filePath, anchor);
+        writeTaskAnchor(read.filePath, anchor, read.anchor);
       } catch (error) {
-        return taskFailure('update', `cannot write ${taskAnchorRelativePath(taskId)}: ${error.code ?? error.message}`);
+        return taskFailure('update', `cannot write ${taskAnchorRelativePath(taskId)}: ${error.code ?? error.message}`, error.code);
       }
     }
   }
@@ -1505,7 +1607,7 @@ export async function taskCheckpointReport(projectDir, args) {
   const checkpoint = await buildTaskCheckpoint(projectDir, read.anchor, args.reason.trim());
   if (!checkpoint.headSha || !checkpoint.fingerprint) return { command: 'task', subcommand: 'checkpoint', status: 'blocked', error: 'Workspace identity unavailable' };
   const anchor = { ...read.anchor, latestCheckpoint: checkpoint, updatedAt: checkpoint.at };
-  if (args.write) writeTaskAnchor(read.filePath, anchor);
+  if (args.write) writeTaskAnchor(read.filePath, anchor, read.anchor);
   return { schemaVersion: SCHEMA_VERSION, command: 'task', subcommand: 'checkpoint', taskId,
     status: args.write ? 'passed' : 'planned', written: Boolean(args.write), latestCheckpoint: checkpoint };
 }
@@ -1520,7 +1622,7 @@ async function taskEventReport(projectDir, args) {
     if (recovery.status !== 'passed') return { command: 'task', subcommand: 'event', status: 'blocked', recovery };
   }
   const count = (read.anchor.continuationCount ?? 0) + (reason === 'continue' ? 1 : 0);
-  if (args.write && reason === 'continue') writeTaskAnchor(read.filePath, { ...read.anchor, continuationCount: count });
+  if (args.write && reason === 'continue') writeTaskAnchor(read.filePath, { ...read.anchor, continuationCount: count }, read.anchor);
   if (reason === 'continue' && count < 2) return { command: 'task', subcommand: 'event', status: args.write ? 'passed' : 'planned', continuationCount: count, checkpointed: false };
   return { ...await taskCheckpointReport(projectDir, args), subcommand: 'event', continuationCount: count };
 }

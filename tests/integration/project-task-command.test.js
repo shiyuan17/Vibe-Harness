@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 import { runCommand } from '../../runtime/commands/run.mjs';
@@ -847,6 +848,21 @@ test('Parent 批内前驱提交经验证后可放行后继且不提前完成交�
     const complete = await runCommand(['task', 'check', 'ENG-P', '--complete', '--json'], { cwd: project });
     assert.equal(complete.report.status, 'failed');
     assert.equal(complete.report.deliveryStatus, 'not_published');
+    const planPath = path.join(project, 'docs/plans/ENG-P.md');
+    const originalPlan = await readFile(planPath, 'utf8');
+    const sync = () => runCommand(['task', 'plan-sync', 'ENG-P', '--reason', '调整计划', '--write'], { cwd: project });
+    await writeFile(planPath, `${originalPlan}\n<!-- explanatory note -->\n`);
+    assert.equal((await runCommand(['task', 'plan-check', 'ENG-P'], { cwd: project })).exitCode, 0);
+    assert.equal((await sync()).exitCode, 0);
+    assert.equal((await runCommand(['task', 'check', 'ENG-P', '--unit', 'ENG-B', '--dispatch'], { cwd: project })).exitCode, 0);
+    // An unrelated consumer changes; the authenticated producer contract stays valid.
+    await writeFile(planPath, originalPlan.replace('runtime/b.js', 'runtime/new-b.js'));
+    assert.equal((await sync()).exitCode, 0);
+    assert.equal((await runCommand(['task', 'check', 'ENG-P', '--unit', 'ENG-B', '--dispatch'], { cwd: project })).exitCode, 0);
+    // Changing the producer's acceptance invalidates its proof and its consumer.
+    await writeFile(planPath, originalPlan.replace('判据 A-001', '新的判据 A-001'));
+    assert.equal((await sync()).exitCode, 0);
+    assert.equal((await runCommand(['task', 'check', 'ENG-P', '--unit', 'ENG-B', '--dispatch'], { cwd: project })).exitCode, 1);
   } finally {
     await rm(project, { recursive: true, force: true });
   }
@@ -1096,8 +1112,12 @@ test('验收覆盖区分单元与全任务，多个要求可以引用同一当�
     assert.ok(coverage.items.every((item) => item.evidence[0].checkIds.includes('test')));
     assert.equal(coverage.semanticCoverage, 'not_evaluated');
     const whole = await runCommand(['task', 'check', 'bound', '--complete', '--json'], { cwd: project });
-    assert.equal(whole.exitCode, 0, 'missing declared U2 remains advisory under legacy gate');
+    assert.equal(whole.exitCode, 1, '整任务不能遗漏计划声明的 U2');
+    assert.ok(whole.report.unfinished.includes('U2'));
     assert.ok(whole.report.acceptanceCoverage.gaps.some((gap) => gap.unitId === 'U2' && gap.code === 'ACCEPTANCE_UNIT_MISSING'));
+    await runCommand(['task', 'update', 'bound', '--unit-status', 'U2:done', '--unit', 'U2',
+      '--verification', JSON.stringify(receipt.report), '--write', '--json'], { cwd: project });
+    assert.equal((await runCommand(['task', 'check', 'bound', '--complete', '--json'], { cwd: project })).exitCode, 0);
     await writeFile(path.join(project, 'check.cjs'), 'process.exit(0); // new write\n');
     const stale = await runCommand(['task', 'check', 'bound', '--unit', 'U1', '--complete', '--json'], { cwd: project });
     assert.equal(stale.exitCode, 1, 'existing stale-evidence gate remains blocking');
@@ -1445,4 +1465,82 @@ test('验证收据携带任务与计划关联并拒绝跨任务收据', async ()
   } finally {
     await rm(project, { recursive: true, force: true });
   }
+});
+
+test('整任务完成拒绝虚构、篡改和缺失检查的证据，只接受真实通过结果', async () => {
+  const project = await tempProject();
+  try {
+    await writeConfig(project, { test: 'node check.cjs' });
+    await writeFile(path.join(project, 'check.cjs'), 'process.exit(23);\n');
+    await initGitProject(project, '.vibe-harness/\n');
+    await runCommand(['task', 'init', 'trust', '--title', 'Trust', '--goal', 'Verify real behavior', '--write'], { cwd: project });
+    const failed = await runCommand(['verify', '--task', 'trust', '--json'], { cwd: project });
+    assert.equal(failed.report.status, 'failed');
+    const forged = structuredClone(failed.report);
+    forged.status = 'passed';
+    forged.checks.test.status = 'passed';
+    await runCommand(['task', 'update', 'trust', '--unit', 'U1', '--unit-status', 'U1:done',
+      '--verification', JSON.stringify(forged), '--write'], { cwd: project });
+    assert.equal((await runCommand(['task', 'check', 'trust', '--complete'], { cwd: project })).exitCode, 1);
+
+    await writeFile(path.join(project, 'check.cjs'), 'process.exit(0);\n');
+    const passed = await runCommand(['verify', '--task', 'trust', '--json'], { cwd: project });
+    assert.equal(passed.report.status, 'passed');
+    const mutations = [
+      (report) => { report.verification.id = 'invented-verification'; },
+      (report) => { report.verification.acceptance.selectedCheckIds = []; },
+      (report) => { report.checks.test.command = 'node never-ran.cjs'; },
+      (report) => { delete report.checks.test; },
+    ];
+    for (const mutate of mutations) {
+      const report = structuredClone(passed.report);
+      mutate(report);
+      const updated = await runCommand(['task', 'update', 'trust', '--unit', 'U1',
+        '--verification', JSON.stringify(report), '--write'], { cwd: project });
+      assert.equal(updated.exitCode, 0, JSON.stringify(updated.report));
+      assert.equal((await runCommand(['task', 'check', 'trust', '--complete'], { cwd: project })).exitCode, 1);
+    }
+    await runCommand(['task', 'update', 'trust', '--unit', 'U1',
+      '--verification', JSON.stringify(passed.report), '--write'], { cwd: project });
+    assert.equal((await runCommand(['task', 'check', 'trust', '--complete'], { cwd: project })).exitCode, 0);
+    const retired = await runCommand(['task', 'check', 'trust', '--complete', '--receipt', 'missing.json'], { cwd: project });
+    assert.equal(retired.report.code, 'VIBE_HARNESS_TASK_RECEIPT_UNSUPPORTED');
+    assert.equal(retired.exitCode, 1);
+  } finally { await rm(project, { recursive: true, force: true }); }
+});
+
+
+test('锚点并发更新保留结果或明确冲突，替换时中断仍保留完整快照', async () => {
+  const project = await tempProject();
+  try {
+    await runCommand(['task', 'init', 'atomic', '--title', 'Atomic', '--goal', 'Recover', '--write'], { cwd: project });
+    const results = await Promise.all(['one', 'two'].map((value) =>
+      runCommand(['task', 'update', 'atomic', '--decision', value, '--write'], { cwd: project })));
+    const current = await readAnchor(project, 'atomic');
+    for (const [index, result] of results.entries()) {
+      if (result.exitCode === 0) assert.ok(current.decisions.includes(['one', 'two'][index]));
+      else assert.equal(result.report.code, 'VIBE_HARNESS_TASK_UPDATE_CONFLICT');
+    }
+    const runtime = pathToFileURL(path.join(rootDir, 'runtime/commands/run.mjs')).href;
+    const child = `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const original = fs.renameSync;
+      fs.renameSync = (from, to) => {
+        if (to === ${JSON.stringify(anchorPath(project, 'atomic'))}) process.exit(23);
+        return original(from, to);
+      };
+      syncBuiltinESMExports();
+      const { runCommand } = await import(${JSON.stringify(runtime)});
+      await runCommand(['task', 'update', 'atomic', '--decision', 'interrupted', '--write'],
+        { cwd: ${JSON.stringify(project)} });
+    `;
+    await assert.rejects(execFileAsync(process.execPath, ['--input-type=module', '-e', child]),
+      (error) => error.code === 23);
+    assert.deepEqual(await readAnchor(project, 'atomic'), current);
+    assert.deepEqual(JSON.parse(await readFile(`${anchorPath(project, 'atomic')}.previous`, 'utf8')), current);
+    const resumed = await runCommand(['task', 'update', 'atomic', '--decision', 'recovered', '--write'], { cwd: project });
+    assert.equal(resumed.exitCode, 0, JSON.stringify(resumed.report));
+    assert.ok((await readAnchor(project, 'atomic')).decisions.includes('recovered'));
+  } finally { await rm(project, { recursive: true, force: true }); }
 });
