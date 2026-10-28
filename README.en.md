@@ -8,7 +8,7 @@ There is one default execution path: `gather trustworthy facts -> decide and exe
 
 ## First use: start with core
 
-The recommended entry point is `core`: it installs the rules, domain Skills, project-local deterministic scripts, and safety Hooks, which is enough to run a real task without first accepting the extra exposure of the full tool plugin set. `full` and `--preset everything` are explicit advanced options, see "Full capabilities (advanced)"; choose `minimal` only when you want the smallest rules surface.
+The recommended entry point is `core`: it installs rules, domain Skills, Eval assets, and project-local deterministic scripts. Safety Hooks and role packages require `full` or explicit module selection. `full` and `--preset everything` are explicit advanced options, see "Full capabilities (advanced)"; choose `minimal` for the smallest rules surface. Installation, host activation, and observed execution are verified separately.
 
 The first installation is three steps, with the commands in the core prompt under "Quick start" below: dry-run to see the write list, use `--write` once conflicts and out-of-scope overwrites are ruled out (adding `--confirm-red-zone` for red-zone files), then run `validate` for installation consistency plus one quick-layer `verify`.
 

@@ -8,7 +8,7 @@ Vibe-Harness 为 Codex、Claude Code、Gemini CLI、Cursor、Qoder、ZCode、Ant
 
 ## 首次使用：从 core 开始
 
-推荐入口是 `core`：它装上规则、领域 Skills、项目级确定性脚本与安全 Hook，够跑完一个真实任务，又不必先接受全量工具插件带来的额外暴露面。`full` 与 `--preset everything` 是明确的进阶选项，见「完整能力（进阶）」；只想装最小规则面时再考虑 `minimal`。
+推荐入口是 `core`：它安装规则、领域 Skills、Eval 资产与项目级确定性脚本；安全 Hook 和角色包由 `full` 或显式模块选择安装。`full` 与 `--preset everything` 是明确的进阶选项，见「完整能力（进阶）」；只想装最小规则面时再考虑 `minimal`。安装、宿主激活和实际执行证据分别核验。
 
 第一次安装按三步走，命令见下方「快速开始」的 core 提示词：先 dry-run 看写入清单，确认没有冲突与越界覆盖后再 `--write`（红区追加 `--confirm-red-zone`），最后 `validate` 核对安装一致性并跑一次快速层 `verify`。
 

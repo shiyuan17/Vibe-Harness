@@ -97,7 +97,7 @@ installer 集成验证应覆盖已有文件拒写、红区确认、目标路径�
 | `unverified`、`remainingRisks` | 列出深度层延期、未审定检查及未观察的宿主激活；`unreviewed/blocked/stale/queued/running` 均不能转述为通过。 |
 | `rollback` | 只恢复受管安全处理器，不恢复原始输入 probe，不降低沙箱或处理旧日志。 |
 
-宿主生效独立于 CLI 用例：按宿主支持的方式重新加载配置后，用无副作用调用核对实际应用；合成拒绝输入仅验证处理器，不执行被测危险指令。无法观察宿主激活时交付为“配置修复及本地验证完成，宿主激活未验证”。短任务不因此强制创建任务锚点；已有锚点沿用 `task check <id> --complete --receipt <file>`，缺证据不得绕过完成门。
+宿主生效独立于 CLI 用例：按宿主支持的方式重新加载配置后，用无副作用调用核对实际应用；合成拒绝输入仅验证处理器，不执行被测危险指令。无法观察宿主激活时交付为“配置修复及本地验证完成，宿主激活未验证”。短任务不因此强制创建任务锚点；已有锚点用 `task update <id> --unit <unit> --verification <file> --write` 登记真实验证报告，再运行 `task check <id> --complete`；旧 `--receipt` 参数明确拒绝。
 
 本次优化的后续观察与修复交付分开：交付后 14 天内，在前 3 个自然发生的代码变更任务中沿用现有交付记录，记录最终变更与相关验证是否绑定、失败是否经诊断并复验、本地验证与实际接受是否区分。不制造任务、不新增自动监控或台账；目标是样本中没有无证据完成主张。至少两个独立可比任务才评估实际使用；缺少修复前可比基线时不宣称效率提升，窗口结束仍缺样本则记录“证据不足”。
 
@@ -105,7 +105,7 @@ installer 集成验证应覆盖已有文件拒写、红区确认、目标路径�
 
 ### 减少返修试点
 
-新验收覆盖诊断先全部告警观察，不改变既有退出码、完成收据或阻断条件。`task plan-check` 的 `acceptanceCoverage` 只检查受管计划的声明映射；`task check --complete` 补充单元与证据缺口，`--unit` 只代表该单元。缺失计划、旧执行块、人工判据与证据不可用均明确说明；映射或收据有效不证明需求语义已完整覆盖，不据此声称行为通过。
+`task plan-check` 和状态读取的 `acceptanceCoverage` 保持告警，只检查受管计划的声明映射；整任务 `task check --complete` 必须覆盖全部声明单元与验收映射，`--unit` 只代表该单元。缺失计划、旧执行块、人工判据与证据不可用均明确说明；映射或收据有效不证明需求语义已完整覆盖，不据此声称行为通过。
 
 工程验证后，以自然发生的最多 30 个任务或 4 周（先到者为准）进行人工观察；每个交付任务保留 7 天反馈窗口，未结束窗口单列。沿用现有任务/交付记录，按任务类型、风险、模型条件记录首次验收、交付后返修、耗时、同类复发与总成本。新增需求不算原任务质量返修；无反馈记未确认，未知耗时不填零。没有可比基线或样本不足只报告证据不足，不启动后台监控、不自动读取历史聊天或 Memory、不自动启用阻断门禁。
 
@@ -149,7 +149,7 @@ rules、runtime hooks 或 config 内容变更会使 `evals/references/` 的 asse
 - `pnpm envelope plan [--mode <mode>] [--issue <ID>] [--effect <effect>] --objective <text> --terminal <text> [--base-ref <ref>] [--host-context <file>] [--session-id <id>] [--emit receipt|envelope] [--out <path>] [--write]`：从当前工作区身份生成 Execution Envelope v2 草稿与随机 requestId，默认五分钟到期；sessionId 和 hostContext 只由宿主提供。`pnpm envelope check --file <path> [--cwd <path>]` 核对 schema、效果、时效与工作区；结构合格的 `source: "host"` 不等于可信签发，高风险检查返回 `HOST_PROOF_UNVERIFIED`。
 - `node .agents/runtime/commands/run.mjs review ocr --task <ISSUE-ID> --target <https-model-endpoint>` 只作受限预检，配置不就绪或协议不支持返回脱敏错误；即使预检成功也返回 `HOST_BROKER_REQUIRED`，不会启动 OCR 或生成独立评审回执。当前可使用真正独立的宿主原生 Reviewer 按既有审计契约提交回执。OCR 外发使用 v2 `dataEgress` 效果且须限定模型目标；管理员的旧 v2 兼容窗口不能授权新外发效果，具体配置与风险见 governance-core。
 - `pnpm receipt start|event|handoff|check`：固化 Linear 执行回执与交接协议。`start` 默认生成显式执行 v1 回执和新的 `executionId`、`runtimeInstanceId`（不复制宿主 thread、session、用户名、主机名或本地路径）；历史宿主管理的 Claim-bearing 运行使用 v3 并包含宿主提供的 `grantId`；v2/v3 仅供历史读取，活动队列自动派发已退役，显式执行不要求 Claim 或 Start/Terminal Receipt。`grantId` 只引用宿主保存的授权，不证明授权有效；Claim/Grant 字段由宿主产生，不要求用户补填。`event` 生成终结事件（`handed-off` 必须携带预生成的 successor ID），`handoff` 生成 `vibe-harness.handoff/v1` 载荷（声明 complete 必须同时满足 accepted 与 reviewed/passed 的 finalCheck），`check --file <comments.json> [--issue <ID>]` 同时分析 v1/v2/v3 回执历史：同 ID 不同内容、同一 Issue 多个 active execution、孤儿或重复终结事件、交接 successor 的 source 或目标 Issue 不符都报冲突并退出非零，交接未确认等合法中间态以 pending 报出。三个生成命令默认只打印记录，`--write` 时才写入 `--out`，且都不会写入 Linear 或派发任务。
-- `pnpm task-dag check --file <dag.json> --node <id> [--require-ready] [--json]`：按 `docs/rules/ai-collab-rules.md` 的节点字段校验派发前的轻量 Task DAG——节点契约、依赖边与环、writeScope 重叠、resourceLocks、ready 集与结构哈希；`hash` 输出确定性结构哈希供 checkpoint 记录。错误 fail-closed（未知前驱、环、自依赖、非法 writeScope、read 节点带写范围、write 节点无写范围、共享路径或锁且无依赖路径的两个 write 节点都不 ready），`--require-ready` 在无可派发节点时退出非零。命令只读，不写任何文件。`docs/templates/task.md` 的表格仍是人读记录，不被解析。
+- `pnpm task-dag check --file <dag.json> --node <id> [--require-ready] [--json]`：按 `docs/rules/ai-collab-rules.md` 的节点字段校验派发前的轻量 Task DAG——节点契约、依赖边与环、writeScope 重叠、resourceLocks、ready 集与结构哈希；`hash` 输出确定性结构哈希供 checkpoint 记录。错误 fail-closed（未知前驱、环、自依赖、非法 writeScope、read 节点带写范围、write 节点无写范围、共享写路径且无依赖路径的两个 write 节点都不 ready）。共享运行资源只排队，不增加业务依赖；ready 和派发使用相同 trigger 判据。`--require-ready` 在无可派发节点时退出非零。命令只读，不写任何文件。`docs/templates/task.md` 的表格仍是人读记录，不被解析。
 - `pnpm worktree list|check|plan`：用 `git worktree list --porcelain -z` 做 worktree 隔离审计。`check` 按登记任务（`--task <ISSUE-ID>[:<branch>[:<path>]]`，路径可省略，默认取仓库同级 `<repo>-worktrees/<ISSUE-ID>`）核对分支命名 `<type>/<ISSUE-ID>-<slug>`、worktree 位于仓库外部且不互相嵌套、非主工作区绑定命名分支、同一分支不被两个 worktree 占用，并报告 merge-back 事实（分支是否已并入 `--base-ref`、merge-base 是否偏离 `--base-sha`）与 `--deep` 的未提交改动。主检出存在 `.vibe-harness/worktree-ports.json` 时，`check` 一并报告每个 worktree 的端口块与它的 env 文件是否仍与登记表一致（env 漂移、env 未忽略与主检出缺依赖都是 warning）。错误 fail-closed，警告（未创建的登记 worktree、未纳管 worktree、未 merge-back、脏工作区）可用 `--strict` 升级为失败；`plan` 只打印 `git worktree add` 命令。三个子命令都只读，命令绝不执行 `git worktree remove`、`git worktree prune` 或删除分支，未合并的 worktree 只阻止宣称“已集成”。实际创建、依赖链接、端口分配、崩溃恢复与清理走项目面入口 `node .agents/runtime/commands/run.mjs worktree <bootstrap|recover|cleanup> --project . --json`（默认 dry-run，`--write` 落盘，`recover` 只清理带归因证据的崩溃残留，见 git-rules 的 Worktree 节）；两个入口的子命令集不同，分工见 `docs/rules/git-rules.md` Worktree 节。
 - `vibe-harness audit --project <path> --kind cleanup`：只读扫描死代码、过期引用、过期文档、过期资源、过期记忆与过期索引，输出 `audit-report` 收据，`details.cleanup` 记录扫描面、已确认项与候选线索计数以及本次未覆盖的判定。扫描器把高置信结构与启发式候选分开标记，绝不删除或改写文件，`--write` 对 `cleanup` 一律拒绝；`--kind all` 仍只聚合 memory、review 与 improvements，清理需显式指定。
 

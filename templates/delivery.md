@@ -2,7 +2,7 @@
 
 > 各字段的语义定义（evidence 标签、完成主张对应关系、passed/failed/blocked/unverified 四态语义）见 `docs/rules/governance-core.md` 的「交付与证据标签」节。本模板只提供字段结构，不重复定义语义。
 
-启用 Delivery Profile 的项目同时保存结构化 completion JSON：delivery.profile/stage、status、acceptance（id/status/command 或 criterion/scope）、unverified、remainingRisks、rollback、source/target、verification。`verify` 只生成 stage=verify 的证据草稿，不自动宣称 complete；补齐实际验收后以 `task check <id> --complete --receipt <file>` 或 worktree 清理门检验。缺失浏览器或真实数据库环境记录 blocked，不由静态检查或替代数据库结果代替。
+普通任务使用简短交付摘要，不强制新增 completion JSON。已有任务锚点时，通过 `task update <id> --unit <unit> --verification <verify-report> --write` 登记验证报告，`task check <id> --complete` 核对当前认证证据及受管计划全部必需单元和验收映射；`--unit` 仅检查局部完成。旧 `--receipt` 参数已退役，显式传入会被拒绝，不会静默忽略。缺失浏览器或真实数据库环境记录 blocked，不由静态检查或替代数据库结果代替。
 
 - 结果：
 - 实际变更：
@@ -12,7 +12,7 @@
 
 仅在存在时补充：未验证项、风险、后续动作。
 
-行为修改按原验收项核对结果与保留行为；已有计划沿用同一组验收 ID，关联实施单元和本轮证据。需求 ID 与检查 ID 不混用；简短任务用文字摘要，不新增表格。`acceptanceCoverage` 只诊断声明关系，告警模式的退出码 0 不代表需求或行为已全部通过。
+行为修改按原验收项核对结果与保留行为；已有计划沿用同一组验收 ID，关联实施单元和本轮证据。需求 ID 与检查 ID 不混用；简短任务用文字摘要，不新增表格。规划与状态读取中的 `acceptanceCoverage` 保持告警；整任务完成不得遗漏声明集合。映射完整或命令通过仍不证明自然语言需求的语义完整性，人工判据须单独报告。
 
 ## 返修观察（仅实际返修或试点）
 
