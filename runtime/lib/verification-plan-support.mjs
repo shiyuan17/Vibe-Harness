@@ -8,6 +8,7 @@
 // argument parsing, dispatch and output selection. Behaviour, field names and
 // exit codes are unchanged; only the module boundary moved.
 import { spawn } from 'node:child_process';
+import { processStartIdentity, signalTree } from './services.mjs';
 
 import { resolveVerificationTiers, selectVerificationChecks } from './verification-plan.mjs';
 import { isReviewRequired } from './delivery.mjs';
@@ -189,23 +190,41 @@ export async function executeCommand(command, targetDir, timeoutMs, redactionRoo
       cwd: targetDir,
       env: { ...process.env, ...environment },
       shell: false,
+      detached: process.platform !== 'win32',
       windowsHide: true,
     });
+    const startIdentity = process.platform === 'win32' && child.pid ? processStartIdentity(child.pid) : '';
     let stdout = '';
     let stderr = '';
     let bytes = 0;
     let settled = false;
     let timedOut = false;
+    let terminating = false;
+    let escalation = null;
     const finish = (result) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (escalation) clearTimeout(escalation);
       resolve({ ...result, stdout: boundedOutput(stdout, redactionRoot), stderr: boundedOutput(stderr, redactionRoot) });
     };
     const terminate = () => {
-      try { child.kill('SIGTERM'); } catch { /* process may already be gone */ }
-      setTimeout(() => {
-        try { child.kill('SIGKILL'); } catch { /* process may already be gone */ }
+      if (terminating) return;
+      terminating = true;
+      // Signal only the owned group/tree. An unobservable Windows identity is
+      // not a licence to taskkill a possibly recycled PID; its resource lock is
+      // retained for explicit recovery.
+      const identified = process.platform !== 'win32'
+        || startIdentity && !['missing', 'unreadable'].includes(startIdentity);
+      if (identified) signalTree(child.pid, 'SIGTERM', { startIdentity });
+      escalation = setTimeout(() => {
+        if (identified) signalTree(child.pid, 'SIGKILL', { startIdentity });
+        // Surviving/unobservable descendants can keep inherited pipes open.
+        // Report blocked without waiting forever; callers retain ownership.
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        child.unref();
+        finish({ status: 'blocked', code: timedOut ? 'TIMEOUT' : 'OUTPUT_LIMIT', exitCode: null });
       }, 250).unref();
     };
     const timer = setTimeout(() => {

@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { hostname } from 'node:os';
 import { delay, runGit } from './cli-runtime.mjs';
+import { processStartIdentity } from './services.mjs';
 
 export function normalizeCheckResources(values = []) {
   if (!Array.isArray(values) || values.some((value) => typeof value !== 'string'
@@ -31,8 +32,33 @@ export async function runCheckBatches(checks, maxConcurrency, run) {
   }
 }
 
+function inspectResourceOwner(file, checkIdentity) {
+  let owner = null;
+  try {
+    const observed = readFileSync(file, 'utf8');
+    owner = JSON.parse(observed);
+    if (owner.hostname !== hostname() || !Number.isInteger(owner.pid) || owner.pid <= 0) return { owner };
+    try { process.kill(owner.pid, 0); }
+    catch (probe) {
+      if (probe.code !== 'ESRCH') return { owner };
+      // A dead runner can leave descendants using the resource. Only a
+      // reservation that never started a command is automatically reclaimable.
+      if (owner.phase === 'reserved' && readFileSync(file, 'utf8') === observed) {
+        unlinkSync(file);
+        return { owner, reclaimed: true };
+      }
+      return { owner, recoveryRequired: true };
+    }
+    if (checkIdentity && owner.processStartTime && !['missing', 'unreadable'].includes(owner.processStartTime)) {
+      const identity = processStartIdentity(owner.pid);
+      return { owner, recoveryRequired: identity !== 'unreadable' && identity !== owner.processStartTime };
+    }
+  } catch { /* Partial records and inaccessible processes retain ownership. */ }
+  return { owner };
+}
+
 /** Named locks protect only one check. Live holders never lose ownership by TTL. */
-export async function acquireCheckResources(projectDir, values, { timeoutMs = 120000 } = {}) {
+export async function acquireCheckResources(projectDir, values, { timeoutMs = 120000, onWait = undefined } = {}) {
   const names = normalizeCheckResources(values);
   if (!names.length) return { ok: true, waitMs: 0, release() {} };
   const common = await runGit(['rev-parse', '--git-common-dir'], projectDir);
@@ -43,6 +69,11 @@ export async function acquireCheckResources(projectDir, values, { timeoutMs = 12
   const token = randomUUID();
   const started = Date.now();
   let contended = false;
+  let lastReport = 0;
+  const startedAt = new Date().toISOString();
+  // A PID alone is not ownership: retain the OS start identity for diagnostics
+  // and refuse automatic recovery if that number has been recycled.
+  const processStartTime = processStartIdentity(process.pid);
   const release = ({ retain = false } = {}) => {
     if (retain) return;
     for (const file of held.reverse()) {
@@ -53,37 +84,43 @@ export async function acquireCheckResources(projectDir, values, { timeoutMs = 12
     held.length = 0;
   };
   try {
-    for (const name of names) {
-      const file = path.join(root, `${createHash('sha256').update(name).digest('hex')}.json`);
-      while (true) {
+    acquire: while (true) {
+      for (const name of names) {
+        const file = path.join(root, `${createHash('sha256').update(name).digest('hex')}.json`);
         try {
-          writeFileSync(file, JSON.stringify({ token, pid: process.pid, hostname: hostname(), name, phase: 'reserved', startedAt: new Date().toISOString() }),
+          writeFileSync(file, JSON.stringify({ token, pid: process.pid, hostname: hostname(), name, phase: 'reserved', startedAt, processStartTime }),
             { flag: 'wx', mode: 0o600 });
           held.push(file);
-          break;
         } catch (error) {
           if (error.code !== 'EEXIST') throw error;
           contended = true;
-          try {
-            const observed = readFileSync(file, 'utf8');
-            const owner = JSON.parse(observed);
-            if (owner.hostname === hostname() && Number.isInteger(owner.pid) && owner.pid > 0) {
-              try { process.kill(owner.pid, 0); }
-              catch (probe) {
-                // A dead runner can leave descendants using the resource.
-                // Only a reservation that never started a command is reclaimable.
-                if (probe.code === 'ESRCH' && owner.phase === 'reserved'
-                  && readFileSync(file, 'utf8') === observed) unlinkSync(file);
-              }
-            }
-          } catch { /* A partial record or inaccessible process retains its lock. */ }
+          const { owner, reclaimed, recoveryRequired } = inspectResourceOwner(file, Date.now() - lastReport >= 1000);
+          // Never hold an unrelated backend resource while waiting for the
+          // frontend lock. Retry the complete sorted group, not just its tail.
+          release();
+          const ownerInfo = owner && {
+            pid: Number.isInteger(owner.pid) ? owner.pid : null,
+            phase: ['reserved', 'running'].includes(owner.phase) ? owner.phase : 'unknown',
+            startedAt: typeof owner.startedAt === 'string' ? owner.startedAt.slice(0, 40) : null,
+          };
+          if (recoveryRequired) return {
+            ok: false, code: 'CHECK_RESOURCE_RECOVERY_REQUIRED', resource: name, owner: ownerInfo,
+            waitMs: Date.now() - started,
+            guidance: 'Runner exited or PID identity changed; descendants are not proven stopped. Preserve the lock and verify the owned process tree before recovery.',
+          };
+          if (reclaimed) continue acquire;
+          if (Date.now() - lastReport >= 1000) {
+            onWait?.({ resource: name, owner: ownerInfo, waitMs: Date.now() - started });
+            lastReport = Date.now();
+          }
           if (Date.now() - started >= timeoutMs) {
-            release();
-            return { ok: false, code: 'CHECK_RESOURCE_BUSY', resource: name, waitMs: Date.now() - started };
+            return { ok: false, code: 'CHECK_RESOURCE_BUSY', resource: name, owner: ownerInfo, waitMs: Date.now() - started };
           }
           await delay(50);
+          continue acquire;
         }
       }
+      break;
     }
     const begin = () => {
       for (const file of held) {

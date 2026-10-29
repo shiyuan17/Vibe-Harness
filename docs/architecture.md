@@ -32,6 +32,10 @@ Vibe-Harness 是跨平台、项目级的 AI coding 资产包。它使用 Node.js
 
 ## Capability / Provider 边界
 
+验证运行时将快照采集、资源等待与命令执行分阶段报告。`resource-wait` 携带资源名、持有者 PID、锁阶段与等待时长；取得整组资源后才发送 `check-start`，`heartbeat.stage` 区分等待和执行。资源竞争每轮释放已取得的部分资源后重试，资源等待最多使用默认两分钟（仍受更短的检查超时与剩余预算约束），不消耗整段长检查时限。
+
+资源锁记录运行者的 OS 启动身份；死亡的 `reserved` 可回收，死亡或身份变化的 `running` 返回 `CHECK_RESOURCE_RECOVERY_REQUIRED` 并保留现场。旧记录没有后代进程证据时不自动删除，不以 PID 消失、TTL 或心跳过期证明资源已释放。验证命令超时按已核验进程树终止，无法证明清理完成仍保留锁；不会通过跳过 Hook 恢复交付。CodeGraph 仅精确登记 `codegraph_explore` 为只读，未知同服务工具继续拒绝推断。
+
 <code>manifests/plugin-providers.json</code> 是可选插件身份与能力关系的内部真值：capability 表示消费方需要的稳定能力，provider 表示实现该能力的具体产品，module 表示安装器交付的资产与依赖闭包。安装器、provisioning、MCP 投影和生成指令通过 catalog 解析 provider，不再各自维护插件别名与 tool-to-module 映射。
 
 Provider 只声明 <code>cli</code>、<code>local-mcp</code> 或 <code>remote-mcp</code> transport；不同 transport 的参数、返回值、错误和生命周期保持各自合同，不抽象为统一执行接口。codebase-memory-mcp 仅提供外部工具使用规范，不属于受管 provider；<code>rg</code> 仍是文本搜索与 fallback。Agent 按宿主实际能力选择工具并核对覆盖。

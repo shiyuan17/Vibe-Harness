@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,8 @@ import { acquireCheckResources } from '../../runtime/lib/check-resources.mjs';
 import { buildDeliveryVerificationPlan } from '../../runtime/lib/verification-risk.mjs';
 import { buildVerificationPlan } from '../../scripts/lib/verification-plan.js';
 import { verifyProject } from '../../runtime/lib/verification-command.mjs';
+import { executeCommand } from '../../runtime/lib/verification-plan-support.mjs';
+import { processStartIdentity } from '../../runtime/lib/services.mjs';
 import { createPushVerification, inspectPushVerification, preparePushAttempt, resolvePushBaseline } from '../../runtime/lib/push-verification.mjs';
 import { readCandidateResources, saveCandidateResources } from '../../runtime/lib/candidate-resources.mjs';
 import { removeTemporaryDirectory } from '../../scripts/lib/temp-cleanup.js';
@@ -23,6 +25,7 @@ import { checkTaskDagNode, validateTaskDag } from '../../scripts/lib/task-dag.js
 const exec = promisify(execFile);
 const hook = fileURLToPath(new URL('../../runtime/hooks/git-hook.mjs', import.meta.url)).replaceAll('\\', '/');
 const git = async (cwd, args) => (await exec('git', args, { cwd, windowsHide: true })).stdout.trim();
+
 async function fixture(options = {}) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'vh-collaboration-')));
   const repo = path.join(root, 'repo');
@@ -763,4 +766,148 @@ test('纯文档 stage 只取必要文档证据，显式 quick 才增加快速层
     assert.deepEqual(staged.integration.selectedChecks, ['docs']);
     assert.equal((await readFile(f.counter, 'utf8')).trim().split('\n').length, 1);
   } finally { await removeTemporaryDirectory(f.root); }
+});
+
+test('死亡运行者的 running 锁立即报告待恢复，不凭 PID 消失抢锁', async () => {
+  const f = await fixture();
+  try {
+    const resource = 'fixture/stale';
+    const dir = path.join(f.repo, '.git/vibe-harness-check-resources');
+    const file = path.join(dir, `${createHash('sha256').update(resource).digest('hex')}.json`);
+    await mkdir(dir, { recursive: true });
+    const record = { token: randomUUID(), pid: 2147483647, hostname: hostname(), name: resource, phase: 'running' };
+    await writeFile(file, JSON.stringify(record));
+    const blocked = await acquireCheckResources(f.repo, [resource], { timeoutMs: 5000 });
+    assert.equal(blocked.code, 'CHECK_RESOURCE_RECOVERY_REQUIRED');
+    assert.equal(blocked.owner.pid, record.pid);
+    assert.ok(blocked.waitMs < 5000);
+    assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), record);
+  } finally { await removeTemporaryDirectory(f.root); }
+});
+
+test('资源组等待时释放先取得的资源，并报告实际持有者', async () => {
+  const f = await fixture();
+  const holder = await acquireCheckResources(f.repo, ['z/frontend']);
+  try {
+    const events = [];
+    const waiting = acquireCheckResources(f.repo, ['a/backend', 'z/frontend'], {
+      timeoutMs: 600, onWait: (event) => events.push(event),
+    });
+    // The event is emitted after the partial reservation has been released.
+    const deadline = Date.now() + 3000;
+    while (events.length === 0 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(events.length > 0, '资源竞争必须立即提供等待事件');
+    const independent = await acquireCheckResources(f.repo, ['a/backend'], { timeoutMs: 100 });
+    try { assert.equal(independent.ok, true); } finally { independent.release?.(); }
+    const blocked = await waiting;
+    assert.equal(blocked.code, 'CHECK_RESOURCE_BUSY');
+    assert.equal(events[0].resource, 'z/frontend');
+    assert.equal(events[0].owner.pid, process.pid);
+  } finally { holder.release(); await removeTemporaryDirectory(f.root); }
+});
+
+test('候选验证的进度区分快照、资源获取与检查执行', async () => {
+  const f = await fixture();
+  try {
+    const events = [];
+    const report = await verifyProject(f.repo, { noReuse: true, onProgress: (event) => events.push(event) });
+    assert.equal(report.status, 'passed', JSON.stringify(report));
+    const phases = events.map((event) => event.phase);
+    assert.ok(phases.includes('snapshot-start'), JSON.stringify(events));
+    assert.ok(phases.includes('resource-acquire'), JSON.stringify(events));
+    assert.ok(phases.indexOf('resource-acquire') < phases.indexOf('check-start'));
+    assert.ok(events.filter((event) => event.phase === 'heartbeat').every((event) => event.stage));
+  } finally { await removeTemporaryDirectory(f.root); }
+});
+
+test('死亡预留锁可回收，PID 身份不符与损坏锁均保留', async () => {
+  const f = await fixture();
+  try {
+    const resource = 'fixture/recovery';
+    const dir = path.join(f.repo, '.git/vibe-harness-check-resources');
+    const file = path.join(dir, `${createHash('sha256').update(resource).digest('hex')}.json`);
+    await mkdir(dir, { recursive: true });
+    const reserved = { token: randomUUID(), pid: 2147483647, hostname: hostname(), name: resource, phase: 'reserved' };
+    await writeFile(file, JSON.stringify(reserved));
+    const recovered = await acquireCheckResources(f.repo, [resource], { timeoutMs: 1000 });
+    try { assert.equal(recovered.ok, true); } finally { recovered.release?.(); }
+    const recycled = { ...reserved, pid: process.pid, processStartTime: 'not-the-current-process' };
+    await writeFile(file, JSON.stringify(recycled));
+    const refused = await acquireCheckResources(f.repo, [resource], { timeoutMs: 1000 });
+    assert.equal(refused.code, ['win32', 'linux'].includes(process.platform)
+      ? 'CHECK_RESOURCE_RECOVERY_REQUIRED' : 'CHECK_RESOURCE_BUSY');
+    assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), recycled);
+    await writeFile(file, '{');
+    const unreadable = await acquireCheckResources(f.repo, [resource], { timeoutMs: 50 });
+    assert.equal(unreadable.code, 'CHECK_RESOURCE_BUSY');
+    assert.equal(await readFile(file, 'utf8'), '{');
+  } finally { await removeTemporaryDirectory(f.root); }
+});
+
+test('验证等待 running 资源时不发送检查启动事件且保留锁', async () => {
+  const f = await fixture({ validationCommands: {
+    test: 'node check.mjs', tiers: { quick: ['node check.mjs'], standard: [], deep: [] },
+    checks: [{ id: 'test', command: 'node check.mjs', resources: ['fixture/busy'] }],
+  } });
+  const holder = await acquireCheckResources(f.repo, ['fixture/busy']);
+  holder.begin();
+  try {
+    const events = [];
+    const report = await verifyProject(f.repo, {
+      noReuse: true, timeout: 1000, onProgress: (event) => events.push(event),
+    });
+    assert.equal(report.status, 'blocked', JSON.stringify(report));
+    assert.equal(report.checks.test.code, 'CHECK_RESOURCE_BUSY');
+    assert.equal(report.checks.test.owner.pid, process.pid);
+    assert.ok(events.some((event) => event.phase === 'resource-wait'));
+    assert.ok(!events.some((event) => event.phase === 'check-start'));
+  } finally { holder.release(); await removeTemporaryDirectory(f.root); }
+});
+
+test('验证命令超时返回 blocked，保留结果而不等待继承管道永久关闭', async () => {
+  const f = await fixture();
+  try {
+    await writeFile(path.join(f.repo, 'wait.mjs'), 'setInterval(() => {}, 1000);\n');
+    const started = Date.now();
+    const result = await executeCommand('node wait.mjs', f.repo, 100);
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.code, 'TIMEOUT');
+    assert.ok(Date.now() - started < 10000, '超时后必须有界返回，而非无限等待 close');
+  } finally { await removeTemporaryDirectory(f.root); }
+});
+
+test('验证命令超时终止自建子进程，不只结束直接父进程', async () => {
+  const f = await fixture();
+  let childPid;
+  let childIdentity;
+  try {
+    await writeFile(path.join(f.repo, 'tree.mjs'), [
+      "import { spawn } from 'node:child_process';",
+      "import { writeFileSync } from 'node:fs';",
+      "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });",
+      "writeFileSync('owned-child.pid', String(child.pid));",
+      'setInterval(() => {}, 1000);',
+    ].join('\n'));
+    const running = executeCommand('node tree.mjs', f.repo, 4000);
+    const marker = path.join(f.repo, 'owned-child.pid');
+    const deadline = Date.now() + 10000;
+    while (!existsSync(marker) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.ok(existsSync(marker), '必须实际启动子进程才算树清理证据');
+    childPid = Number(await readFile(marker, 'utf8'));
+    childIdentity = processStartIdentity(childPid);
+    const result = await running;
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.code, 'TIMEOUT');
+    const goneDeadline = Date.now() + 5000;
+    while (processStartIdentity(childPid) !== 'missing' && Date.now() < goneDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(processStartIdentity(childPid), 'missing', '超时后不应遗留仍运行的已知子进程');
+  } finally {
+    if (childPid && childIdentity && !['missing', 'unreadable'].includes(childIdentity)
+      && processStartIdentity(childPid) === childIdentity) {
+      try { process.kill(childPid, 'SIGKILL'); } catch { /* The owned test child already exited. */ }
+    }
+    await removeTemporaryDirectory(f.root);
+  }
 });

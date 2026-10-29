@@ -296,8 +296,10 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   }
   timingsMs.preparation = Date.now() - runStartedMs - timingsMs.scopeResolution;
   const snapshotBeforeMs = Date.now();
+  if (!planOnly) verificationProgress(args, 'snapshot-start', { stage: 'before' });
   const before = planOnly ? null : await gitFingerprint(projectDir);
   timingsMs.snapshotBefore = Date.now() - snapshotBeforeMs;
+  if (!planOnly) verificationProgress(args, 'snapshot-end', { stage: 'before', durationMs: timingsMs.snapshotBefore });
   const receiptPlan = { ...changeScope, selectedChecks: tierPlan.selectedChecks, deferredChecks: tierPlan.deferredChecks, tier: tierPlan.tier, scope };
   let cacheContext = planOnly ? null : await verificationCacheContext(projectDir, receiptPlan, before);
   const sharingKeys = !planOnly && args.reuse
@@ -309,10 +311,14 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   // Acquire all content-key reservations in sorted order. Keep them until the
   // final input comparison and authenticated receipt store, so waiters cannot
   // mistake a running check for completed evidence.
-  const sharing = sharingKeys.length ? await acquireCheckResources(projectDir, sharingKeys, { timeoutMs }) : null;
+  const sharing = sharingKeys.length ? await acquireCheckResources(projectDir, sharingKeys, {
+    timeoutMs: Math.min(timeoutMs, 120000),
+    onWait: (detail) => verificationProgress(args, 'resource-wait', { stage: 'coalescing', ...detail }),
+  }) : null;
   timingsMs.coalescingWait = sharing?.waitMs ?? 0;
   if (sharing && !sharing.ok) return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE,
-    command: 'verify', status: 'blocked', code: sharing.code, checks: {}, timingsMs };
+    command: 'verify', status: 'blocked', code: sharing.code,
+    resource: sharing.resource, owner: sharing.owner, guidance: sharing.guidance, checks: {}, timingsMs };
   let retainSharing = false;
   try {
   sharing?.begin?.();
@@ -499,17 +505,24 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     const declaredTimeoutMs = declaredCheckTimeoutMs(checkMetadata.get(name)?.timeoutMs);
     const checkTimeoutMs = declaredTimeoutMs ?? timeoutMs;
     const effectiveTimeoutMs = remainingBudgetMs === null ? checkTimeoutMs : Math.max(1, Math.min(checkTimeoutMs, remainingBudgetMs));
-    verificationProgress(args, 'check-start', { check: name, timeoutMs: effectiveTimeoutMs, ...(budgetMs === null ? {} : { budgetMs }) });
+    let stage = 'waiting-resource';
+    verificationProgress(args, 'resource-acquire', { check: name, stage });
     const heartbeat = args.onProgress ? setInterval(() => verificationProgress(args, 'heartbeat', {
-      check: name, elapsedMs: Date.now() - checkStartedAt, timeoutMs: checkTimeoutMs,
+      check: name, stage, elapsedMs: Date.now() - checkStartedAt, timeoutMs: checkTimeoutMs,
     }), 30_000) : null;
     heartbeat?.unref();
     let resources;
     try {
-      resources = await acquireCheckResources(projectDir, checkMetadata.get(name)?.resources, { timeoutMs: effectiveTimeoutMs });
+      resources = await acquireCheckResources(projectDir, checkMetadata.get(name)?.resources, {
+        timeoutMs: Math.min(effectiveTimeoutMs, 120000),
+        onWait: (detail) => verificationProgress(args, 'resource-wait', { check: name, stage, ...detail }),
+      });
       if (!resources.ok) result = { status: 'blocked', code: resources.code, exitCode: null };
       else {
         resources.begin?.();
+        stage = 'executing';
+        verificationProgress(args, 'check-start', { check: name, stage, timeoutMs: effectiveTimeoutMs,
+          ...(budgetMs === null ? {} : { budgetMs }) });
         result = await executeCommand(executableCommand, cwd.absolute,
         Math.max(1, effectiveTimeoutMs - resources.waitMs), projectDir,
         { ...candidateEnvironment(projectDir).environment, ...verificationContextEnvironment({ ...changeScope, scope }) });
@@ -530,6 +543,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       exitCode: result.exitCode,
       durationMs,
       resourceWaitMs: resources?.waitMs ?? 0,
+      ...(resources?.resource ? { resource: resources.resource, owner: resources.owner, guidance: resources.guidance } : {}),
       ...(declaredTimeoutMs ? { timeoutMs: effectiveTimeoutMs } : {}),
       ...(result.stdout ? { stdout: result.stdout } : {}),
       ...(result.stderr ? { stderr: result.stderr } : {}),
@@ -656,8 +670,10 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     const willStore = !failed && !blocked && !checksNotRun && completed.length > 0;
     if (willStore) await prepareVerificationReceiptStore(projectDir).catch(() => false);
     const snapshotAfterMs = Date.now();
+    verificationProgress(args, 'snapshot-start', { stage: 'after' });
     const after = await gitFingerprint(projectDir);
     timingsMs.snapshotAfter = Date.now() - snapshotAfterMs;
+    verificationProgress(args, 'snapshot-end', { stage: 'after', durationMs: timingsMs.snapshotAfter });
     const afterContext = await verificationCacheContext(projectDir, receiptPlan, after);
     const inputsStable = cacheContext.key === afterContext.key;
     const stable = before.fingerprint !== null && after.fingerprint !== null
