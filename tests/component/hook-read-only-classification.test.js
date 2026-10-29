@@ -105,6 +105,7 @@ function policyOptions(projectRoot) {
   return { allowedEgressHosts: [], allowedWriteRoots: [], mode: 'guarded', projectRoot, redZonePaths: DEFAULT_RED_ZONE_PATHS };
 }
 
+
 test('read-only commands are allowed end to end without an Execution Envelope', async () => {
   await withProject(async (target) => {
     for (const command of [...SHELL_READ_ONLY_COMMANDS, ...TOOLCHAIN_COMMANDS, ...TOOLCHAIN_VERSION_PROBES]) {
@@ -636,4 +637,62 @@ test('fd 默认放行，exec 旗标保持 Envelope 门禁', async () => {
       assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT/u, command);
     }
   });
+});
+
+test('CodeGraph 精确只读工具可查询，未知同服务工具仍拒绝', async () => {
+  await withProject(async (target) => {
+    for (const server of ['codegraph', 'vibe-harness-codegraph']) {
+      const normalized = request(target, {
+        tool_name: `mcp__${server}__codegraph_explore`,
+        tool_input: { query: 'fixture', projectPath: target },
+      });
+      assert.equal(classifyExecutionEffects(normalized).readOnly, true);
+      assert.equal(evaluateExecutionEnvelope(normalized, { environment: {} }).action, 'allow');
+      const unknown = request(target, { tool_name: `mcp__${server}__get_and_execute`, tool_input: {} });
+      assert.equal(classifyExecutionEffects(unknown).unknown, true);
+      assert.equal(evaluateExecutionEnvelope(unknown, { environment: {} }).action, 'deny');
+    }
+  });
+});
+
+test('只读日志路径赋值与搜索字面量不误报全局配置写入', async () => {
+  await withProject(async (target) => {
+    for (const command of [
+      "$sessionLog = 'C:/Users/Fixture/.codex/sessions/fixture.jsonl'; Get-Content -LiteralPath $sessionLog | ConvertFrom-Json",
+      "rg -n 'Remove-Item|writeFileSync|core.hooksPath' runtime",
+      "rg -n 'x Remove-Item fixture' runtime; git status --short",
+      "$sessionLog = 'C:/fixture/ Remove-Item log'; Get-Content -LiteralPath $sessionLog",
+    ]) {
+      const normalized = request(target, { tool_input: { command } });
+      assert.equal(analyzeToolRequest(normalized, policyOptions(target)).action, 'allow', command);
+      assert.equal(classifyExecutionEffects(normalized).readOnly, true, command);
+      assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: { command } })), {}, command);
+    }
+  });
+});
+
+test('PowerShell 环境赋值、命令执行与伪装只读写入仍不放行', () => {
+  for (const command of [
+    '$env:GIT_WORK_TREE = "."',
+    '$sessionLog = Remove-Item fixture.json',
+    '$sessionLog = "$(Remove-Item fixture.json)"',
+    '$sessionLog = [IO.File]::WriteAllText("fixture", "x")',
+    "rg --pre 'Remove-Item fixture' pattern .",
+    "Get-Content fixture > result.txt",
+    'Get-Content fixture | Remove-Item fixture',
+    'Get-Content ([IO.File]::WriteAllText("fixture", "x"))',
+    'rg ([IO.File]::WriteAllText("fixture", "x")) .',
+  ]) {
+    const normalized = request(path.resolve('.'), { tool_input: { command } });
+    assert.equal(classifyExecutionEffects(normalized).readOnly, false, command);
+  }
+  const globalWrite = request(path.resolve('.'), { tool_input: {
+    command: "$target = 'C:/Users/Fixture/.codex/config.toml'; Set-Content -LiteralPath $target -Value x",
+  } });
+  assert.equal(analyzeToolRequest(globalWrite, policyOptions(path.resolve('.'))).action, 'deny');
+  const indirectWrite = request(path.resolve('.'), { tool_input: {
+    command: "$target = 'C:/outside/fixture.txt'; Set-Content -LiteralPath $target -Value x",
+  } });
+  assert.equal(classifyExecutionEffects(indirectWrite).unknown, true);
+  assert.equal(evaluateExecutionEnvelope(indirectWrite, { environment: {} }).action, 'deny');
 });

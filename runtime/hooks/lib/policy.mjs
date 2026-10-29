@@ -5,6 +5,7 @@ import {
   commandTokens,
   commandWrites,
   hasUnsafeShellConstruct,
+  isReadOnlyPowerShellAssignment,
   isReadOnlyShellSegment,
   shellSegments,
 } from './read-only-commands.mjs';
@@ -531,7 +532,9 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
     if (!referencesGlobalAgentConfig(segment)) continue;
     // Reading or enumerating an Agent configuration directory is not a write,
     // so only effectful segments fall through to the write rule (AC-02).
-    if (isReadOnlyShellSegment(segment) && !commandWrites(segment)) continue;
+    if (isReadOnlyShellSegment(segment) && !commandWrites(segment)
+      && (!isReadOnlyPowerShellAssignment(segment)
+        || segments.every((part) => isReadOnlyShellSegment(part) && !commandWrites(part)))) continue;
     return risk('deny', 'GLOBAL_AGENT_CONFIG', '检测到对全局 Agent 配置的写入，已拒绝。请改为修改目标项目内的配置；调整全局配置请人工手动执行。');
   }
   if (!isPatchTool && networkCommandPattern.test(command) && secretReferencePattern.test(command)) {

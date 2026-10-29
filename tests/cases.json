@@ -5170,6 +5170,45 @@
       "addedAt": "2026-10-14"
     },
     {
+      "id": "C-hook-read-only-classification-021",
+      "layer": "component",
+      "file": "tests/component/hook-read-only-classification.test.js",
+      "ordinal": 21,
+      "name": "CodeGraph 精确只读工具可查询，未知同服务工具仍拒绝",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-29"
+    },
+    {
+      "id": "C-hook-read-only-classification-022",
+      "layer": "component",
+      "file": "tests/component/hook-read-only-classification.test.js",
+      "ordinal": 22,
+      "name": "只读日志路径赋值与搜索字面量不误报全局配置写入",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-29"
+    },
+    {
+      "id": "C-hook-read-only-classification-023",
+      "layer": "component",
+      "file": "tests/component/hook-read-only-classification.test.js",
+      "ordinal": 23,
+      "name": "PowerShell 环境赋值、命令执行与伪装只读写入仍不放行",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-10-29"
+    },
+    {
       "id": "C-install-preset-001",
       "layer": "component",
       "file": "tests/component/install-preset.test.js",

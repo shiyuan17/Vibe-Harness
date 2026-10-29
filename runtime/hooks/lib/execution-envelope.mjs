@@ -7,6 +7,8 @@ import {
   commandTokens,
   commandWrites,
   hasUnsafeShellConstruct,
+  isReadOnlyDataCommand,
+  isReadOnlyPowerShellAssignment,
   isReadOnlyShellSegment,
   isReadOnlyToolName,
   isWorkspaceToolName,
@@ -604,17 +606,23 @@ export function classifyExecutionEffects(input) {
   else if (command.length === 0) unknown = toolName.length > 0;
 
   if (command.length > 0 && !isWorkspaceToolName(toolName)) {
+    const segments = shellSegments(command);
+    // Do not lose a literal path once a later writer consumes its variable.
+    // Without dataflow proof such a mixed script stays unknown, not local-write.
+    if (segments.some(isReadOnlyPowerShellAssignment)
+      && !segments.every((segment) => isReadOnlyShellSegment(segment) && !commandWrites(segment))) unknown = true;
+    const executableText = segments.filter((segment) => !isReadOnlyDataCommand(segment)).join('; ');
     if (commandWrites(command)) effects.add('workspaceWrite');
-    if (credentialCommandPattern.test(command)) effects.add('credentialUse');
-    if (indirectWritePattern.test(command)) {
+    if (credentialCommandPattern.test(executableText)) effects.add('credentialUse');
+    if (indirectWritePattern.test(executableText)) {
       effects.add('workspaceWrite');
       highRiskReasons.add('indirect-runtime-write');
     }
-    const segments = shellSegments(command);
     const review = segments.length === 1 ? classifyOcrReview(segments[0], effects, externalTargets) : null;
     if (review === false) unknown = true;
     if (review === null) addUrlTargets(command, externalTargets);
     for (const segment of review === null ? segments : []) {
+      if (isReadOnlyDataCommand(segment)) continue;
       if (isUnrecognizedReviewCommand(segment)) {
         unknown = true;
         continue;

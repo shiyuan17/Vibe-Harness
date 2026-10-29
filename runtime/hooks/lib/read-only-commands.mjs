@@ -305,6 +305,9 @@ function isReadOnlyCliRule(rule, args) {
  * @returns {boolean}
  */
 export function isReadOnlyShellSegment(segment) {
+  // Only plain local-variable literals are proven here. Do not evaluate an
+  // expression, assign $env:/scoped variables, or infer a script block's effect.
+  if (isReadOnlyPowerShellAssignment(segment)) return true;
   const invocation = shellInvocation(segment);
   if (!invocation) return false;
   const { args, name } = invocation;
@@ -316,6 +319,11 @@ export function isReadOnlyShellSegment(segment) {
   return !argsMatchGuard(args, name);
 }
 
+/** Literal local state is safe only in a wholly read-only command pipeline. */
+export function isReadOnlyPowerShellAssignment(segment) {
+  return /^\$[A-Za-z_][A-Za-z0-9_]*\s*=\s*(?:'(?:[^']|'')*'|"[^"$`]*"|-?\d+(?:\.\d+)?|\$(?:true|false|null))\s*$/iu.test(segment);
+}
+
 /**
  * True when the segment writes to the filesystem: a write cmdlet, a write
  * utility, or a shell redirection.
@@ -324,8 +332,23 @@ export function isReadOnlyShellSegment(segment) {
  * @returns {boolean}
  */
 export function commandWrites(segment) {
+  const segments = shellSegments(segment);
+  if (segments.length > 1) return segments.some(commandWrites);
+  // Search text is data, not a shell verb. In particular a quoted diagnostic
+  // pattern containing "Remove-Item" must not become a filesystem write.
+  if (isReadOnlyPowerShellAssignment(segment) || isReadOnlyDataCommand(segment)) return false;
   if (SHELL_WRITE_VERB_PATTERN.test(segment)) return true;
   return hasShellRedirection(segment);
+}
+
+/** Arguments to these bounded readers are data, not executable code. */
+export function isReadOnlyDataCommand(segment) {
+  const invocation = shellInvocation(segment);
+  return !!invocation && ['rg', 'grep', 'get-content', 'select-string'].includes(invocation.name)
+    && shellSegments(segment).length === 1
+    && !/[()[\]{}]/u.test(segment.replace(/'(?:[^']|'')*'|"[^"]*"/gu, ''))
+    && isReadOnlyShellSegment(segment) && !hasShellRedirection(segment)
+    && !hasUnsafeShellConstruct(segment);
 }
 
 /**
@@ -422,6 +445,7 @@ const CODEBASE_MEMORY_TOOL_DECISIONS = [
 /** @type {Map<string, Map<string, 'read-only' | 'workspace-write' | 'high-risk'>>} */
 const MCP_TOOL_DECISIONS = new Map([
   ['codebase-memory-mcp', new Map(CODEBASE_MEMORY_TOOL_DECISIONS)],
+  ['codegraph', new Map([['codegraph_explore', 'read-only']])],
 ]);
 
 /**
