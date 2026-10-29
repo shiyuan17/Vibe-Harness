@@ -1,11 +1,11 @@
 ---
 name: browser-verification
-description: Use to verify page interactions, console output, network activity, performance, responsiveness, accessibility, and visual output with the in-project Playwright CLI, Chrome DevTools MCP, or a real browser; applies to browser feature implementation, debugging, and automated acceptance.
+description: Use for critical page, console, network, performance, accessibility, responsiveness, and visual verification; do not default to isolated local presentation/interaction or help/tooltip micro-UI unless explicitly requested or risk requires it.
 ---
 
 # 浏览器验证
 
-Playwright CLI 负责可重复的功能验收、响应式检查和回归；Chrome DevTools MCP 负责实时 console、network、Lighthouse 和 performance 定位。复杂问题先用 DevTools 定位，再用 Playwright 回归。两者都不可用时回退到明确的人工浏览器步骤。不要只凭静态代码声称界面正确。
+Playwright CLI 负责关键路径的可重复功能验收、响应式检查和回归；Chrome DevTools MCP 负责实时 console、network、Lighthouse 和 performance 定位。复杂问题先用 DevTools 定位，再用 Playwright 回归。既有页面中的局部帮助图标、tooltip、提示或标签不默认触发本 Skill，除非用户明确要求视觉/浏览器验收，或存在定位、溢出、响应式和跨浏览器风险。两者都不可用时回退到明确的人工浏览器步骤。不要只凭静态代码声称关键页面行为正确。
 
 ## 入口选择
 

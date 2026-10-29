@@ -210,7 +210,7 @@ managed-mr 的 land 只读取已合入 MR 的证据，不本地合并或推送�
 单任务与 batch 使用同一落地顺序：
 
 1. **stage** 在队列外核对任务归属、冻结源 HEAD、变更范围与远端地址；从本地 `refs/heads/develop` 快照建立 detached 候选。不 fetch，不要求主检出干净，也不移动主检出或远端。
-2. 在队列外把冻结任务提交 no-ff 合入候选并完成按风险选择的必要验证（候选活动租约标识活性）。通过后把候选 SHA 保存到 `refs/vibe-harness/staged/<batch-id>`，返回 `integrationStatus: local_staged`；源 worktree、分支和主检出改动全部保留。
+2. 在队列外把冻结任务提交 no-ff 合入候选并完成按风险选择的必要验证（候选活动租约标识活性）。local-land 不隐含浏览器验证、E2E、Eval 或全量矩阵；候选只执行项目风险计划选出的必要检查。通过后把候选 SHA 保存到 `refs/vibe-harness/staged/<batch-id>`，返回 `integrationStatus: local_staged`；源 worktree、分支和主检出改动全部保留。
 3. **publish** 重新解析唯一实际 push URL 与精确 `refs/heads/develop`，只以地址 SHA-256 指纹持久化；入口在队列外 fetch 精确远端并自动对账：候选已含于远端则直接确认集成，冻结源已全部集成则自动归档，远端前进则从新基线重建同一组合并候选并按完整输入指纹复用或重验，不在旧候选上叠加第二次 merge。
 4. 对账确认基线未动时，publish 才取得仓库 FIFO 队首进入短时 finalize：核验远端 SHA、暂存引用、冻结源提交、事务租约和实际 push URL；不满足时按有界上限重建重验，不强制推送。
 5. 在 finalize 段内以显式非强制 refspec 推送冻结候选 SHA 到精确远端 ref，并重读远端 SHA。候选等于远端 HEAD 或仍是其祖先时进入 `integrated`，记录 `remoteConfirmedHead` / `remoteAdvanced`；`remoteValidation` 独立表示远端 CI/MR 验证。

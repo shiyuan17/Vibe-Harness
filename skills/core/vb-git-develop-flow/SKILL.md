@@ -19,7 +19,7 @@ description: Use only when explicitly requested as Vb Git Develop Flow, $vb-git-
 
 `--target-mode primary` 是 `stage` 专属的意图断言，新流程不需要；`--target-mode remote` 已退役，任何写入前拒绝。`--reviewed` 只是元数据，不是交付门禁。跨边界效果需要真实 hostContext（source=host、process=isolated、observedAt 等）时，Agent 不得自造；旧 v1 Envelope 仅作 contract-only/degraded 兼容。
 
-同目标、已就绪且需要共同验收的任务可一次 stage 合批，不等待无关节点。验证复用以 `git-rules.md` 和 `test-rules.md` 的输入指纹为准；不把 `reuse:true` 当作必然命中，也不在有效候选收据之后重复相同 fan-in 检查。普通基线前进不取消其他独立候选；只有同目标已包含其全部冻结源时才请求协作取消，活跃租约由原持有者释放。
+同目标、已就绪且需要共同验收的任务可一次 stage 合批，不等待无关节点。验证复用以 `git-rules.md` 和 `test-rules.md` 的输入指纹为准；不把 `reuse:true` 当作必然命中，也不在有效候选收据之后重复相同 fan-in 检查。普通基线前进不取消其他独立候选；只有同目标已包含其全部冻结源时才请求协作取消，活跃租约由原持有者释放。local-land 不隐含浏览器验证、E2E、Eval 或全量矩阵；候选只执行项目风险计划选出的必要检查。
 
 ## 停止与恢复
 
