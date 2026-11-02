@@ -5,7 +5,7 @@ import {
   commandSemanticEvents,
   toolSemanticSummary,
 } from '../../runtime/evals/codex-runner.mjs';
-import { classifyExecutionEffects } from '../../runtime/hooks/lib/execution-envelope.mjs';
+import { classifyExecutionEffects } from '../../runtime/hooks/lib/execution-effects.mjs';
 
 test('Execution Envelope and eval observers agree on overlapping shell effects', () => {
   const cases = [

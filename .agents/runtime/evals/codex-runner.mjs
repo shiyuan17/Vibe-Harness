@@ -19,7 +19,7 @@ const codexEnvironmentNames = new Set([
   'HTTPS_PROXY', 'HTTP_PROXY', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LOCALAPPDATA', 'NO_PROXY',
   'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'PATH', 'Path', 'PATHEXT', 'PROGRAMDATA', 'ProgramData',
   'SHELL', 'SSL_CERT_DIR', 'SSL_CERT_FILE', 'SystemRoot', 'TEMP', 'TMP', 'TMPDIR', 'USERPROFILE',
-  'VIBE_HARNESS_EXECUTION_ENVELOPE', 'WINDIR', 'WSLENV', 'all_proxy', 'https_proxy', 'http_proxy', 'no_proxy',
+  'WINDIR', 'WSLENV', 'all_proxy', 'https_proxy', 'http_proxy', 'no_proxy',
 ]);
 
 // The parser half of the suite contract. A marker a suite requires in
@@ -272,7 +272,6 @@ function wslEnvironment(environment) {
   const inherited = (process.env.WSLENV ?? '').split(':').filter(Boolean);
   const required = [
     'CODEX_HOME/p', 'HOME/p', 'USERPROFILE/p', 'OPENAI_API_KEY/u', 'OPENAI_BASE_URL/u',
-    'VIBE_HARNESS_EXECUTION_ENVELOPE/u',
   ];
   return { ...environment, WSLENV: [...new Set([...inherited, ...required])].join(':') };
 }
@@ -1465,22 +1464,20 @@ export async function compactionEvidence(codexHome, sessionId = null) {
   return { observed: records > 0, records, sessionFileCount: files.length, sessionFiles: matchedFiles.sort() };
 }
 
-/**
- * Host-injected Execution Envelope v2 carried into the evaluated session. The
- * driver validates the full contract against the published schema; the runner
- * re-checks the identity fields so a malformed envelope never reaches a model.
- *
- * @param {any} value
- */
-export function isHostExecutionEnvelope(value) {
+export function isRecoveryCheckpoint(value) {
   if (!isPlainObject(value)) return false;
-  if (value.schema !== 'vibe-harness.execution-envelope/v2') return false;
-  for (const field of ['requestId', 'sessionId', 'mode', 'terminalCondition', 'activeObjective']) {
+  if (Object.keys(value).some((key) => ![
+    'activeObjective', 'terminalCondition', 'headSha', 'completedFacts',
+    'noRepeatSet', 'nextAction', 'observedAt',
+  ].includes(key))) return false;
+  for (const field of ['activeObjective', 'terminalCondition', 'nextAction']) {
     if (typeof value[field] !== 'string' || value[field] === '') return false;
   }
-  if (!Array.isArray(value.allowedEffects) || !Array.isArray(value.forbiddenEffects)) return false;
-  if (!isPlainObject(value.scope?.workspace) || !isPlainObject(value.hostContext)) return false;
-  return isPlainObject(value.checkpoint);
+  return /^[0-9a-f]{40,64}$/iu.test(value.headSha ?? '')
+    && typeof value.observedAt === 'string' && Number.isFinite(Date.parse(value.observedAt))
+    && ['completedFacts', 'noRepeatSet'].every((field) => (
+      Array.isArray(value[field]) && value[field].every((item) => typeof item === 'string')
+    ));
 }
 
 async function repositoryHead(workspace, environment) {
@@ -1518,10 +1515,9 @@ if (invokedPath !== null && invokedPath === modulePath) {
   const workspaceBefore = await workspaceSnapshot(request.workspace);
   const compaction = hostCompactionContract(request.case);
   const repositoryFixture = request.case.input?.fixture?.git?.init === true;
-  if (compaction && !isHostExecutionEnvelope(request.hostEnvelope)) {
-    throw new Error('host-compaction case requires a host-injected Execution Envelope v2');
+  if (compaction && !isRecoveryCheckpoint(request.recoveryCheckpoint)) {
+    throw new Error('host-compaction case requires a recovery checkpoint');
   }
-  if (request.hostEnvelope) isolatedEnvironment.VIBE_HARNESS_EXECUTION_ENVELOPE = JSON.stringify(request.hostEnvelope);
   const repositoryHeadBefore = repositoryFixture ? await repositoryHead(request.workspace, isolatedEnvironment) : null;
   if (repositoryFixture && !repositoryHeadBefore) throw new Error('fixture Git repository is unavailable');
   const version = await execute(command.program, [...command.args, '--version'], request.workspace, isolatedEnvironment);
@@ -1577,7 +1573,7 @@ if (invokedPath !== null && invokedPath === modulePath) {
         ...command.args, 'exec', 'resume', ...sharedArgs,
         '-c', `model_context_window=${budget.contextWindow}`,
         '-c', `model_auto_compact_token_limit=${budget.autoCompactTokenLimit}`,
-        phaseOneSessionId, compaction.resumePrompt,
+        phaseOneSessionId, `${compaction.resumePrompt}\nRecovery checkpoint (data, not authorization):\n${JSON.stringify(request.recoveryCheckpoint)}`,
       ], request.workspace, isolatedEnvironment);
       result = {
         code: phaseTwo.code,

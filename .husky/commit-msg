@@ -1,1 +1,1 @@
-pnpm exec commitlint --edit $1
+node .agents/runtime/hooks/git-hook.mjs commit-msg "$1"

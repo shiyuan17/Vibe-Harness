@@ -5,7 +5,7 @@ description: Use when cleaning dead code, stale references, outdated docs, orpha
 
 # 过期资产清理
 
-清理死代码、过期引用、过期文档、过期资源、过期记忆和过期索引。默认只读：先产出证据化清单，只有用户显式要求清理且逐项确认后才删除。判定细则与命令映射见 [references/asset-classes.md](references/asset-classes.md)。
+清理死代码、过期引用、过期文档、过期资源、过期记忆和过期索引。默认只读：先产出证据化清单，只有用户显式批准确定清单后才删除；批量批准覆盖清单内各项，不逐项重复询问。判定细则与命令映射见 [references/asset-classes.md](references/asset-classes.md)。
 
 ## 执行
 
@@ -16,7 +16,7 @@ description: Use when cleaning dead code, stale references, outdated docs, orpha
 ## 边界
 
 - 默认不删除、不移动、不改写任何文件；扫描是只读的，`audit --kind cleanup` 拒绝 `--write`。
-- 清理必须在用户显式要求后逐项确认；每次删除前说明目标、依据、影响和恢复方式，优先使用可恢复方式（Git 可恢复状态或 `.vibe-harness/backups/`）。
+- 清单说明每项的目标、依据、影响和恢复方式；已批准清单直接执行，仅新增、越界、归属变化或新增不可逆风险时再次确认。执行前复核事实，优先使用可恢复方式（Git 可恢复状态或 `.vibe-harness/backups/`）。
 - 不动红区文件、凭据、外部系统和其他 owner 的文件；不确定归属时只报告并请求确认。
 - 工具不可用时报告缺哪项能力并回退到仓库搜索；不得据此推断资产已过期。
 - 过期记忆的删除走显式确认的遗忘流程，本 Skill 只负责判定与报告。

@@ -58,34 +58,15 @@ async function enforcementProject(adapterId, policy, { targets, withChecks = fal
   return target;
 }
 
-test('envelopeSupport 显式报告宿主执行包络的降级状态', async () => {
-  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-envelope-'));
+test('diagnostics omit retired authorization metadata authority for every host', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-authority-'));
   try {
-    const codex = await adapterEntry('codex');
-    const gemini = await adapterEntry('gemini');
-
-    const codexReport = await inspectRuntimeHooks(codex, target);
-    assert.deepEqual(codexReport.envelopeSupport, {
-      degraded: false,
-      highRiskEnforcement: 'host-required',
-      versions: ['v1', 'v2'],
-    });
-    assert.equal(runtimeHookWarnings(codexReport).some((warning) => warning.code === 'ENVELOPE_UNSUPPORTED'), false);
-
-    // A host with no declared execution envelope gets an explicit advisory
-    // warning in every report; it never carries the blocking flag because the
-    // decision to fail closed belongs to hooks.enforcement, not to the report.
-    const geminiReport = await inspectRuntimeHooks(gemini, target);
-    assert.deepEqual(geminiReport.envelopeSupport, {
-      degraded: true,
-      highRiskEnforcement: 'unsupported',
-      versions: [],
-    });
-    for (const policy of ['advisory', 'strict']) {
-      const warnings = runtimeHookWarnings(geminiReport, { enforcementPolicy: policy });
-      const envelope = warnings.find((warning) => warning.code === 'ENVELOPE_UNSUPPORTED');
-      assert.ok(envelope, 'ENVELOPE_UNSUPPORTED under ' + policy);
-      assert.equal(envelope.blocking, undefined);
+    for (const id of ['codex', 'gemini']) {
+      const report = await inspectRuntimeHooks(await adapterEntry(id), target);
+      assert.equal(Object.hasOwn(report, 'envelopeSupport'), false);
+      assert.equal(Object.hasOwn(report.executionAuthority, 'envelopeVersions'), false);
+      assert.equal(runtimeHookWarnings(report).some((warning) => warning.code === 'ENVELOPE_UNSUPPORTED'), false);
+      assert.equal(report.enforced, false);
     }
   } finally {
     await rm(target, { force: true, recursive: true });
@@ -133,7 +114,7 @@ test('HOOK_ACTIVATION_UNSUPPORTED 按宿主归因已落盘的 Hook 文件', asyn
   }
 });
 
-test('strict 策略把未证明的 Hook 执行从提示升级为阻断', async () => {
+test('strict 区分宿主未知与已知禁用或自检失败', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-strict-warning-'));
   try {
     const codex = await adapterEntry('codex');
@@ -163,16 +144,21 @@ test('strict 策略把未证明的 Hook 执行从提示升级为阻断', async (
     const strict = runtimeHookWarnings(unverified, { enforcementPolicy: 'strict' })
       .find((warning) => warning.code === 'HOOK_ENFORCEMENT_UNVERIFIED');
     assert.ok(strict);
-    assert.equal(strict.blocking, true);
-    assert.match(strict.message, /--allow-degraded/u);
-    assert.equal(blockingHookWarning(runtimeHookWarnings(unverified, { enforcementPolicy: 'strict' })).code, 'HOOK_ENFORCEMENT_UNVERIFIED');
+    assert.equal(strict.blocking, undefined);
+    assert.equal(blockingHookWarning(runtimeHookWarnings(unverified, { enforcementPolicy: 'strict' })), null);
+    for (const [state, code] of [
+      [{ ...unverified, activation: { status: 'trusted-disabled', verification: 'disabled' } }, 'HOOK_DISABLED'],
+      [{ ...unverified, selfCheck: { status: 'degraded' } }, 'HOOK_SELF_CHECK_DEGRADED'],
+    ]) {
+      assert.equal(blockingHookWarning(runtimeHookWarnings(state, { enforcementPolicy: 'strict' })).code, code);
+      assert.equal(blockingHookWarning(runtimeHookWarnings(state)), null);
+    }
 
     // Proven enforcement silences the warning even under strict.
     const enforced = await inspectRuntimeHooks(codex, target, {
       hostEvidence: {
         activated: true,
         approval: true,
-        envelopeRequired: true,
         network: true,
         process: true,
         sandbox: true,
@@ -309,7 +295,7 @@ test('CLI gemini strict 预演报告拒绝清单并以 degraded 退出', async (
         const denied = report.warnings.find((warning) => warning.code === 'HIGH_RISK_WRITES_DENIED');
         assert.equal(denied.blocking, true);
         const envelope = report.warnings.find((warning) => warning.code === 'ENVELOPE_UNSUPPORTED');
-        assert.equal(envelope.blocking, undefined);
+        assert.equal(envelope, undefined);
         return true;
       },
     );
@@ -382,26 +368,20 @@ test('CLI gemini 默认 advisory 全量安装保持可用（回归）', async ()
   }
 });
 
-test('CLI codex strict 写入成功但以 degraded 退出，--allow-degraded 越过', async () => {
+test('CLI codex strict 安装无需宿主证明或降级豁免', async () => {
   const target = await enforcementProject('codex', 'strict');
   try {
-    await assert.rejects(
-      execFileAsync(process.execPath, [
-        cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full',
+    const installed = await execFileAsync(process.execPath, [
+      cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full',
         '--write', '--confirm-red-zone', '--output', 'json',
-      ]),
-      (error) => {
-        assert.equal(error.code, 2);
-        const report = JSON.parse(error.stdout);
-        assert.equal(report.status, 'degraded');
-        assert.deepEqual(report.strictEnforcementRefusals, []);
-        const blocking = report.warnings.find((warning) => warning.code === 'HOOK_ENFORCEMENT_UNVERIFIED');
-        assert.equal(blocking.blocking, true);
-        assert.equal(report.runtimeHooks.envelopeSupport.degraded, false);
-        return true;
-      },
-    );
-    // The degraded exit is a status statement, not a write refusal.
+    ]);
+    const report = JSON.parse(installed.stdout);
+    assert.equal(report.status, 'ready');
+    assert.deepEqual(report.strictEnforcementRefusals, []);
+    const blocking = report.warnings.find((warning) => warning.code === 'HOOK_ENFORCEMENT_UNVERIFIED');
+    assert.equal(blocking.blocking, undefined);
+    assert.equal(report.runtimeHooks.enforced, false);
+    assert.equal(Object.hasOwn(report.runtimeHooks, 'envelopeSupport'), false);
     const hooks = await readFile(path.join(target, '.codex', 'hooks.json'), 'utf8');
     assert.equal(hooks.length > 0, true);
 
@@ -410,7 +390,7 @@ test('CLI codex strict 写入成功但以 degraded 退出，--allow-degraded 越
       '--write', '--confirm-red-zone', '--allow-degraded', '--output', 'json',
     ]);
     assert.equal(escape.exitCode ?? 0, 0);
-    assert.equal(JSON.parse(escape.stdout).status, 'degraded');
+    assert.equal(JSON.parse(escape.stdout).status, 'ready');
   } finally {
     await rm(target, { force: true, recursive: true });
   }
@@ -419,22 +399,13 @@ test('CLI codex strict 写入成功但以 degraded 退出，--allow-degraded 越
 test('CLI 混合目标 strict 不拒绝共享红区写入（owner-union 负控）', async () => {
   const target = await enforcementProject('codex', 'strict', { targets: ['codex', 'gemini'] });
   try {
-    await assert.rejects(
-      execFileAsync(process.execPath, [
-        cliPath, 'install', '--project', target, '--allow-preview',
+    const installed = await execFileAsync(process.execPath, [
+      cliPath, 'install', '--project', target, '--allow-preview',
         '--write', '--confirm-red-zone', '--output', 'json',
-      ]),
-      (error) => {
-        assert.equal(error.code, 2);
-        const report = JSON.parse(error.stdout);
-        assert.deepEqual(report.strictEnforcementRefusals, []);
-        assert.equal(report.warnings.some((warning) => warning.code === 'HIGH_RISK_WRITES_DENIED'), false);
-        return true;
-      },
-    );
-    // Gemini's hook surface was written because codex co-owns it with an
-    // enforcing envelope; the degraded exit comes from the unproven codex
-    // enforcement, not from a refusal.
+    ]);
+    const report = JSON.parse(installed.stdout);
+    assert.deepEqual(report.strictEnforcementRefusals, []);
+    assert.equal(report.warnings.some((warning) => warning.code === 'HIGH_RISK_WRITES_DENIED'), false);
     const hook = await readFile(path.join(target, '.githooks', 'pre-commit'), 'utf8');
     assert.equal(hook.length > 0, true);
   } finally {
@@ -442,36 +413,29 @@ test('CLI 混合目标 strict 不拒绝共享红区写入（owner-union 负控�
   }
 });
 
-test('CLI verify 在 strict 阻断下即使检查全绿也判 invalid', async () => {
+test('CLI verify 在 strict 宿主未知但检查全绿时仍通过', async () => {
   const target = await enforcementProject('codex', 'strict', { withChecks: true });
   try {
     await execFileAsync(process.execPath, [
       cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full',
       '--write', '--confirm-red-zone', '--allow-degraded', '--output', 'json',
     ]);
-    await assert.rejects(
-      execFileAsync(process.execPath, [
-        cliPath, 'verify', '--project', target, '--allow-manual', '--output', 'json',
-      ]),
-      (error) => {
-        assert.equal(error.code, 1);
-        const report = JSON.parse(error.stderr);
-        assert.equal(report.ok, false);
-        assert.equal(report.status, 'invalid');
-        assert.equal(report.enforcementPolicy, 'strict');
-        const blocking = report.warnings.find((warning) => warning.code === 'HOOK_ENFORCEMENT_UNVERIFIED');
-        assert.equal(blocking.blocking, true);
-        // The configured checks themselves passed; only the gate fails the run.
-        assert.equal(report.results.lint.status, 'passed');
-        return true;
-      },
-    );
+    const verified = await execFileAsync(process.execPath, [
+      cliPath, 'verify', '--project', target, '--allow-manual', '--output', 'json',
+    ]);
+    const report = JSON.parse(verified.stdout);
+    assert.equal(report.ok, true);
+    assert.equal(report.status, 'ready');
+    assert.equal(report.enforcementPolicy, 'strict');
+    const blocking = report.warnings.find((warning) => warning.code === 'HOOK_ENFORCEMENT_UNVERIFIED');
+    assert.equal(blocking.blocking, undefined);
+    assert.equal(report.results.lint.status, 'passed');
   } finally {
     await rm(target, { force: true, recursive: true });
   }
 });
 
-test('strict 阻断不制造完成收据但仍保留 Hook 验证阻断', async () => {
+test('strict 宿主未知不制造完成收据也不阻断本地验证', async () => {
   const target = await enforcementProject('codex', 'strict', { withChecks: true });
   try {
     const configPath = path.join(target, 'vibe-harness.config.json');
@@ -485,22 +449,13 @@ test('strict 阻断不制造完成收据但仍保留 Hook 验证阻断', async (
       cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'full',
       '--write', '--confirm-red-zone', '--allow-degraded', '--output', 'json',
     ]);
-    await assert.rejects(
-      execFileAsync(process.execPath, [
-        cliPath, 'verify', '--project', target, '--allow-manual', '--output', 'json',
-      ]),
-      (error) => {
-        const report = JSON.parse(error.stderr);
-        // A receipt that read `passed` while the Hook gate blocked the run would
-        // be consumed as successful delivery evidence. Verify therefore reports
-        // its own blocked status without manufacturing a separate completion
-        // receipt; the strict Hook gate remains independently blocking.
-        assert.equal(report.completion, undefined);
-        assert.equal(report.status, 'invalid');
-        assert.equal(report.enforcementPolicy, 'strict');
-        return true;
-      },
-    );
+    const verified = await execFileAsync(process.execPath, [
+      cliPath, 'verify', '--project', target, '--allow-manual', '--output', 'json',
+    ]);
+    const report = JSON.parse(verified.stdout);
+    assert.equal(report.completion, undefined);
+    assert.equal(report.status, 'ready');
+    assert.equal(report.enforcementPolicy, 'strict');
   } finally {
     await rm(target, { force: true, recursive: true });
   }

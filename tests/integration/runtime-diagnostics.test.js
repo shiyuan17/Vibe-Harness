@@ -141,15 +141,14 @@ test('runtime Hook enforcement requires independent host evidence', async () => 
 
     const unverified = await inspectRuntimeHooks(adapter, target);
     assert.equal(unverified.enforced, false);
-    assert.equal(unverified.executionAuthority.envelopeRequired, false);
-    assert.equal(unverified.executionAuthority.hostContextVerified, false);
+    assert.equal(Object.hasOwn(unverified.executionAuthority, 'envelopeRequired'), false);
+    assert.equal(Object.hasOwn(unverified.executionAuthority, 'hostContextVerified'), false);
     assert.equal(runtimeHookWarnings(unverified).some((warning) => warning.code === 'HOOK_ENFORCEMENT_UNVERIFIED'), true);
 
     const enforced = await inspectRuntimeHooks(adapter, target, {
       hostEvidence: {
         activated: true,
         approval: true,
-        envelopeRequired: true,
         network: true,
         process: true,
         sandbox: true,

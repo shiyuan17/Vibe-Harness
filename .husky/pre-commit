@@ -1,3 +1,1 @@
 node .agents/runtime/hooks/git-hook.mjs pre-commit
-git diff --cached --check
-pnpm exec lint-staged

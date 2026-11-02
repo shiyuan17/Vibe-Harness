@@ -26,7 +26,7 @@ Vibe-Harness 是跨平台、项目级的 AI coding 资产包。它使用 Node.js
 | Execution | 单 Agent 默认执行，必要时选 DAG、子 Agent 和 worktree；不强制调度。 |
 | Feedback Sensors | 测试、浏览器、Hook 诊断和 Trace 提供观察，不直接产生完成判定。 |
 | Verification | L0-L6 证据层级、quick/standard/deep 成本档与 affected/layer/full 范围分别判断，收据绑定实际检查。 |
-| Security & Sandbox | 授权、红区、Execution Envelope 与宿主沙箱贯穿所有操作；文件存在不证明宿主执行生效。 |
+| Security & Sandbox | 用户授权、红区及独立安全检查与宿主沙箱贯穿所有操作；文件存在不证明宿主执行生效。 |
 | Eval & Metrics | 契约 replay、确定性运行时行为及在线 Harness Evals 各守其证明边界；改善要同条件对比。 |
 | Learning & GC | 确认失败经责任归属、候选评审、修复、验证和后续回查；GC 只给人工复核候选。 |
 

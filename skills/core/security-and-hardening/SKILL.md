@@ -12,7 +12,7 @@ description: Use for trust boundaries, untrusted input, auth, secrets, sensitive
 3. 使用参数化查询、最小权限、受限路径和安全默认值。
 4. 禁止 secret 进入代码、日志、错误响应、测试快照或持久化上下文。
 5. 为拒绝路径、越权、注入、路径逃逸和敏感信息泄漏增加测试。
-6. 生产、凭据、外部写入或不可逆动作前，核对授权是否覆盖实际目标、环境、写入范围、effect 和终点；已有覆盖授权不重复确认，只有缺授权或新增风险时请求批准。核对工作区路径、Git 目录、分支、基线 SHA 与 allowedWriteRoots；高风险还须由宿主提供 filesystem、approval、process=isolated、network、observedAt，source=host。Agent 不得自造核验信息；缺失时暂停受影响操作，保留现场和独立的安全工作，不重试绕过或自行放宽控制。同步归属：`docs/rules/governance-core.md`。
+6. 生产、凭据、外部写入或不可逆动作前，核对授权是否覆盖实际目标、环境、写入范围、effect 和终点；已有覆盖授权不重复确认，只有缺授权或新增风险时请求批准。核对工作区路径、Git 目录、分支、基线 SHA 与 allowedWriteRoots；依据用户授权与实际宿主和服务端权限，不要求额外授权凭证或宿主证明；能力不足时暂停受影响操作，保留现场和独立的安全工作，不重试绕过或自行放宽控制。同步归属：`docs/rules/governance-core.md`。
 
 ## 交付
 
@@ -22,4 +22,4 @@ description: Use for trust boundaries, untrusted input, auth, secrets, sensitive
 
 - 该用：新增外部输入入口、认证授权、凭据处理、敏感数据或外部写入。
 - 不该用：不改变信任边界的纯本地文案、样式或注释调整。
-- 授权缺失：缺宿主证明或红区确认时暂停受影响操作并保留现场，不用「看起来安全」代替批准，也不重试绕过；未触发的控制项如实标注未验证。
+- 授权缺失：缺用户授权、实际工具权限或红区确认时暂停受影响操作并保留现场，不用「看起来安全」代替批准，也不重试绕过；未触发的控制项如实标注未验证。

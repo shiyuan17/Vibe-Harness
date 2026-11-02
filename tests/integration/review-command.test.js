@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { reviewReport } from '../../runtime/lib/review-command.mjs';
-import { classifyExecutionEffects } from '../../runtime/hooks/lib/execution-envelope.mjs';
+import { classifyExecutionEffects } from '../../runtime/hooks/lib/execution-effects.mjs';
 
 const args = { _: ['review', 'ocr'], task: ['SID-615'], target: 'https://model.example/v1' };
 
@@ -13,7 +13,8 @@ test('review CLI preflight never starts OCR or emits credentials', async () => {
     return { status: 'ready', env: { OCR_LLM_URL: 'https://model.example/v1/chat/completions', OCR_LLM_TOKEN: 'private-token' } };
   };
   const valid = await reviewReport(args, { resolveEndpoint: ready });
-  assert.equal(valid.code, 'HOST_BROKER_REQUIRED');
+  assert.equal(valid.code, 'OCR_PREFLIGHT_READY');
+  assert.equal(valid.executed, false);
   assert.equal(calls, 1);
   assert.equal(JSON.stringify(valid).includes('private-token'), false);
   assert.equal((await reviewReport({ ...args, target: 'http://model.example/v1' }, { resolveEndpoint: ready })).code, 'OCR_TARGET_INVALID');

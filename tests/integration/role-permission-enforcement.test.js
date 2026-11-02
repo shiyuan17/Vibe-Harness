@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { EXECUTION_ENVELOPE_SCHEMA } from '../../runtime/hooks/lib/execution-envelope.mjs';
 
 const hookCliPath = path.resolve('runtime/hooks/codex-hook.mjs');
 
@@ -65,7 +64,7 @@ function input(cwd, overrides = {}) {
 
 function executionEnvelope(overrides = {}) {
   return {
-    schema: EXECUTION_ENVELOPE_SCHEMA,
+    schema: 'vibe-harness.execution-envelope/v1',
     sessionId: 'session',
     requestId: 'request-1',
     mode: 'execute',

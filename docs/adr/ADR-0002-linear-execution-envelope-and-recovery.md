@@ -14,6 +14,8 @@ superseded-by: null
 
 # Linear execution envelope, recovery, and delivery boundary
 
+> 2026-10-30 更新：本文的 Execution Envelope 授权决策已退役；当前执行合同以 [治理规则](../rules/governance-core.md) 和 [Hook 迁移说明](../hooks.md) 为准。以下正文保留历史证据。
+
 ## Context and Problem Statement
 
 ADR-0001 defines explicit initiation, execution identity, and native Linear DAG semantics. Those controls are insufficient if a session can broaden effects after a synchronization request, recover an obsolete objective after context compaction, overwrite live state with an old plan, repeatedly traverse an unchanged DAG, or create a change request against an unintended base.

@@ -18,8 +18,7 @@ export const supportedCodexHookEvents = new Set([
 
 // A profile may suppress ordinary policy friction, never the boundaries that
 // protect credentials, the project boundary, the control plane, destructive
-// Git, global Agent configuration, frozen acceptance assets, the Execution
-// Envelope, or an acting role's permission ceiling. Codes not listed here are
+// Git, global Agent configuration, frozen acceptance assets, and role permissions. Codes not listed here are
 // ordinary policy risks: they can be downgraded to warnings or telemetry by
 // mode/profile, but a hard boundary always stays a deny.
 export const HARD_BOUNDARY_REASON_CODES = Object.freeze(new Set([
@@ -33,8 +32,6 @@ export const HARD_BOUNDARY_REASON_CODES = Object.freeze(new Set([
   'FROZEN_TEST_WRITE',
   'FROZEN_TEST_WRITE_TARGET_UNKNOWN',
   'FROZEN_TEST_STATE_UNAVAILABLE',
-  'EXECUTION_ENVELOPE',
-  'EXECUTION_ENVELOPE_REQUIRED',
 ]));
 
 export function isHardBoundaryReason(reasonCode) {
@@ -110,8 +107,6 @@ export function normalizeCodexHookInput(value) {
     toolInput: value.tool_input,
     toolName: value.tool_name,
   };
-  if (Object.hasOwn(value, 'execution_envelope')) normalized.executionEnvelope = value.execution_envelope;
-  else if (Object.hasOwn(value, 'executionEnvelope')) normalized.executionEnvelope = value.executionEnvelope;
   return normalized;
 }
 
@@ -148,8 +143,6 @@ export function normalizeHostHookInput(value, { expectedEvent, fallbackCwd, host
       toolInput: value.toolCall?.args ?? {},
       toolName: value.toolCall?.name ?? '',
     };
-    if (Object.hasOwn(value, 'execution_envelope')) normalized.executionEnvelope = value.execution_envelope;
-    else if (Object.hasOwn(value, 'executionEnvelope')) normalized.executionEnvelope = value.executionEnvelope;
     return normalized;
   }
   if (!['cursor', 'qoder', 'zcode', 'claude'].includes(host)) throw new Error(`Unsupported hook host: ${String(host)}`);
@@ -169,8 +162,6 @@ export function normalizeHostHookInput(value, { expectedEvent, fallbackCwd, host
     toolInput: typeof toolInput === 'string' ? { command: toolInput } : toolInput,
     toolName: value.tool_name ?? value.toolName ?? value.tool?.name ?? value.name ?? '',
   };
-  if (Object.hasOwn(value, 'execution_envelope')) normalized.executionEnvelope = value.execution_envelope;
-  else if (Object.hasOwn(value, 'executionEnvelope')) normalized.executionEnvelope = value.executionEnvelope;
   return normalized;
 }
 
@@ -522,7 +513,7 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
   // targets alone decide the write-path verdicts below.
   const isPatchTool = patchToolPattern.test(input.toolName ?? '');
   if (!isPatchTool && hasUnsafeShellConstruct(command)) {
-    return risk('deny', 'UNSAFE_SHELL_CONSTRUCT', '命令包含命令替换或续行符，无法安全判定，已拒绝。请改写为不含美元符号加圆括号、反引号或不换行的等价写法；确需执行时请由宿主注入 Execution Envelope。');
+    return risk('deny', 'UNSAFE_SHELL_CONSTRUCT', '命令包含命令替换或续行符，无法安全判定，已拒绝。请改写为不含美元符号加圆括号、反引号或不换行的等价写法。');
   }
   const segments = isPatchTool ? [] : shellSegments(command);
   if (segments.some((segment) => gitCommandRisk(segment))) {
@@ -604,7 +595,7 @@ function classifyRisk(input, projectRoot, allowedWriteRoots, allowedEgressHosts 
   // At this point the request is a write attempt (write tool or shell write
   // target), so the role permission ceiling applies. Read-only presets deny
   // every write attempt; executable presets deny direct file-write tools but
-  // keep shell writes on the Execution Envelope path so validation commands
+  // allow validation commands under host-native permissions so they
   // still work (mirrors role-projection sandbox/permission semantics).
   const presetTier = rolePresetTier(permissionPreset);
   if (presetTier === 'read-only') {

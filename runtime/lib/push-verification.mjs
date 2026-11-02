@@ -6,6 +6,7 @@ import { runGit } from './cli-runtime.mjs';
 import { resourceFingerprintInput } from './verification-inputs.mjs';
 import { gitFingerprint } from './git-fingerprint.mjs';
 import { authenticatePushRecord, readAuthenticatedPushRecord, verificationCacheContext } from './verification-receipt.mjs';
+import { configuredChecks } from './verification-plan-support.mjs';
 
 const hash = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const transport = new Set(['VIBE_HARNESS_PUSH_PROOF', 'VIBE_HARNESS_MANAGED_PUSH', 'VIBE_HARNESS_VERIFICATION_ID',
@@ -29,6 +30,18 @@ async function layout(projectDir) {
   mkdirSync(store, { recursive: true });
   if (lstatSync(store).isSymbolicLink()) throw new Error('push proof store must not be a link');
   return { directory, store, identity: hash(directory) };
+}
+
+/** Check proof-store/signing capability before paying for candidate tests. */
+export async function preparePushVerification(projectDir) {
+  try {
+    const store = await layout(projectDir);
+    const signed = await authenticatePushRecord({ schemaVersion: 1, kind: 'push-readiness',
+      repository: store.identity, nonce: randomUUID() });
+    return signed ? { ok: true } : { ok: false, code: 'PUSH_PROOF_UNAVAILABLE' };
+  } catch {
+    return { ok: false, code: 'PUSH_PROOF_UNAVAILABLE' };
+  }
 }
 
 /** Freeze the actual branch creation point, using the existing authenticated store. */
@@ -99,7 +112,8 @@ export async function createPushVerification(projectDir, state, verification) {
     || verification.verification?.snapshotComparison !== 'match'
     || !verification.selectedChecks?.length) return null;
   const checks = verification.selectedChecks.map((id) => ({ id, ...verification.checks[id] }));
-  if (checks.some((check) => !['passed', 'reused'].includes(check.status))) return null;
+  const applicable = checks.filter((check) => check.status !== 'not_selected');
+  if (!applicable.length || applicable.some((check) => !['passed', 'reused'].includes(check.status))) return null;
   try {
     const store = await layout(projectDir);
     const { values: currentInputs, verificationEnvironmentFingerprint } = await inputs(state.candidate, checks);
@@ -108,12 +122,26 @@ export async function createPushVerification(projectDir, state, verification) {
       || currentInputs.executionFingerprint !== verification.verification.executionFingerprint
       || verificationEnvironmentFingerprint !== verification.verification.environmentFingerprint) return null;
     const config = JSON.parse(readFileSync(path.join(state.candidate, 'vibe-harness.config.json'), 'utf8'));
-    const declarations = config.validationCommands?.checks ?? [];
+    // Consume the effective, deduplicated policy, not just the first raw
+    // declaration: a fresh-only alias must also restrict push evidence.
+    const configured = configuredChecks(config, state.candidate);
+    if (configured.error) return null;
+    const declarations = Object.values(configured.definitions ?? {});
     const record = { schemaVersion: 1, id: randomUUID(), kind: 'push-verification',
       repository: store.identity, candidate: realpathSync(state.candidate), batchId: state.id,
       checks: checks.map(({ id, command, cwd }) => ({ id, command, cwd: cwd ?? '.' })),
+      skippedChecks: checks.filter((check) => check.status === 'not_selected')
+        .map(({ id, reason }) => ({ id, status: 'not_selected', reason })),
+      transaction: state.id && state.baseHead && state.target ? {
+        batchId: state.id, baseHead: state.baseHead, targetRef: `refs/heads/${state.target}`,
+      } : null,
+      transactionConsumable: config.verification?.reuse?.enabled !== false
+        && applicable.every((check) => declarations.some((item) => item.id === check.id
+          && item.command === check.command && (item.evidenceScope === 'transaction'
+            || item.deterministic === true && item.evidenceScope !== 'fresh'))),
       reusable: config.verification?.reuse?.enabled !== false
-        && checks.every((check) => declarations.some((item) => item.id === check.id && item.deterministic === true)),
+        && applicable.every((check) => declarations.some((item) => item.id === check.id
+          && item.deterministic === true && item.evidenceScope !== 'fresh')),
       verificationId: verification.verification.id, ...currentInputs,
       createdAt: new Date().toISOString() };
     const signed = await authenticatePushRecord(record);
@@ -125,11 +153,21 @@ export async function createPushVerification(projectDir, state, verification) {
 }
 
 /** Bind a fresh attempt to an exact endpoint/ref, without rerunning tests. */
-export async function preparePushAttempt(projectDir, proofId, endpoint, { fresh = false } = {}) {
+export async function preparePushAttempt(projectDir, proofId, endpoint, { fresh = false, transaction = null } = {}) {
   try {
     const proof = await inspectPushVerification(projectDir, proofId);
     if (!proof.ok) return proof;
-    if (!fresh && !proof.record.reusable) return { ok: false, code: 'PUSH_PROOF_NOT_REUSABLE' };
+    const sameTransaction = transaction && proof.record.transaction
+      && transaction.batchId === proof.record.transaction.batchId
+      && transaction.baseHead === proof.record.transaction.baseHead
+      && endpoint.ref === proof.record.transaction.targetRef;
+    if (transaction && proof.record.transaction && !sameTransaction) {
+      return { ok: false, code: 'PUSH_PROOF_TRANSACTION_MISMATCH' };
+    }
+    if (!fresh && !proof.record.reusable
+      && !(sameTransaction && proof.record.transactionConsumable === true)) {
+      return { ok: false, code: 'PUSH_PROOF_NOT_REUSABLE' };
+    }
     const store = await layout(projectDir);
     const attempt = { ...proof.record, id: randomUUID(), kind: 'push-attempt',
       endpointFingerprint: hash(endpoint.url), ref: endpoint.ref, proofId,

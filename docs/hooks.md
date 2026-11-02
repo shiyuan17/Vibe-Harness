@@ -27,7 +27,7 @@ manifest 的 `hookEvents` 与 `hookActivation` 是事件能力的单一事实源
 
 ## 判定分级
 
-只读与无副作用判定由 runtime/hooks/lib/read-only-commands.mjs 单点提供，policy.mjs 与 execution-envelope.mjs 共同引用，不再各自维护词表。判定按「可执行名 + 子命令动词」两级进行，不要求整段命中：
+只读与无副作用判定由 runtime/hooks/lib/read-only-commands.mjs 单点提供，policy.mjs 与 execution-effects.mjs 共同引用。分类用于独立安全规则，不充当授权凭证。判定按「可执行名 + 子命令动词」两级进行：
 
 | 类别 | 判定 | 出口 |
 | --- | --- | --- |
@@ -36,16 +36,16 @@ manifest 的 `hookEvents` 与 `hookActivation` 是事件能力的单一事实源
 | Git 只读与同步命令（`git fetch`、`git ls-remote`、`git stash list`、`git submodule status`、`git pull --ff-only`） | 无副作用（`pull --ff-only` 额外要求跟踪工作区干净） | 允许；脏工作区 `pull --ff-only` 以 `VIBE_HARNESS_SYNC_DIRTY_TREE` 拒绝，裸 `git pull` 判为 `workspaceWrite` |
 | 解释器与工具链（node、python、pytest、go、cargo、dotnet、mvn、gradle、make、cmake、bundle、php 等） | workspaceWrite、standard | 允许，与既有 Node 工具链一致 |
 | 本地宿主函数工具（view_image、update_plan、agent、spawn_agent、task、read_file，以及 read_thread、read_thread_terminal、list_threads、list_archived_threads、wait_threads、list_agents、list_projects、get_goal、get_handoff_status） | 无副作用 | 允许 |
-| 写类子命令（delete、remove、apply、destroy、create 等）与未分类命令 | 高风险或无法判定 | 需要 Execution Envelope，否则拒绝 |
+| 写类子命令（delete、remove、apply、destroy、create 等）与未分类命令 | 高风险或无法判定 | 执行可识别的独立安全规则；不因未知分类本身拒绝，也不标为已验证只读；只读角色仍拒绝 |
 | 危险 Git、全局 Agent 配置写入、凭据外传、红区上传、项目边界外写入、控制面直写、冻结测试资产写入 | 明确禁止 | 直接拒绝 |
 
-Shell 分段与读写谓词同样来自该模块，因此同一条命令在策略层与 Envelope 层的只读结论一致。`git pull --ff-only` 只能在跟踪工作区干净时放行：分类器只报告「需要干净工作区」这一事实，Hook 在用一次只读的 `git status --porcelain --untracked-files=no` 确认后才返回允许；未跟踪文件不计入（不会被 fast-forward 触碰），脏工作区以 `VIBE_HARNESS_SYNC_DIRTY_TREE` 拒绝，状态不可读时以 `VIBE_HARNESS_SYNC_STATE_UNAVAILABLE` 拒绝。`git pull` 的其他形式（含 `--rebase`）会写工作区，仍按 `workspaceWrite` 走 Execution Envelope。apply_patch 的载荷是文件内容而非 shell 命令，只按补丁目标路径判定写入范围，不做命令替换、重定向或续行检查。
+Shell 分段与读写谓词同样来自该模块。`git pull --ff-only` 由 Hook 读取跟踪工作区状态：脏工作区以 `VIBE_HARNESS_SYNC_DIRTY_TREE` 拒绝，状态不可读以 `VIBE_HARNESS_SYNC_STATE_UNAVAILABLE` 拒绝；未跟踪文件仍受 Git 自身的覆盖保护。其他 pull 形式按实际写入语义执行独立检查。apply_patch 的载荷按补丁目标路径判定，不把文件内容当作 shell 命令。
 
-本地宿主函数工具是一份显式名单：它们不触碰工作区，但名字里没有可推断的读动词（<code>update_plan</code> 是宿主本地清单，<code>view_image</code> 返回像素），未列名时会落到「无法判定」并要求 Execution Envelope。会改动宿主状态的工具不进这份名单——<code>write_stdin</code>、<code>create_thread</code>、<code>fork_thread</code>、<code>automation_update</code>、<code>handoff_thread</code>、<code>set_thread_*</code>、<code>send_message_to_thread</code>、<code>followup_task</code> 以及一切未列名的工具仍走 Envelope 路径（无 Envelope 即拒绝）。相对上一轮，<code>update_plan</code>、<code>view_image</code> 与 <code>Agent</code> 由「不判定」变为「放行」，<code>write_stdin</code>、<code>create_thread</code> 与 <code>automation_update</code> 由「不判定」变为「拒绝」。
+本地宿主工具的显式名单仅描述已知分类。未列名或会改变宿主状态的工具不自动获得只读身份；仍按用户请求、宿主实际权限和角色上限行动，不要求额外项目级授权凭证。
 
-MCP 工具先按「服务器 + 工具名」查显式合同表。外部 codebase-memory-mcp 的已知只读查询直接放行；index_repository、ingest_traces 等索引写入以及 manage_adr 等项目写入按 workspaceWrite 要求 Execution Envelope；delete_project 属高风险删除。该服务器未登记的工具不按读动词猜测，也不整体放行；工具版本、安装与索引生命周期由用户或宿主管理。其他服务器仍沿用通用动词分类，写入、执行或无法判定的调用进入既有 Execution Envelope 路径。
+MCP 工具先按「服务器 + 工具名」查合同表。codebase-memory-mcp 的已知只读查询与索引写入、项目写入、删除分别分类；未登记工具不猜测为只读。工具版本、安装与索引生命周期由用户或宿主管理。其他服务器沿用通用动词分类，所有调用继续执行可识别的独立安全规则。
 
-拒绝输出保留稳定的英文 reasonCode（机器契约），message 使用中文并给出最小可行动作，并区分「不可判定，需要 Execution Envelope」与「明确禁止」两类。
+拒绝输出保留稳定的英文 reasonCode（机器契约），message 使用中文并给出最小可行动作。普通提交支持消息文件、signoff、签名和经仓库身份核验的 `git -C`；普通当前分支同步可继续，高风险合并需通过宿主确认字段或用户确认环境标记；历史改写、绕过 Hook、跨仓目录与未知推送目标仍拒绝。
 
 项目内的 .codex、.claude、.cursor、.gemini 目录不是全局 Agent 配置；只有位于家目录之下、紧跟家目录的配置目录才命中全局配置规则，读取这些目录不视为写入。宿主管理的 worktree 物化在家目录下的 `.codex/worktrees/<worktree>/<repo>`，该子树是检出而不是配置：以它为会话根时按该检出的项目边界、控制面与红区规则判定写入；豁免只覆盖字面量 `worktrees` 段，`~/.codex/config.toml`、`~/.codex/hooks.json`、`~/.codex/skills/**` 等仍命中全局配置规则，主检出会话跨根写该 worktree 仍按项目边界拒绝。
 
@@ -65,7 +65,7 @@ Gemini 与 OpenCode 的 Hook 机制不被支持（`hookActivation: unsupported`�
 
 1. 从宿主 session 的当前工作目录逐级向上查找首个含 <code>.git</code> 的目录（目录或文件均可，因此 worktree 与 submodule 各自解析到自己的检出）。
 2. 从该根定位 <code>.agents/runtime/hooks/codex-hook.mjs</code>。
-3. 使用 <code>process.execPath</code> 启动受管 Hook，并透传 stdin、stdout、stderr 和 Hook 参数；环境只传固定白名单（PATH、PATHEXT、SystemRoot、SystemDrive、TEMP、TMP、HOME、USERPROFILE、CODEX_HOME、两个 <code>VIBE_HARNESS_EXECUTION_ENVELOPE</code> 开关）加解析出的 <code>VIBE_HARNESS_GIT_ROOT</code>，不透传宿主整份环境。
+3. 使用 <code>process.execPath</code> 启动受管 Hook，并透传 stdin、stdout、stderr 和 Hook 参数；环境只传固定白名单（PATH、PATHEXT、SystemRoot、SystemDrive、TEMP、TMP、HOME、USERPROFILE、CODEX_HOME、<code>VIBE_HARNESS_PERMISSION_PRESET</code>）加解析出的 <code>VIBE_HARNESS_GIT_ROOT</code>，不透传宿主整份环境。
 4. 找不到项目根、受管入口、子进程启动失败或超过 8 秒引导预算时，改用宿主 deny 契约阻断（见下节）。
 
 该入口不调用 <code>git</code>、不使用 shell command substitution，因此也不依赖 PATH 上的 git。它可从仓库根、多级子目录和 Git worktree 启动，并始终命中当前 worktree 的受管 Hook。
@@ -96,18 +96,18 @@ Codex 的 Hook trust 是宿主状态，不能从项目文件推断。doctor 只�
 
 ## 跨宿主 fail-closed（hooks.enforcement）
 
-`hooks.enforcement` 配置只取 `advisory`（默认，向后兼容）或 `strict`。它不改变 Hook 运行时的判定，只改变安装与诊断命令在「执行能力无法证明」时的结论；配置值由 schemas/project-config.schema.json 校验。
+`hooks.enforcement` 只取 `advisory`（默认）或 `strict`，由 schemas/project-config.schema.json 校验。它不改变 Hook 的独立安全判定。
 
-报告的 `runtimeHooks.envelopeSupport` 逐宿主给出高风险执行包络事实（`degraded`、`highRiskEnforcement`、`versions`）。声明 `envelopeVersions` 为空且 `highRiskEnforcement` 为 `unsupported` 的宿主，在任何模式下都附带 ENVELOPE_UNSUPPORTED 警告；该警告永远不阻断——「是否因此拒绝」是策略决定，不是事实陈述。
+`runtimeHooks.enforced` 只表示项目 Hook 已安装、观测到激活且自检通过；宿主 sandbox、approval、process、network 能力分别报告。配置存在不证明任何宿主权限已经生效。
 
-advisory 保持既有行为：HOOK_ENFORCEMENT_UNVERIFIED 只是提示（Hook 策略是纵深防御），安装与验证命令照常给出 ready；不含执行包络的宿主照常可装可验。
+`HOOK_ENFORCEMENT_UNVERIFIED` 在两种模式中都只是事实提示，不要求宿主证明、人工重载或降级豁免，不把通过的本地检查改判失败。
 
-strict 把两类「声明 ≠ 执行」的缺口转为硬结论：
+strict 保留两类已知安全缺口的阻断：
 
-1. **未证明的 Hook 执行**：已安装 Hook 但 `enforced` 无法证明时，HOOK_ENFORCEMENT_UNVERIFIED 升级为阻断警告。`install`、`validate`、`doctor` 的状态从 ready 降为 degraded（exit 2），可用 `--allow-degraded` 显式越过（报告仍标注 degraded）；`verify` 没有 degraded 词汇，配置的检查全绿也判 invalid（exit 1）。宿主证据（激活、Envelope enforcement、sandbox、approval、process、network）齐备时该警告消失。
-2. **红区写入拒绝**：strict 下的真实写入，若某个红区目标的所有投影宿主都未声明高风险执行包络（owner-union 判定：任一共有宿主可执行即不拒绝），安装直接拒绝且没有 bypass 旗标——配置值本身就是运维决定，救济路径只有去掉 unsupported 目标、去掉 hooks 相关模块，或改回 advisory。混合目标安装（既有可执行宿主也有 unsupported 宿主）因此不被拒绝，只按第 1 条对未证明的执行报 degraded。
+1. **已知禁用或自检失败**：`HOOK_DISABLED`、`HOOK_SELF_CHECK_DEGRADED` 为阻断警告，不把已知损坏表述为健康；这与仅缺少宿主观察不同。
+2. **不支持 Hook 的红区投影**：真实写入仍按 owner-union 核对宿主原生 Hook 支持；所有归属宿主均不支持时拒绝。共有宿主支持 Hook 时不因其他宿主未知而拒绝共享投影。
 
-一句话：advisory 如实报告「宿主没有执行包络」但不改变行为；strict 要求命令结论与执行能力一致，宁可拒绝也不给出 ready 或通过。当前没有任何宿主真实注入 hostEvidence，strict 项目的常态因此是 degraded/invalid，直到 TD-2026-09-18-1 的宿主证据通道落地。
+安装一致性、本地检查和宿主激活分别报告；ready 或 passed 不等于宿主已激活，也不等于外部系统写入成功。
 
 ## 配置与超时
 
@@ -119,7 +119,7 @@ strict 把两类「声明 ≠ 执行」的缺口转为硬结论：
 | --- | --- | --- |
 | `guarded`（默认） | 按风险等级允许、告警或拒绝 | 拒绝 |
 | `observe` | 降为 warning 或 telemetry，不阻断 | 拒绝 |
-| `off` | 不评估普通策略 | 冻结测试资产门禁、宿主注入的 Execution Envelope 与角色权限仍然生效 |
+| `off` | 不评估普通策略 | 冻结测试资产门禁、凭据保护、Git 交付检查与角色权限仍然生效 |
 
 `hooks.profile`：
 
@@ -129,34 +129,30 @@ strict 把两类「声明 ≠ 执行」的缺口转为硬结论：
 | `standard`（默认） | 普通策略按 guarded/observe 语义处理 |
 | `strict` | 即使 `mode=observe`，普通风险仍阻断 |
 
-安全硬边界包括凭据/密钥外传、项目边界外写入、明显破坏性 Git、全局 Agent 配置修改、冻结测试写入、控制面直写、Execution Envelope 违规与角色权限违规。普通非 allowlist 网络访问不是硬边界：它只在 guarded/standard 下按普通策略处理，真正的凭据外传仍由 `CREDENTIAL_EXFILTRATION` 拒绝。
+安全硬边界包括凭据/密钥外传、项目边界外写入、明显破坏性 Git、全局 Agent 配置修改、冻结测试写入、控制面直写与角色权限违规。普通非 allowlist 网络访问不是硬边界：它只在 guarded/standard 下按普通策略处理，真正的凭据外传仍由 `CREDENTIAL_EXFILTRATION` 拒绝。
 
 每次决策向 `.git/vibe-harness/hooks/telemetry.jsonl`（worktree 通过 Git common dir 共享）追加一行记录，包含稳定 hook id、host、event、mode/profile/enforcement、action、reasonCode、`wouldBlock`、`suppressed`、耗时和错误；不记录工具参数、命令正文或敏感环境值。设置 `VIBE_HARNESS_HOOK_TELEMETRY=0` 可关闭该记录。项目配置仍不能扩大写入根，出口 allowlist 和额外 red-zone 只会收紧策略。
 
 网络出口默认允许普通依赖和 Git 操作，但始终阻止凭据引用与红区文件上传。非空 allowlist 是能力授予，不是内容安全保证。
 
 
-## Execution Envelope
+## 授权机制迁移
 
-Execution Envelope 将一次用户请求绑定到 <code>requestId</code>、<code>sessionId</code>、<code>mode</code>、目标 Issue、独立 effect 授权和终止条件。v1 公开合同位于 <code>docs/schemas/execution-envelope.schema.json</code>，新增的 v2 位于 <code>docs/schemas/execution-envelope-v2.schema.json</code>。Hook 接受宿主注入的 <code>execution_envelope</code> / <code>executionEnvelope</code>，或父进程注入的 <code>VIBE_HARNESS_EXECUTION_ENVELOPE</code>；项目文件、install-state 和 Agent 命令都不是授权根。
+Execution Envelope 已全局移除，不提供替代授权凭证或 Broker。旧请求字段、环境变量和系统兼容文件不再参与判定，也不再签发或校验；历史文件不由安装器删除。用户请求、宿主原生权限与服务端权限决定可执行范围。
 
-v1 保持原 schema 与 validator，仅作为 contract-only/degraded 兼容路径；它不能授权 hostWrite、externalWrite、dataEgress、凭据、高风险间接写入、红区或移动活动任务自身绑定的 worktree。v2 增加 riskClass、精确 workspace identity、允许写入根、外部目标、可选的 <code>scope.linear</code> team/project 目标、宿主声明的执行上下文和带 HEAD/续跑计数的 checkpoint。普通项目内低风险写入仍可使用兼容路径；高风险调用即使未设置 <code>VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED</code> 也必须提供 high-risk v2 Envelope，否则 fail-closed。效果无法安全判定的调用（`unclassified-effect`）一律以 <code>EXECUTION_ENVELOPE_UNKNOWN_EFFECT</code> 拒绝，带 high-risk v2 Envelope 也不能放行。
+Linear 建单、更新、评论、关系和删除不再要求预登记 Issue、Team 或 Project；仍需遵循用户范围、写入后确认和超时查重。未知工具不能被标为已验证只读，但不会仅因无法分类而拒绝。角色只读、红区、项目边界、凭据泄露及落盘、破坏性 Git、冻结测试与 Hook 故障检查继续生效。
 
-v2 的 <code>hostContext.source: "host"</code> 只是 JSON 声明，并不能认证来源或防重放；结构合格仅标记为 <code>host-declared</code>，高风险默认以 <code>EXECUTION_ENVELOPE_HOST_PROOF_UNVERIFIED</code> 拒绝。未来的可信宿主 Broker 仍须提供新鲜的一次性证明、进程隔离和与 effect 匹配的 filesystem、approval、network 边界，项目配置、Agent 和本仓 CLI 不得自行签发。旧版未认证 v2 只能在管理员从宿主启动 Hook 的工作区外固定配置文件显式接受风险后限时兼容，最长 30 天，到期自动拒绝；该兼容记录 requestId、判定和截止时间，不构成宿主认证，新增 dataEgress 也不适用。工作区内低风险操作不因此停用。worktree 生命周期不是跨边界效果：<code>git worktree add</code>、<code>remove</code>、<code>prune</code>、<code>list</code> 与受管入口 <code>run.mjs worktree &lt;bootstrap|land|cleanup|recover&gt;</code> 归类为工作区效果（<code>gitBranch</code>），创建和回收 worktree 不需要宿主证明。活动任务的 worktree root、git common dir、git dir、branch 和 base SHA 不可变；<code>git worktree move</code> 始终拒绝，合法提交只允许把 checkpoint HEAD 前移到已验证后代。
+不再提供原有跨边界效果、目标和会话绑定防护，不能宣称同等安全性。OCR 入口仅检查模型端点配置，成功返回 `OCR_PREFLIGHT_READY`、`executed: false`，不启动 OCR 或代表评审完成。实际外发仍受用户授权和宿主权限约束。
 
-兼容配置只从 Windows 的 <code>C:\ProgramData\Vibe-Harness\execution-envelope-compat.json</code> 或 Unix 的 <code>/etc/vibe-harness/execution-envelope-compat.json</code> 读取，格式为 <code>{"acknowledgedRisk":"unverified-v2-host-context","enabledAt":"&lt;UTC&gt;","expiresAt":"&lt;UTC&gt;"}</code>。部署者须确保路径及其父目录只允许 Administrators/SYSTEM 或 root 写入；同一 OS 身份若可改 Hook 或策略文件，这个窗口不是安全边界。不得从项目配置、Agent 参数或 Envelope 本身开启。
+升级先 dry-run，通过事务式安装器按哈希退役旧受管模块与 schema；用户改动文件保留并报告冲突。本变更以安装迁移、源码和本地测试为验收依据，不追加宿主重载或外部系统确认；未迁移的旧副本仍按冲突报告，不能表述为新机制已生效。回滚使用安装备份，不修改全局配置。
 
-OCR 模型评审是 <code>dataEgress</code> 与 <code>credentialUse</code>，不能误归为普通 workspaceWrite。仅识别固定的 <code>node .agents/runtime/commands/run.mjs review ocr --task &lt;ID&gt; --target &lt;https-url&gt;</code> 命令形态并绑定明确的模型服务目标；该入口只做配置与目标预检，无可信宿主授权时返回 <code>HOST_BROKER_REQUIRED</code>，不签发 Envelope，也不启动 OCR。任意 <code>ocr</code>、<code>node</code> 包装或未知 review 子命令不继承此授权。实际评审须由独立的只读 Reviewer 产生并绑定当前 diff 与验证收据；符合现有回执契约的宿主原生 Reviewer 是替代通道。
-
-该控制是可观察 Hook 上的纵深防御，不是常驻宿主状态服务。Vibe-Harness 当前安装器不会声称能够从最新用户消息自行生成、持久化或轮换可信 Envelope，也不会把本地状态文件当作授权根。未提供父进程强制开关、持久 checkpoint 和远程工具拦截的宿主，只获得规则、Skill、Schema 与可观察命令的检查，不能宣称完整宿主级强制。
-
-Hook 能直接绑定 Linear 写入、包含 Issue ID 的 Git 分支、提交、推送命令，以及暴露标题、source branch 或 closing 引用的 PR/MR 写入。Linear 写入按归一化后的 MCP server 段识别，因此安装器写入的 <code>linear</code>、provider 别名 <code>linear-mcp</code>/<code>linear-mcp-readonly</code> 与角色投影的 <code>vibe-harness-linear</code> 都解析为同一 provider。看不到目标 Issue 时拒绝执行；Linear 新建在 toolInput 中不会出现 Issue ID，此时由可选的 <code>scope.linear</code>（<code>teamIds</code>/<code>projectIds</code>）提供可核验的目标，未登记或目标不匹配仍 fail-closed。MR 正文中普通的非 closing 关联不会被误当成目标。任意解释器、包装脚本、远程 MCP/API、宿主外部写入和真实上下文压缩仍需宿主沙箱、凭据代理、会话存储和 provider 审计独立覆盖。
+完成口径：Envelope 已移除，Linear 不再被项目级 Envelope 阻断；真实外部系统状态不作为本变更验收项，不要求用户重试或提供外部写入证明，也不列为后续待办。验收覆盖本地实现、安装迁移、Hook 测试、Linear 模拟回归和 Eval。真实调用失败按工具返回的权限、网络或服务端错误处理，不撤销已验证的本地交付；没有成功结果不得声称 Linear 已同步。
 
 ## Security boundary and diagnostics
 
 Hooks are defense in depth, not a complete machine-security boundary. Command-string inspection cannot reliably interpret arbitrary PowerShell, Python, Node.js, package-manager, Git, subprocess, or network behavior. File-system isolation, process isolation, approval enforcement, and egress control must be provided and independently verified by the host sandbox and network proxy.
 
-<code>doctor</code> and project <code>validate</code> report <code>supported</code>, <code>configured</code>, <code>activated</code>, <code>enforced</code>, <code>envelopeSupport</code>, <code>executionAuthority</code>, and <code>coverageLimitations</code>. <code>activated</code> remains null when project files cannot prove host runtime state. <code>enforced</code> becomes true only when the host independently proves Hook activation, required Envelope enforcement, sandbox, approval, process isolation, and network control. Adapter capability support never substitutes for this per-task evidence. Legacy activation, declaredEvents, pathResolution, and selfCheck fields remain available for compatibility.
+<code>doctor</code> and project <code>validate</code> report <code>supported</code>, <code>configured</code>, <code>activated</code>, <code>enforced</code>, <code>executionAuthority</code>, and <code>coverageLimitations</code>. <code>activated</code> remains null when project files cannot prove host runtime state. <code>enforced</code> becomes true only when the managed Hook is configured, independently confirmed active, and its self-check passes. This describes project Hook enforcement only, not machine-wide isolation. Native sandbox, approval, process, and network evidence are reported separately. Adapter capability support never substitutes for this per-task evidence. Legacy activation, declaredEvents, pathResolution, and selfCheck fields remain available for compatibility.
 
 Repository configuration can lower ordinary policy friction through `hooks.mode` and `hooks.profile`, but it can never widen a write root, disable a hard safety boundary, or turn an unverifiable decision into an allow. Configured red-zone paths are added to the built-in control-plane list, and an egress allowlist narrows permitted hosts. Repository-local install state records installation history but is not an authorization root.
 

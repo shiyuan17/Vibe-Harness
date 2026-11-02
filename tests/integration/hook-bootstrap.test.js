@@ -210,6 +210,7 @@ test('Hook bootstrap passes only the allowlisted environment to the managed runt
     assert.equal(report.preset, 'read-only');
     assert.equal(await realpath(report.root), await realpath(main));
     await cp(path.join(rootDir, 'runtime/hooks'), path.join(main, '.agents/runtime/hooks'), { recursive: true });
+    await cp(path.join(rootDir, 'runtime/lib'), path.join(main, '.agents/runtime/lib'), { recursive: true });
     const event = JSON.stringify({
       cwd: main,
       hook_event_name: 'PreToolUse',

@@ -6,7 +6,8 @@ import test from 'node:test';
 
 import { evaluateCodexHook } from '../../runtime/hooks/codex-hook.mjs';
 import { DEFAULT_RED_ZONE_PATHS } from '../../runtime/hooks/lib/context.mjs';
-import { classifyExecutionEffects, evaluateExecutionEnvelope } from '../../runtime/hooks/lib/execution-envelope.mjs';
+import { classifyExecutionEffects } from '../../runtime/hooks/lib/execution-effects.mjs';
+import { evaluateExecutionSafety } from '../../runtime/hooks/lib/execution-safety.mjs';
 import { analyzeToolRequest, normalizeCodexHookInput } from '../../runtime/hooks/lib/policy.mjs';
 import { isReadOnlyShellSegment, shellSegments } from '../../runtime/hooks/lib/read-only-commands.mjs';
 
@@ -115,13 +116,13 @@ test('read-only commands are allowed end to end without an Execution Envelope', 
   });
 });
 
-test('the read-only table and the Execution Envelope agree on every segment', () => {
+test('the read-only table and the effect classifier agree on every segment', () => {
   const projectRoot = path.resolve('.');
   for (const command of SHELL_READ_ONLY_COMMANDS) {
     const normalized = request(projectRoot, { tool_input: { command } });
     const policyDecision = analyzeToolRequest(normalized, policyOptions(projectRoot));
     const classification = classifyExecutionEffects(normalized);
-    const envelopeDecision = evaluateExecutionEnvelope(normalized, { environment: {} });
+    const envelopeDecision = evaluateExecutionSafety(normalized, {});
     assert.equal(policyDecision.action, 'allow', command);
     assert.equal(envelopeDecision.action, 'allow', command);
     assert.equal(classification.readOnly, true, command);
@@ -148,7 +149,7 @@ test('interpreters and non-Node toolchains keep the standard workspace-write gra
   }
 });
 
-test('unclassified commands still require an Execution Envelope', async () => {
+test('unclassified commands use host permissions without an Envelope', async () => {
   await withProject(async (target) => {
     for (const command of [
       'ssh example.test',
@@ -165,9 +166,7 @@ test('unclassified commands still require an Execution Envelope', async () => {
       assert.equal(classification.readOnly, false, command);
       assert.equal(isReadOnlyShellSegment(command), false, command);
       const result = await evaluateCodexHook(input(target, { tool_input: { command } }));
-      assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', command);
-      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT/u, command);
-      assert.match(result.hookSpecificOutput.permissionDecisionReason, /无法安全判定/u, command);
+      assert.deepEqual(result, {});
     }
   });
 });
@@ -486,19 +485,18 @@ test('local host function tools that cannot touch the workspace are allowed with
   });
 });
 
-test('host tools that mutate host state or drive another agent still require an Execution Envelope', async () => {
+test('host tools that mutate host state or drive another agent use host permissions without an Envelope', async () => {
   await withProject(async (target) => {
     for (const toolName of ENVELOPE_HOST_TOOLS) {
       const normalized = request(target, { tool_input: {}, tool_name: toolName });
       assert.equal(classifyExecutionEffects(normalized).readOnly, false, toolName);
       const result = await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName }));
-      assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', toolName);
-      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT|HOST_AUTHORIZATION_REQUIRED/u, toolName);
+      assert.deepEqual(result, {});
     }
   });
 });
 
-test('read-only MCP tools pass while write-class MCP tools still need an Envelope', async () => {
+test('read-only MCP tools pass while write-class MCP tools use host permissions', async () => {
   await withProject(async (target) => {
     const reads = [
       'mcp__codebase_memory_mcp__index_status',
@@ -515,8 +513,7 @@ test('read-only MCP tools pass while write-class MCP tools still need an Envelop
     // path instead of being denied by a hard-coded read-word list.
     for (const toolName of ['mcp__codebase_memory_mcp__write', 'mcp__codex_app__create_thread']) {
       const unclassified = await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName }));
-      assert.equal(unclassified.hookSpecificOutput.permissionDecision, 'deny', toolName);
-      assert.match(unclassified.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT/u, toolName);
+      assert.deepEqual(unclassified, {});
     }
 
     // A write with a known effect still needs an Envelope when the project
@@ -529,8 +526,7 @@ test('read-only MCP tools pass while write-class MCP tools still need an Envelop
       const result = await evaluateCodexHook(input(target, { tool_input: toolInput, tool_name: toolName }), { environment });
       if (toolName === 'mcp__filesystem__write_file') assert.deepEqual(result, {}, toolName);
       else {
-        assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', toolName);
-        assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_MISSING/u, toolName);
+        assert.deepEqual(result, {});
       }
     }
   });
@@ -576,8 +572,7 @@ test('codebase-memory 工具面按显式契约判定，不按动词猜测', asyn
         input(target, { tool_input: { project: 'fixture' }, tool_name: 'mcp__codebase-memory-mcp__delete_project' }),
         environment ? { environment } : undefined,
       );
-      assert.equal(deleted.hookSpecificOutput.permissionDecision, 'deny');
-      assert.match(deleted.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT|HOST_AUTHORIZATION_REQUIRED/u);
+      assert.deepEqual(deleted, {});
     }
   });
 });
@@ -611,13 +606,12 @@ test('未登记语义服务的只读动词放行，写入与执行保持门禁',
       const toolName = `mcp__semantic_fixture__${tool}`;
       assert.equal(classifyExecutionEffects(request(target, { tool_input: {}, tool_name: toolName })).unknown, true, toolName);
       const result = await evaluateCodexHook(input(target, { tool_input: {}, tool_name: toolName }));
-      assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', toolName);
-      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT/u, toolName);
+      assert.deepEqual(result, {});
     }
   });
 });
 
-test('fd 默认放行，exec 旗标保持 Envelope 门禁', async () => {
+test('fd 默认放行，exec 旗标保持效果分类', async () => {
   await withProject(async (target) => {
     const readOnly = [
       'fd "\\.md$" docs',
@@ -633,13 +627,12 @@ test('fd 默认放行，exec 旗标保持 Envelope 门禁', async () => {
     for (const command of ['fd -x ls', 'fd --exec-batch rg pattern']) {
       assert.equal(isReadOnlyShellSegment(command), false, command);
       const result = await evaluateCodexHook(input(target, { tool_input: { command } }));
-      assert.equal(result.hookSpecificOutput.permissionDecision, 'deny', command);
-      assert.match(result.hookSpecificOutput.permissionDecisionReason, /EXECUTION_ENVELOPE_UNKNOWN_EFFECT/u, command);
+      assert.deepEqual(result, {});
     }
   });
 });
 
-test('CodeGraph 精确只读工具可查询，未知同服务工具仍拒绝', async () => {
+test('CodeGraph 精确只读工具可查询，未知同服务工具保持未知分类', async () => {
   await withProject(async (target) => {
     for (const server of ['codegraph', 'vibe-harness-codegraph']) {
       const normalized = request(target, {
@@ -647,12 +640,44 @@ test('CodeGraph 精确只读工具可查询，未知同服务工具仍拒绝', a
         tool_input: { query: 'fixture', projectPath: target },
       });
       assert.equal(classifyExecutionEffects(normalized).readOnly, true);
-      assert.equal(evaluateExecutionEnvelope(normalized, { environment: {} }).action, 'allow');
+      assert.equal(evaluateExecutionSafety(normalized, {}).action, 'allow');
       const unknown = request(target, { tool_name: `mcp__${server}__get_and_execute`, tool_input: {} });
       assert.equal(classifyExecutionEffects(unknown).unknown, true);
-      assert.equal(evaluateExecutionEnvelope(unknown, { environment: {} }).action, 'deny');
+      assert.equal(evaluateExecutionSafety(unknown).action, 'allow');
     }
   });
+});
+
+test('Codex 会话只读能力和 patch dry-run 精确登记，不开放同服务写入', () => {
+  for (const operation of ['read_thread', 'wait_threads', 'list_threads', 'list_artifacts']) {
+    assert.equal(classifyExecutionEffects({ toolName: `mcp__codex_app__${operation}`, toolInput: {}, cwd: process.cwd() }).readOnly, true);
+  }
+  for (const operation of ['create_thread', 'send_message_to_thread', 'get_and_execute']) {
+    assert.equal(classifyExecutionEffects({ toolName: `mcp__codex_app__${operation}`, toolInput: {}, cwd: process.cwd() }).readOnly, false);
+  }
+  assert.equal(isReadOnlyShellSegment('git apply --check change.patch'), true);
+  for (const command of ['git -C C:/fixture apply --check change.patch', 'git -C "C:/a b" status --short']) {
+    assert.equal(isReadOnlyShellSegment(command), true);
+    assert.equal(classifyExecutionEffects(request(process.cwd(), { tool_input: { command } })).readOnly, true);
+  }
+  for (const command of ['git apply change.patch', 'git apply --check --apply change.patch', 'git apply --index change.patch',
+    'git -C C:/fixture apply --check --apply change.patch', 'git -C C:/fixture apply --index change.patch',
+    'git -c core.hooksPath=unsafe apply --check change.patch', 'git -C C:/fixture commit -m change']) {
+    assert.equal(isReadOnlyShellSegment(command), false);
+  }
+});
+
+test('普通同步合并放行，高风险合并要求用户确认', () => {
+  const input = (command, extra = {}) => ({
+    cwd: process.cwd(),
+    toolName: 'Bash',
+    toolInput: { command, ...extra },
+  });
+  assert.equal(evaluateExecutionSafety(input('git merge origin/develop')).action, 'allow');
+  assert.equal(evaluateExecutionSafety(input('git merge feat/other')).reasonCode, 'HIGH_RISK_MERGE_CONFIRMATION_REQUIRED');
+  assert.equal(evaluateExecutionSafety(input('git merge main')).reasonCode, 'HIGH_RISK_MERGE_CONFIRMATION_REQUIRED');
+  assert.equal(evaluateExecutionSafety(input('git merge --no-ff origin/develop')).reasonCode, 'HIGH_RISK_MERGE_CONFIRMATION_REQUIRED');
+  assert.equal(evaluateExecutionSafety(input('git merge feat/other', { highRiskMergeConfirmed: true })).action, 'allow');
 });
 
 test('只读日志路径赋值与搜索字面量不误报全局配置写入', async () => {
@@ -694,5 +719,5 @@ test('PowerShell 环境赋值、命令执行与伪装只读写入仍不放行', 
     command: "$target = 'C:/outside/fixture.txt'; Set-Content -LiteralPath $target -Value x",
   } });
   assert.equal(classifyExecutionEffects(indirectWrite).unknown, true);
-  assert.equal(evaluateExecutionEnvelope(indirectWrite, { environment: {} }).action, 'deny');
+  assert.equal(evaluateExecutionSafety(indirectWrite).action, 'allow');
 });
