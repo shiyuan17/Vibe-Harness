@@ -1,6 +1,6 @@
 ---
 name: frontend-design
-description: Use for frontend visual direction, polish, responsiveness, or redesign—not logic-only work.
+description: Use for frontend direction, polish, responsive work, or redesign—not logic-only or isolated local UI.
 ---
 
 # 设计并验证前端体验
@@ -9,7 +9,7 @@ description: Use for frontend visual direction, polish, responsiveness, or redes
 
 ## 执行底线
 
-- 只检查本次影响的领域与状态；已有设计系统、组件、品牌、性能预算和浏览器矩阵时沿用。纯文案或无交互/数据流变化的微小修复只核对文本与语法，不补写或运行 E2E。
+- 只检查本次影响的领域与状态；按内容、局部展示、局部交互、组件状态、共享组件、路由和数据契约的最具体范围选择证据。已有设计系统、组件、品牌、性能预算和浏览器矩阵时沿用。纯文案或无交互/数据流变化的微小修复只核对文本与语法，不补写或运行 E2E。微型 UI 变更（既有页面中的帮助图标、tooltip、局部提示或标签，且不改变路由、网络、数据流和公共契约）默认走静态检查或受影响的组件检查；只有用户明确要求视觉验收，或存在定位、溢出、响应式和跨浏览器风险时才升级浏览器验证。
 - 不禁止浏览器缩放；200% 缩放和 320 CSS px 视口下内容与功能完整，不强制二维滚动。正文对比度 ≥4.5:1，大字、控件、状态与焦点 ≥3:1；不只用颜色传意。
 - 使用语义链接、按钮和持久字段标签；键盘可达，焦点可见且不被遮挡。模态限制内部焦点，关闭后归还触发点；切换视图更新焦点和标题。目标 ≥24×24 CSS px，移动端沿用设计系统、无体系时取 44×44；拖拽须有单击或键盘替代。
 - 表单提供 name/autocomplete，不阻止粘贴、密码管理器或验证码填充，不重复索取已提供信息；错误关联字段、可被辅助技术感知，失败保留输入。破坏性操作须确认或可恢复 Undo。
@@ -41,7 +41,7 @@ description: Use for frontend visual direction, polish, responsiveness, or redes
 4. 覆盖组件状态变体（default、hover、pressed、focused、disabled、inverse）以及加载、空、错误、成功、长文本、键盘和响应式状态。状态契约见 `references/component-states.md`，交互与表单工艺见 `references/interactions.md` 与 `references/forms.md`。
 5. 实现动效时只动合成器属性并尊重 reduced-motion 偏好；见 `references/motion.md`。处理内容与可访问性时语义优先、locale 格式化；见 `references/content-a11y.md`。
 6. 关注核心指标（LCP/INP/CLS）、资源加载与水合安全；见 `references/performance.md`。
-7. 使用真实浏览器检查布局、溢出、对比度和关键交互；能力缺失时列出人工验收矩阵。
+7. 对关键布局和关键交互使用真实浏览器检查；微型 UI 变更默认不启动浏览器或 E2E，除非命中上一条升级条件；能力缺失时列出人工验收矩阵。
 
 已有设计稿时忠实实现，不另造风格。不要为了视觉变化改写无关业务逻辑。
 

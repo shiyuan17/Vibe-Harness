@@ -16,7 +16,7 @@ Git 规则的目的是保护用户改动、让提交可审查、确保 worktree 
 
 ## 本地 Worktree 合并
 
-显式 `vb-git-develop-flow` 与 `vb-linear-worktree-develop` 使用 local-land：任务完成阶段验证，提交与合并阶段不重复质量验证，不访问远端，不推送。
+显式 `vb-git-develop-flow` 与 `vb-linear-worktree-develop` 使用 local-land：任务完成阶段验证，提交与合并阶段不重复质量验证，不访问远端，不推送。local-land 不隐含浏览器验证、E2E、Eval 或全量矩阵；候选只执行项目风险计划选出的必要检查。
 
 1. 先核对源分支、HEAD、任务范围与干净工作树；主检出必须在本地 `develop`，不自动切换分支。
 2. `worktree stage --task <id>:<branch> --base-ref develop --write` 记录事务和合并前 HEAD。dirty develop 自动 `git add -A` 并提交 `chore(worktree): checkpoint local develop before merge`，然后执行 no-ff 本地合并。

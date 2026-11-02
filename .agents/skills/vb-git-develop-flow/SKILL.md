@@ -5,7 +5,7 @@ description: Use only when explicitly invoked for development in a task worktree
 
 # 本地 Develop Flow
 
-显式调用 `vb-git-develop-flow`（别名 gd-flow）执行 local-land。常驻合同见 `docs/rules/git-rules.md`，修改须同步。
+显式调用 `vb-git-develop-flow`（别名 gd-flow）执行 local-land。常驻合同见 `docs/rules/git-rules.md`，修改须同步。local-land 不隐含浏览器验证、E2E、Eval 或全量矩阵；候选只执行项目风险计划选出的必要检查。
 
 1. 核对用户授权范围和工作区，按可观察验收映射文件、关联输入、排除项及聚焦检查；小任务一个切片即可，不自动创建 DAG 或审批。
 2. 复用宿主提供的任务 worktree；没有可用隔离树时用 `worktree bootstrap`。在任务树完成实现、验证与普通提交，不在交付时重复质量验证。

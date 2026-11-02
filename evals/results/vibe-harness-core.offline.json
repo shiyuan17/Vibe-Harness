@@ -18,7 +18,7 @@
     "agent": "offline",
     "configHash": "fixture-v1",
     "assets": {
-      "aggregateHash": "8b9cc1e68f0863732af31076c50eb16f3dad4fbfedb105aaf6cd20ef6a470b8c",
+      "aggregateHash": "cfbebb0751586fcc1ffa8936bafe2c032104b24f1dc23b831e8d913ee8afad11",
       "groups": {
         "config": {
           "fileCount": 45,
@@ -30,11 +30,11 @@
         },
         "rules": {
           "fileCount": 45,
-          "hash": "68f44fa0b6ff8dca98849f092bbaa0a7a47e5db8c09c9f85fe3b3d48aa2d3bbf"
+          "hash": "bc5d8453884948ab1485fa00e5b01e6f2fe58e97c2ca58edba41f1a7a01ce478"
         },
         "skills": {
           "fileCount": 166,
-          "hash": "5fd9692d46d88bf5707c3f09827ba48f77b98c2758bad59744763b8292de3660"
+          "hash": "eddeb63061d21f6c0a8fa4dac52dccdde48cbdbe81081b48dd5678bfb9b12673"
         }
       }
     }

@@ -59,6 +59,31 @@ test('全部配对保持双向引用、同步声明与共享措辞', async () =>
   }
 });
 
+test('微型 UI 不默认升级浏览器或 E2E 验证', async () => {
+  const [frontendRule, testRules, frontendSkill, browserSkill, routingRule, gitRule, gitSkill] = await Promise.all([
+    readFile(path.join(rootDir, 'docs/rules/frontend-rules.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/test-rules.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/core/frontend-design/SKILL.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/integrations/browser-verification/SKILL.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/agent-skill-routing.md'), 'utf8'),
+    readFile(path.join(rootDir, 'docs/rules/git-rules.md'), 'utf8'),
+    readFile(path.join(rootDir, 'skills/core/vb-git-develop-flow/SKILL.md'), 'utf8'),
+  ]);
+  for (const content of [frontendRule, frontendSkill]) {
+    assert.match(content, /微型 UI/u);
+    assert.match(content, /微型 UI[\s\S]*(?:静态检查|组件检查)[\s\S]*(?:浏览器|E2E)/u);
+  }
+  assert.match(browserSkill, /不默认触发本 Skill/u);
+  assert.match(browserSkill, /帮助图标、tooltip/u);
+  assert.match(routingRule, /browser-verification integration Skill；.*不自动触发该 Skill/u);
+  assert.match(gitRule, /local-land 不隐含浏览器验证、E2E、Eval 或全量矩阵/u);
+  assert.match(gitSkill, /local-land 不隐含浏览器验证、E2E、Eval 或全量矩阵/u);
+  for (const term of ['局部展示', '局部交互', '共享组件', '路由', '数据', '本地化', '可访问性']) {
+    assert.match(frontendRule, new RegExp(term, 'u'));
+  }
+  assert.match(testRules, /测试 \/ fixture \/ 依赖配置/u);
+});
+
 test('负控：规则侧失去 Skill 入口引用时只报该配对的入口违规', async () => {
   const contents = await loadPairContents();
   const pair = findPair('vb-git-split-push');
