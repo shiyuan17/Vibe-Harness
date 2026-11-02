@@ -1,6 +1,6 @@
 interface:
   display_name: "Vb Linear Worktree Develop"
   short_description: "Deliver a Linear Parent batch from one task worktree"
-  default_prompt: "Use $vb-linear-worktree-develop to execute this authorized Parent batch in one task worktree, commit each Issue locally, and publish once all required tasks pass."
+  default_prompt: "Use $vb-linear-worktree-develop to execute this authorized Parent batch in one task worktree, commit each Issue locally, and merge locally into develop once all required tasks pass, without remote checks or push."
 policy:
   allow_implicit_invocation: false

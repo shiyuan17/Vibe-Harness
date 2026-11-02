@@ -294,6 +294,11 @@
                   "tree"
                 ]
               },
+              "evidenceScope": {
+                "type": "string",
+                "enum": ["fresh", "transaction"],
+                "description": "transaction permits consuming successful local evidence in the same frozen delivery batch, not caching it for other batches or mutable external checks."
+              },
               "subsumes": {
                 "type": "array",
                 "uniqueItems": true,

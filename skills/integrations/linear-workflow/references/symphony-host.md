@@ -20,7 +20,7 @@
 
 ## 执行隔离与终点
 
-- 宿主逐 Issue 签发 `vibe-harness.execution-envelope/v2`，riskClass=high，绑定 requestId、sessionId、targetIssueIds、mode=execute、activeObjective、allowedEffects、forbiddenEffects、terminalCondition。冻结并核对 canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots；externalTargets 只含目标类型、标识和环境。hostContext 由宿主提供 source=host、filesystem、approval、process=isolated、network、observedAt，Agent 不得自造。启动、续跑和每次外部写入前核验 Grant、Claim、lease、fencing、Envelope 与当前 Issue；缺失、不符或能力不足即 fail-closed，暂停受影响操作并保留现场，不能靠重复询问用户解除宿主能力阻塞。`vibe-harness.execution-envelope/v1` 仅兼容 contract-only/degraded，不授权 credentialUse、宿主/外部写入、红区、高风险间接写入或移动活动任务当前绑定的 workspace identity。
+- 执行依据是本轮用户请求与实际宿主权限；历史记录只作恢复线索，不重新签发授权凭证。工作区、目标和已有占用须核实，冲突时暂停受影响操作。
 - Agent 不持有 Linear/Git 原始写凭据，不暴露可调用任意 mutation 的宿主 `linear_graphql`。经最小权限代理按当前 Issue 与 effect 执行 Linear、Git push 和 PR/MR 操作：宿主侧只提供逐操作的 effect allowlist 判定（`linear_set_delegate`/`linear_append_receipt`/`linear_append_event` 属 `linearWrite`，`git_push_branch` 属 `gitPush`，`git_create_closing_pr`/`git_squash_merge` 属 `mergeRequestWrite`），禁止 effect 优先于任何放行回调，Worker 侧只拿到冻结上下文（Issue、Claim、fencing、工作区身份、Envelope 摘要、目标 SHA、worktree 路径、镜像与命令），不含 provider 句柄。Worker 与生命周期 hook 均须受 OS 文件系统和默认拒绝网络出口约束，避免 shell 或 API 直连绕过。
 - 只有本次运行创建的 closing PR/MR、最新 `origin/develop` 验证、稳定 fast gate 和适用的独立评审证据均成立，且 Grant/Envelope 允许 `mergeRequestWrite`，才可 squash 合并。重读合并证据后才报告 Done；PR 创建或本地验证通过不等于 Done。异常、撤销或证据不足时停止该 Grant 的后续派发。
 

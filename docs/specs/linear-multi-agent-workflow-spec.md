@@ -29,21 +29,11 @@ Vibe-Harness 通过显式 integration plugin 提供 Linear 工作流规则、操
 
 Remote MCP server 使用 url，本地 MCP server 使用 command、args 和 env；同一 server 不得同时使用两种形态。OpenCode 将 remote server 转换为 type remote，其他 JSON adapter 使用 URL 配置，Codex TOML 使用 url 字段。
 
-## Execution Envelope 与宿主边界
+## 用户授权与宿主边界
 
-本节的 v1 是显式单次执行和低风险项目内写入的兼容合同；它不能授权 hostWrite、externalWrite、凭据、高风险间接写入、红区或移动活动任务自身绑定的 worktree。用户不需要提供 v1 JSON，Agent/宿主根据当前请求与工作区事实建立逻辑记录。高风险跨边界效果以 v2 宿主合同为准。worktree 生命周期（创建、实现、回收、清理）是工作区内部操作，按 <code>workspaceWrite</code>/<code>gitBranch</code> 授权，不需要宿主证明。v2 额外冻结 riskClass、canonical cwd、worktree root、Git common dir、git dir、branch、base ref/SHA、initial HEAD、allowed write roots、无凭据 external targets、可选的 <code>scope.linear</code> team/project 目标，以及仅由宿主注入的 filesystem、approval、process、network 证明。
+依据本轮用户请求、宿主原生权限和服务端账号权限执行，不建立项目级授权凭证。Execution Envelope 已退役，不要求 hostContext、效果登记、目标白名单或会话证明；旧字段忽略。仅移除信封门禁，独立红区、凭据、Git、角色只读和工作区检查继续生效；不宣称保留原有跨边界绑定能力。
 
-Linear 写入按归一化后的 MCP server 段绑定 provider，因此安装器写入的 <code>linear</code>、provider 别名 <code>linear-mcp</code>/<code>linear-mcp-readonly</code> 与角色投影的 <code>vibe-harness-linear</code> 解析为同一 provider。更新既有 Issue 仍以 toolInput 暴露的 Issue ID 与 <code>targetIssueIds</code> 绑定；新建 Issue 时 toolInput 中不存在 Issue ID，此时由 <code>scope.linear</code> 的 <code>teamIds</code>/<code>projectIds</code> 提供可核验的 team/project 目标，登记之外的 team/project 一律拒绝；未登记 <code>scope.linear</code> 的新建保持 fail-closed。
-
-高风险或不可分类调用缺少 high-risk v2、精确目标或新鲜宿主证明时 fail-closed。活动执行的 workspace identity 不可移动；worktree move 无法由 effect allowlist 授权。checkpoint 另保存 headSha、continuationCount 和 blockerCount；每次自动续跑前重读原生 Goal、thread status、最新用户输入、cwd、worktree、branch、HEAD 和 blocker。达到终点、等待审批、workspace 漂移、未归属 HEAD 或相同 blocker 连续三次时停止；没有原生 Goal bridge 时只输出可恢复 checkpoint，不跨 turn 自主续跑。
-
-除 `git-rules.md` 限定的普通提交与当前分支普通推送外，写入前必须为当前请求建立逻辑 Execution Envelope，至少包含 schema、requestId、sessionId、mode、targetIssueIds、allowedEffects、forbiddenEffects、terminalCondition 和 activeObjective。mode 只允许 inspect、plan、linear-sync、execute、monitor；v1 枚举为 linearWrite、workspaceWrite、gitBranch、gitCommit、gitPush、mergeRequestWrite、credentialUse，其中 `credentialUse` 仅保留解析兼容，实际凭据操作按高风险分类并由运行时拒绝 v1；v2 增加 hostWrite、externalWrite，凭据及其他高风险效果还须满足适用的宿主核验。`gitCommit`／`gitPush` 继续保留兼容字段，普通操作不需要逐项登记或 execute 模式，已有有效 Envelope 的 forbiddenEffects 仍优先；其他 effect 独立授权，实现授权不自动包含分支、PR/MR 或凭据使用。<code>mergeRequestWrite</code> 覆盖创建或更新 PR/MR 与落地该 PR/MR 的合并（squash merge 或 auto-merge）。
-
-inspect 与 plan 默认只读。linear-sync 仅允许本轮明确要求的 Linear 写入，必须禁止其他六种 effect。execute 只能实施授权的最小 effects。monitor 默认只读且写 effect ceiling 为空，并必须包含观察对象、终止事件或时间边界。Ready、Todo、依赖满足或队列可见只表示条件满足，不构成 execute 授权。
-
-默认 terminalCondition 是当前 Issue 的已授权 effects 完成；若授权到 mergeRequestWrite 且目标为 <code>develop</code>，则在 closing PR/MR 已 squash 合并到声明的精确目标 ref、创建后重读确认并完成已授权证据同步时结束，写叶子 Issue 同时进入 Done；若未授权落地 merge，则在 PR/MR ready for review、创建后重读确认后结束并报告等待人工合并。Linear 自动化或已授权回写应进入 In Review 或 Done；同步不可用或未授权时报告差异后结束。单次运行不持续轮询或选择下一个 Ready 节点；已授权整计划可在依赖就绪后接续，不扫描队列。
-
-本规格的 Implemented 表示规则、Skill、模板、schema、测试和 Eval 资产合同已经交付，不代表每个宿主都存在常驻状态服务或完整 Hook enforcement。支持结构化会话状态的宿主应持久化 envelope/checkpoint；不支持时由 Agent 在当前上下文执行门禁，恢复后不能证明一致性则 fail-closed。Hook 只能约束其可观察的调用，不能证明未暴露远程工具的安全性。
+显式计划内的 Linear 建单、状态、评论与原生依赖同步不再依赖宿主证明；读取、写入后确认、超时查重和范围约束保持不变。checkpoint 仅作恢复提示，必须核对当前源码、Git 与任务事实，不能作为授权。
 
 ## 显式执行授权与历史记录
 
@@ -95,12 +85,12 @@ Git credential helper 只能由其配置的 Git transport 透明调用。提取�
 
 ## 状态与完成语义
 
-固定状态为 Triage、Backlog、Todo、In Progress、In Review、Ready to Merge、Done；Blocked 只使用关系。Ready to Merge 只用于带门禁目标（<code>main</code>、<code>release/*</code>）；<code>develop</code> 快车道下 closing PR 合入后由 In Review 直接 Done。Linear 的 GitHub/GitLab 集成或团队自动化优先推进代码状态，缺少自动化时只有 Execution Envelope 允许 linearWrite 的 Writer 才能回写当前 Issue。
+固定状态为 Triage、Backlog、Todo、In Progress、In Review、Ready to Merge、Done；Blocked 只使用关系。Ready to Merge 只用于带门禁目标（<code>main</code>、<code>release/*</code>）；<code>develop</code> 快车道下 closing PR 合入后由 In Review 直接 Done。Linear 的 GitHub/GitLab 集成或团队自动化优先推进代码状态，缺少自动化时只有获本轮用户授权的 Writer 才能回写当前 Issue。
 
 Agent 手工状态写入必须按“读取当前值 -> 校验允许转换 -> 写入 -> 重读确认”执行。实时状态与代码提供方事实优先于旧计划、DAG 快照或压缩摘要；常规代码流在 <code>develop</code> 路径上只前进 Todo -> In Progress -> In Review -> Done，只有带门禁目标才经过 Ready to Merge。任何后退、重开或纠错转换都需要单独状态纠错授权和事实原因，不得为了 Ready 清单或旧规划统计把 In Progress、In Review 或 Ready to Merge 退回 Todo。
 
 - 普通 write 叶子 Done：closing PR/MR 已合并到声明精确目标 ref，保留 In Review。
-- 显式 local-land write Done：Todo → In Progress → Done；stage 候选必要验证通过并持久化为 local_staged，publish 对齐最新远端、需要时重建验证，再显式非强制推送并精确重读远端确认。无需 PR；local_staged 本身不能 Done，integrated_cleanup_pending 仍映射 succeeded 并释放依赖；清理状态单列，残留路径、端口及资源锁保持占用，禁止提前复用。
+本地 stage 直接 no-ff 合入 develop，记录 localMergeCommit 与 local_integrated，不检查远端、不推送、不重复任务完成验证。无需 PR；local_integrated 支持 Done，local_integrated_cleanup_pending 仍映射 succeeded 并释放依赖；清理状态单列，残留路径、端口及资源锁保持占用，禁止提前复用。
 - read 节点 Done：约定输出和 Verification 证据已记录。
 - aggregate Parent Done：每个 required descendant 按自身 kind 成功，且自身与 Root 的 Fan-in Verification 通过并记录证据。
 
@@ -122,7 +112,7 @@ Receipt、event、评论、Eval 和日志不得包含用户名、主机名、本
 
 验收切片、依赖计划与多 Agent 并行分别判断。单 Agent 顺序任务也可按可观察增量拆片，普通固定步骤不强制完整 DAG；已有 Linear DAG 必须遵循。普通任务不计算容量、墙钟或并行收益；只有实际派发多个 Agent 时才按 task-decomposition 的按需 reference 判断隔离、容量和收益，容量或依赖不完整时保持 single。
 
-Git local-land 优先接收宿主已创建的隔离树，并用精确 `--task <id>:<branch>` 归因；bootstrap 保留为 fallback。stage 从本地 develop 快照做 no-ff 合并并验证，写入 `refs/vibe-harness/staged/<batch-id>`，不 fetch、不移动主检出；publish 冻结唯一实际 push URL 与 refs/heads/develop，拒绝多地址或 mirror，远端前进时从新基线重建验证。推送确认后主检出本地 develop 仅在干净且可 ff-only 时同步，否则报告 deferred/diverged。事务保存在 Git common dir；失败保留现场，有界重试，结果不明先查精确远端，远端分叉不自动 reset/rebase/force push。确认后的重试只清理，remote 参数写前拒绝。
+Git local-land 优先接收宿主已创建的隔离树，并用精确 `--task <id>:<branch>` 归因；bootstrap 保留为 fallback。本地 stage 直接 no-ff 合入 develop，记录 localMergeCommit 与 local_integrated，不检查远端、不推送、不重复任务完成验证。dirty develop 在合并前自动 checkpoint；事务保存在 Git common dir，冲突保留主检出现场并由 stage --resume 继续，合并成功后的 cleanup 只重试清理。
 
 ## 交付资产与验证
 

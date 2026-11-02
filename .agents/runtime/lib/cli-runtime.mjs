@@ -13,7 +13,7 @@ import { access, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import { gitSnapshot } from './git-fingerprint.mjs';
+import { gitSnapshot, verificationGitEnvironment } from './git-fingerprint.mjs';
 import { gitTimeoutMs } from './git-timeouts.mjs';
 import { pathKey } from './worktree-audit.mjs';
 
@@ -59,7 +59,7 @@ export function parseArgs(argv) {
     ['clear-blockers', 'clearBlockers'],
   ]);
   const booleanFlags = new Set(['json', 'plan', 'full', 'async', 'allow-manual', 'no-numbers', 'no-reuse', 'no-verify', 'strict', 'write', 'help', 'confirm-red-zone', 'reuse', 'push', 'complete', 'dispatch', 'clear-blockers', 'batch', 'all']);
-  const valueFlags = new Set(['project', 'base', 'only', 'reviewed', 'timeout', 'output', 'progress', 'tier', 'scope', 'micro', 'task', 'target', 'base-ref', 'target-mode', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'failure', 'next-action', 'verification', 'plan-file', 'reason', 'approval', 'test-path', 'resume']);
+  const valueFlags = new Set(['project', 'base', 'only', 'reviewed', 'timeout', 'output', 'progress', 'tier', 'scope', 'micro', 'task', 'target', 'base-ref', 'branch-prefix', 'file', 'from', 'to', 'spec', 'root', 'title', 'goal', 'risk-level', 'stage', 'unit', 'unit-status', 'acceptance', 'decision', 'blocker', 'failure', 'next-action', 'verification', 'plan-file', 'reason', 'approval', 'test-path', 'resume']);
   for (const flag of ['delivery', 'receipt', 'merge-evidence', 'mr', 'service', 'port']) valueFlags.add(flag);
   // Repeatable flags collect into arrays so one invocation can carry several
   // values (task ids, acceptance items, decisions, blockers, failures, unit updates).
@@ -81,15 +81,13 @@ export function parseArgs(argv) {
     const raw = token.slice(2);
     const equals = raw.indexOf('=');
     const key = equals >= 0 ? raw.slice(0, equals) : raw;
-    // `--batch` has two compatible forms: the historical boolean switch for a
-    // new combined candidate, and `--batch <id>` for a persisted transaction.
     if (key === 'batch') {
       const value = equals >= 0 ? raw.slice(equals + 1) : argv[index + 1];
       if (equals >= 0 || value && !value.startsWith('--')) {
         args.batch = value;
         if (equals < 0) index += 1;
       } else {
-        args.batch = true;
+        throw new Error('Option --batch requires a transaction id.');
       }
       continue;
     }
@@ -111,7 +109,6 @@ export function parseArgs(argv) {
     if (!value || value.startsWith('--')) throw new Error(`Option --${key} requires a value.`);
     if (arrayFlags.has(key)) arrayFlags.get(key).push(value);
     else if (key === 'base-ref') args.baseRef = value;
-    else if (key === 'target-mode') args.targetMode = value;
     else if (key === 'branch-prefix') args.branchPrefix = value;
     else if (key === 'file' || key === 'spec' || key === 'root' || key === 'target') args[key] = value;
     else if (key === 'from' || key === 'to') {
@@ -176,7 +173,8 @@ export async function runGit(args, cwd, options = {}) {
   // Every Git call the runtime makes shares one budget: a call killed mid-flight
   // reports `ok: false`, which the worktree and verification paths read as a
   // missing fact rather than as a failure of the operation being checked.
-  return runFile('git', args, { cwd, timeoutMs: gitTimeoutMs(), ...options });
+  return runFile('git', args, { cwd, timeoutMs: gitTimeoutMs(), ...options,
+    env: { ...verificationGitEnvironment(), ...options.env } });
 }
 function parseNameStatus(value) {
   const records = String(value ?? '').split('\0').filter(Boolean);

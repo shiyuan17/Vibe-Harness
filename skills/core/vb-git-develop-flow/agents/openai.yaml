@@ -1,6 +1,6 @@
 interface:
   display_name: "Vb Git Develop Flow"
   short_description: "Deliver through a worktree and local develop merge"
-  default_prompt: "Use $vb-git-develop-flow to deliver this task through a worktree into develop."
+  default_prompt: "Use $vb-git-develop-flow to implement and validate in a task worktree, then integrate locally into develop with stage. Do not repeat quality checks, inspect remotes, or push during integration."
 policy:
   allow_implicit_invocation: false

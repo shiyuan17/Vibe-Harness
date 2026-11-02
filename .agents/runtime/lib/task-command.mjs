@@ -1107,7 +1107,7 @@ async function taskPlanSyncReport(projectDir, args) {
     reason: args.reason.trim(),
   };
 }
-/** Shared verifier for task gates, stage/publish preflight and Task DAG CLI. */
+/** Shared verifier for task gates, local stage preflight and Task DAG CLI. */
 export async function taskParentBatchEvidence(projectDir, taskId) {
   const plan = await taskPlanCheckReport(projectDir, taskId);
   const read = await readTaskAnchor(projectDir, taskId);
@@ -1147,6 +1147,18 @@ async function taskCheckCore(projectDir, args) {
     '--receipt is retired; record the authenticated verify report with task update --unit <id> --verification <file>',
     'VIBE_HARNESS_TASK_RECEIPT_UNSUPPORTED');
   if (taskId === undefined) return taskFailure('check', 'task check needs a task id: task check <task-id> [--unit <unit-id>] [--dispatch] [--complete]');
+  if (args.complete && !args.dispatch) {
+    const current = await readTaskAnchor(projectDir, taskId);
+    if (current.exists) {
+      const plan = await taskPlanCheckReport(projectDir, taskId);
+      if (plan.status !== 'passed') return { ...plan, subcommand: 'check' };
+    }
+    const publication = await parentBatchPublication(projectDir, current.anchor ?? { taskId });
+    if (publication && (!args.unit || publication.members.some((member) => member.id === args.unit))) {
+      return { schemaVersion: SCHEMA_VERSION, command: 'task', subcommand: 'check', taskId,
+        status: 'passed', complete: true, deliveryStatus: 'local_integrated', publication };
+    }
+  }
   const planCheck = await taskPlanCheckReport(projectDir, taskId);
   if (planCheck.status !== 'passed') return { ...planCheck, subcommand: 'check' };
   const read = await readTaskAnchor(projectDir, taskId);
@@ -1272,8 +1284,8 @@ async function taskCheckCore(projectDir, args) {
       ? await parentBatchPublication(projectDir, read.anchor) : null;
     return {
       ...(publication ? { schemaVersion: SCHEMA_VERSION, command: 'task', subcommand: 'check', taskId, status: 'passed' }
-        : taskFailure('check', 'Parent local completion is not remote delivery; require stage validation and publish confirmation', 'VIBE_HARNESS_PARENT_BATCH_NOT_PUBLISHED')),
-      complete, deliveryStatus: publication ? 'remote_confirmed' : 'not_published', publication, batchEvidence,
+        : taskFailure('check', 'Parent local completion is not locally integrated; complete worktree stage first', 'VIBE_HARNESS_PARENT_BATCH_NOT_INTEGRATED')),
+      complete, deliveryStatus: publication ? 'local_integrated' : 'not_integrated', publication, batchEvidence,
     };
   }
   const blockers = Array.isArray(read.anchor.blockers) ? read.anchor.blockers.filter((item) => typeof item === 'string' && item.trim() !== '') : [];

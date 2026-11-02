@@ -64,7 +64,7 @@ v3 在历史共有身份字段基础上追加 Claim 绑定；自动领单必须�
 
 - 显式单次执行使用 v1；v1 不是“缺授权”，而是没有跨实例 Claim 互斥时的最小运行记录。v2 保持历史自动领取读取兼容；宿主自动派发或明确纳入 Claim 互斥域的可写执行使用 v3，并追加 `claimId`、`leaseExpiresAt`、`fencingToken`、`claimProvider`。v3 自动领取仍要求 UUID v4 `grantId`，source 固定为 authorized-auto-claim。用户不填写任何 Claim/Grant 字段。
 - 通用 `receipt start` CLI 只生成 v1。v3 样例仅展示记录结构，不提供签发入口；宿主须从持久 provider 原子取得并按 Issue、executionId、幂等键、claimId、lease 与 fencing 核验。`receipt check` 只分析评论结构，未终结 v3 显示 `RECEIPT_CLAIM_UNVERIFIED`，不能当作已核验领取。
-- `grantId` 只引用宿主持久的可撤销限时授权，不包含授权内容或个人身份，也不独自证明权限；宿主必须核验队列范围、截止时间、剩余领取数、Agent 身份、effects 和绑定当前 Issue 的执行授权。高风险授权使用 `vibe-harness.execution-envelope/v2`，冻结 request/session、目标、终点、工作区路径与 Git 身份、基线 SHA、allowedWriteRoots 和 externalTargets。hostContext 由宿主提供，source=host，包含 filesystem、approval、process=isolated、network、observedAt；缺失或与当前工作区不符则暂停写入，Agent 不得自造。`vibe-harness.execution-envelope/v1` 只作 contract-only/degraded 兼容，不能授权 credentialUse、hostWrite、externalWrite、红区、高风险间接写入或移动活动任务当前绑定的 workspace identity。
+- 执行依据是本轮用户请求与实际宿主权限；历史记录只作恢复线索，不重新签发授权凭证。工作区、目标和已有占用须核实，冲突时暂停受影响操作。
 - executionId 和 runtimeInstanceId 是新生成的 UUID v4。runtimeInstanceId 只用于 Receipt 关联，不得复制宿主 thread、session、OAuth session、用户名、主机名或其他真实会话标识。
 - v1 source 只允许 explicit-user-request、existing-delegate、authorized-handoff；v2 source 只允许 authorized-auto-claim；v3 支持四种 source，但自动领取必须携带 grantId。
 - agentKey 和 hostKind 使用稳定、低基数的产品标识；role 只允许 writer。

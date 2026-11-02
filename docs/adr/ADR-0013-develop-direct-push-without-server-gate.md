@@ -1,7 +1,7 @@
 ---
 id: ADR-0013
 title: Develop accepts direct local landings without a server gate
-status: accepted
+status: deprecated
 date: 2026-10-11
 review-date: 2026-11-08
 owner: vibe-harness-maintainers

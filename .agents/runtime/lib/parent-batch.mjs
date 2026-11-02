@@ -212,7 +212,7 @@ export async function boundParentBatches(projectDir) {
   return batches;
 }
 
-/** Read the existing durable publish confirmation; no new delivery database. */
+/** Read the durable local integration confirmation; no new delivery database. */
 export async function parentBatchPublication(projectDir, anchor) {
   const common = await runGit(['rev-parse', '--git-common-dir'], projectDir);
   if (!common.ok) return null;
@@ -222,14 +222,24 @@ export async function parentBatchPublication(projectDir, anchor) {
     let state;
     try { state = JSON.parse(await readFile(path.join(directory, name), 'utf8')); } catch { continue; }
     const source = state.sources?.find((item) => item.id === anchor.taskId);
-    if (!['integrated', 'integrated_cleanup_pending'].includes(state.integrationStatus)
-      || !shaPattern.test(state.remoteConfirmedHead ?? '') || !state.integration?.verificationId
-      || source?.executionBatch?.membershipDigest !== anchor.executionBatch.membershipDigest
-      || source?.executionBatch?.planDigest !== anchor.planDigest) continue;
-    const preserved = await runGit(['merge-base', '--is-ancestor', source.head, state.remoteConfirmedHead], projectDir);
-    const current = await runGit(['rev-parse', 'HEAD'], projectDir);
-    if (preserved.ok && current.ok && current.stdout.trim() === source.head) {
-      return { batchId: state.id, remoteConfirmedHead: state.remoteConfirmedHead, integrationStatus: state.integrationStatus };
+    if (state.localOnly !== true || state.localIntegrated !== true
+      || !['local_integrated', 'local_integrated_cleanup_pending'].includes(state.integrationStatus)
+      || !shaPattern.test(state.localMergeCommit ?? '')
+      || !source?.executionBatch
+      || anchor.executionBatch && source.executionBatch.membershipDigest !== anchor.executionBatch.membershipDigest
+      || anchor.planDigest && source.executionBatch.planDigest !== anchor.planDigest) continue;
+    const preserved = await runGit(['merge-base', '--is-ancestor', source.head, state.localMergeCommit], projectDir);
+    const target = await runGit(['merge-base', '--is-ancestor', state.localMergeCommit, 'refs/heads/develop'], projectDir);
+    const members = source.executionBatch.members;
+    if (!Array.isArray(members) || !members.length) continue;
+    const contained = await Promise.all(members.map(async (member) => {
+      const commits = [...new Set([member.commit, ...(member.commits ?? [])])];
+      return commits.length > 0 && (await Promise.all(commits.map(async (commit) => shaPattern.test(commit ?? '')
+        && (await runGit(['merge-base', '--is-ancestor', commit, state.localMergeCommit], projectDir)).ok))).every(Boolean);
+    }));
+    if (preserved.ok && target.ok && contained.every(Boolean)) {
+      return { batchId: state.id, localMergeCommit: state.localMergeCommit, integrationStatus: state.integrationStatus,
+        members: members.map(({ id, commit, commits }) => ({ id, commit, commits })) };
     }
   }
   return null;

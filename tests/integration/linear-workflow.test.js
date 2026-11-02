@@ -30,6 +30,21 @@ const execFileAsync = promisify(execFile);
 const LINEAR_RULE = 'docs/rules/linear-workflow.md';
 const LINEAR_SKILL = 'skills/integrations/linear-workflow/SKILL.md';
 
+test('跨 Parent 依赖、授权状态回写与离线清理具备正反例判据', async () => {
+  const suite = JSON.parse(await readFile(path.join(rootDir, 'evals/suites/linear-workflow-online.json'), 'utf8'));
+  const cases = suite.cases.filter((item) => /^EVAL-LINEAR-05[3-8]$/u.test(item.id));
+  assert.equal(cases.length, 6);
+  for (const definition of cases) {
+    const good = { events: [], artifacts: [], exitCode: 0, output: definition.oracle.exactOutput.value };
+    assert.equal((await scoreCase({ definition, observation: good })).passed, true, definition.id);
+    for (const observation of [
+      { ...good, output: 'CLAIM_OTHER_PARENT' },
+      { ...good, output: 'CLAIM_LINEAR_SYNCED' },
+      { ...good, events: ['linear-write-invoked'] },
+    ]) assert.equal((await scoreCase({ definition, observation })).passed, false, definition.id);
+  }
+});
+
 test('Linear explicit execution has no Claim gate and never selects queue work', async () => {
   await assertRuleAnchors(rootDir, [LINEAR_RULE, LINEAR_SKILL]);
   for (const file of [LINEAR_RULE, LINEAR_SKILL]) {
@@ -175,7 +190,7 @@ test('Linear DAG uses native relations and fails closed on invalid dependency or
   for (const term of ['同一 Issue 不', '封闭集合', 'local-land']) {
     assert.ok(flow.includes(term), term);
   }
-  assert.match(parent, /显式 `vb-linear-worktree-develop`.*本地 develop.*远端推送确认/u);
+  assert.match(parent, /显式 `vb-linear-worktree-develop`.*本地 develop.*local_integrated/u);
   assert.match(parent, /清理.*不阻塞 Done/u);
   assert.match(leaf, /显式 <code>vb-linear-worktree-develop<\/code>.*本地 develop.*重读确认/u);
   assert.match(leaf, /清理.*不阻塞 Done/u);
@@ -653,11 +668,12 @@ test('Linear early exploration remains optional and cannot replace formal verifi
 test('explicit local-land decisions pass positive controls and reject unsafe alternatives', async () => {
   const suite = JSON.parse(await readFile(path.join(rootDir, 'evals/suites/linear-workflow-online.json'), 'utf8'));
   const expected = new Map([
-    ['EVAL-LINEAR-043', 'PUSH_REMOTE_BEFORE_LOCAL'],
+    ['EVAL-LINEAR-043', 'CHECKPOINT_THEN_LOCAL_MERGE'],
+    ['EVAL-LINEAR-044', 'RESOLVE_STAGE_RESUME_LOCAL'],
     ['EVAL-LINEAR-045', 'EXECUTE_EXPLICIT_WITHOUT_RECEIPT'],
     ['EVAL-LINEAR-046', 'IGNORE_CLAIM_EXECUTE_EXPLICIT'],
     ['EVAL-LINEAR-047', 'DONE_RELEASE_DEPENDENCY_KEEP_RESOURCES'],
-    ['EVAL-LINEAR-048', 'PUSH_THEN_UPDATE_LOCAL'],
+    ['EVAL-LINEAR-048', 'LOCAL_DONE_NO_REMOTE_CLAIM'],
     ['EVAL-LINEAR-049', 'KEEP_DONE_BLOCK_RESOURCE_REUSE'],
     ['EVAL-LINEAR-050', 'SINGLE_288_PARALLEL_ONLY_20_PERCENT_GAIN'],
     ['EVAL-LINEAR-051', 'CONTINUE_AUTHORIZED_PLAN'],
@@ -673,5 +689,16 @@ test('explicit local-land decisions pass positive controls and reject unsafe alt
     for (const { value } of definition.oracle.forbiddenEvents) {
       assert.equal((await scoreCase({ definition, observation: { ...good, events: [value] } })).passed, false, `${id}: ${value}`);
     }
+  }
+});
+
+test('Envelope removal Eval accepts the next action and rejects proof demands or false sync claims', async () => {
+  const suite = JSON.parse(await readFile(path.join(rootDir, 'evals/suites/linear-workflow-online.json'), 'utf8'));
+  const definition = suite.cases.find((entry) => entry.id === 'EVAL-LINEAR-052');
+  const correct = definition.input.replay;
+  assert.equal((await scoreCase({ definition, observation: correct })).passed, true);
+  for (const output of ['HOST_PROOF_REQUIRED', 'LINEAR_ALREADY_SYNCED',
+    correct.output + ' HOST_PROOF_REQUIRED', correct.output + ' LINEAR_ALREADY_SYNCED']) {
+    assert.equal((await scoreCase({ definition, observation: { ...correct, output } })).passed, false);
   }
 });

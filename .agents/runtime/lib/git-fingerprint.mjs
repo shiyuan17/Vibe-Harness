@@ -12,10 +12,25 @@ const execFileAsync = promisify(execFile);
 // instead of being reported as a complete one.
 const MAX_SUBMODULE_DEPTH = 6;
 
+/** Internal Git/validation commands discover the repository from their own cwd.
+ * Hook-local paths must never redirect an isolated candidate into the caller's
+ * index or repository. Native staged safety scans keep their original context.
+ */
+export function verificationGitEnvironment(environment = {}) {
+  const scoped = { ...process.env, ...environment };
+  for (const key of Object.keys(scoped)) {
+    if (['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_PREFIX', 'GIT_INDEX_FILE'].includes(key.toUpperCase())) {
+      scoped[key] = undefined;
+    }
+  }
+  return scoped;
+}
+
 async function git(args, projectDir) {
   try {
     const result = await execFileAsync('git', args, {
       cwd: projectDir,
+      env: verificationGitEnvironment(),
       encoding: 'utf8',
       // The tracked-path listing of a large repository can exceed a few
       // megabytes of NUL-separated names; a truncated read would silently turn
@@ -41,6 +56,7 @@ async function gitBytes(args, projectDir) {
   try {
     const result = await execFileAsync('git', args, {
       cwd: projectDir,
+      env: verificationGitEnvironment(),
       encoding: 'buffer',
       maxBuffer: 64 * 1024 * 1024,
       timeout: gitTimeoutMs(),

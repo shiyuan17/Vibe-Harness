@@ -1,5 +1,7 @@
 # governance-evidence：可交接计划与增量证据
 
+> 历史实施记录：本文中的旧落地入口已由[本地 Worktree 交付决策](../specs/worktree-collaboration-migration.md)取代，历史步骤与证据保持原样。
+
 ## 目标
 
 为 Vibe-Harness 增加可入库、可交接的执行计划绑定和漂移检查；为任务单元提供红灯冻结、受保护批准重建基线和独立复审 v2 契约。所有完成主张必须能回到实际验证收据。

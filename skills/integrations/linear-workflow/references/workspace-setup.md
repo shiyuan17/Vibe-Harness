@@ -4,13 +4,15 @@
 
 ## 工作流（Workflow）
 
-为每个参与团队配置固定状态：Triage、Backlog、Todo、In Progress、In Review、Ready to Merge、Done。不要创建 Blocked 状态；使用 blocked-by / blocks 关系。
+默认状态映射为 Triage、Backlog、Todo、In Progress、In Review、Ready to Merge、Done；核对并复用团队已有状态的语义，不强制改名或删除 Blocked 状态。依赖真值使用 blocked-by / blocks 关系。
 
-默认分支流为 <code>feat/*、fix/* → develop → main</code>，hotfix 为 <code>hotfix/* → main → develop</code>。GitHub 默认分支设为 <code>develop</code>，release-please 明确固定 <code>target-branch: main</code>；普通开发 Issue 合入 <code>develop</code> 后即 Done，发布等待由独立 Release Issue 跟踪。合入 <code>develop</code> 不要求服务器端 fast gate，质量责任落在本地候选合并验证与提交前检查，完整 CI 只在发布边界（<code>develop → main</code>、<code>hotfix/* → main</code>、<code>release/*</code>）运行；合并前的本地验证必须建立在最新 <code>origin/develop</code> 之上。<code>release/*</code> 不是日常分支，只在管理员为并行维护历史版本时临时创建，出现时按与 <code>main</code> 相同的门禁处理。
+默认分支流为 <code>feat/*、fix/* → develop → main</code>，hotfix 为 <code>hotfix/* → main → develop</code>。GitHub 默认分支设为 <code>develop</code>，release-please 明确固定 <code>target-branch: main</code>；普通开发 Issue 合入 <code>develop</code> 后即 Done，发布等待由独立 Release Issue 跟踪。合入 <code>develop</code> 不要求服务器端 fast gate，质量责任落在任务完成阶段验证与提交前检查，本地 stage 只核对 Git 事实，完整 CI 只在发布边界（<code>develop → main</code>、<code>hotfix/* → main</code>、<code>release/*</code>）运行；任务验证不因 本地 stage 重复。<code>release/*</code> 不是日常分支，只在管理员为并行维护历史版本时临时创建，出现时按与 <code>main</code> 相同的门禁处理。
 
-关闭 Linear 的 Parent/Sub-issue 自动关闭。完成判据以 `docs/rules/linear-workflow.md` 为准：MR 以实际合并证明完成，显式 local-land 以必要候选验证和精确远端确认证明集成。清理失败单列，不阻止 Done 或无冲突后继；Parent 批次先重读确认成员与 Parent Done，再清理源工作区，避免相互等待。
+默认建议关闭不能核验完成证据的 Parent/Sub-issue 自动关闭；能校验必需后代和 fan-in 的既有自动化可以保留，不擅自修改团队配置。完成判据以 `docs/rules/linear-workflow.md` 为准：MR 以实际合并证明完成，显式 local-land 以任务完成验证证据、本地 merge commit 和 local_integrated 证明本地集成。清理失败单列，不阻止 Done 或无冲突后继；Parent 批次在同步确认或独立持久化重试证据后安全清理，遵循当前规则的干净工作树、本地祖先关系与创建归属要求。
 
 Triage 建议开启 priority-before-exit，使 Issue 离开 Triage 前必须设置 Priority；Triage Rules 自动路由属可选配置。
+
+配置清单是新项目的默认建议，不是重配已有团队的命令。保留项目既有 required checks、状态映射和合规策略；未经授权不关闭自动化或分支保护。
 
 ## Triage 分诊
 
@@ -21,7 +23,7 @@ Triage 是团队收件箱，进入的 Issue 默认不进入常规视图，必须
 - decline：不处理，置为 canceled 类并附说明。
 - snooze：暂时隐藏，到指定时间或有新活动时返回 Triage。
 
-可选的 Triage Responsibility 和 Triage Rules 只能做团队定义的收件与路由，不得自动选择 Ready Queue、设置 Agent Delegate、写 Execution Receipt 或启动执行。四种处置仍需人工决定。
+可选的 Triage Responsibility 和 Triage Rules 只能做团队定义的收件与路由，不得自动选择 Ready Queue、设置 Agent Delegate、写 Execution Receipt 或启动执行。四种处置需要覆盖实际动作的用户授权，已授权时不重复要求人工决定。
 
 ## 指引（Guidance）
 
@@ -55,7 +57,7 @@ Triage 是团队收件箱，进入的 Issue 默认不进入常规视图，必须
 - GitHub/GitLab 报告 stable and mergeable -> Ready to Merge（仅带门禁目标 <code>main</code>、<code>release/*</code>）。
 - closing PR/MR merged to the declared exact target ref -> Done；<code>develop</code> 路径由 In Review 直接进入 Done，不经过 Ready to Merge。
 - 添加 branch-specific automation：普通开发只在目标为 <code>develop</code> 时推进开发 Issue；hotfix 只在目标为 <code>main</code> 时推进；发布提升和回同步不得使用开发 Issue 的 closing 语义。
-- <code>develop</code> 不启用 active ruleset，也不要求服务器端 fast gate；为带发布门禁目标（<code>main</code>、<code>release/*</code>）启用完整 branch protection、required review 和 required checks；Ready to Merge 只对这些目标可靠。
+- 默认不为 <code>develop</code> 新增 active ruleset 或服务器端 fast gate；项目既有 required checks 与分支保护继续生效；为带发布门禁目标（<code>main</code>、<code>release/*</code>）启用完整 branch protection、required review 和 required checks；Ready to Merge 只对这些目标可靠。
 
 GitHub/GitLab automation 只推进代码状态，不创建或终结 Execution Receipt，也不自动关闭 aggregate Parent。创建 PR/MR 前必须校验 target 与声明 ref 相同，且 source HEAD 对目标 ref 的 merge-base 与冻结 base SHA 一致或为其在同一目标历史上的已验证后代；创建后重读确认 source、target、描述和 closing 关联。
 
@@ -71,7 +73,7 @@ GitHub/GitLab automation 只推进代码状态，不创建或终结 Execution Re
 
 ## GitHub 分支与发布设置
 
-- <code>develop</code>：只接受短期任务分支，普通 PR 使用 squash merge，显式 local-land 可经 <code>worktree stage</code> / <code>worktree publish</code> 以 no-ff 直落。必要验证须覆盖最终候选与精确基线；只补失效证据，不因 publish 阶段重复全部检查。独立审查按用户请求、项目分支保护或明确审批执行，不由本清单增加默认收据门禁。
+本地 stage 直接 no-ff 合入 develop，记录 localMergeCommit 与 local_integrated，不检查远端、不推送、不重复任务完成验证。独立审查按用户请求、项目分支保护或明确审批执行，不由本清单增加默认收据门禁。
 - <code>main</code>：只接受同仓库的 <code>develop</code>、<code>hotfix/*</code> 和 <code>release-please--branches--main*</code>；运行完整发布门禁。
 - <code>develop → main</code> 与 <code>main → develop</code> 使用 merge commit，保留任务提交和版本回同步历史。
 - GitHub Release 成功后创建 <code>main → develop</code> 回同步 PR；检查通过后 auto-merge。失败时 Release Issue 保持未完成并报告分支漂移。

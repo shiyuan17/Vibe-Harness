@@ -847,7 +847,7 @@ test('Parent 批内前驱提交经验证后可放行后继且不提前完成交�
     assert.equal(ready.report.status, 'passed', JSON.stringify(ready.report));
     const complete = await runCommand(['task', 'check', 'ENG-P', '--complete', '--json'], { cwd: project });
     assert.equal(complete.report.status, 'failed');
-    assert.equal(complete.report.deliveryStatus, 'not_published');
+    assert.equal(complete.report.deliveryStatus, 'not_integrated');
     const planPath = path.join(project, 'docs/plans/ENG-P.md');
     const originalPlan = await readFile(planPath, 'utf8');
     const sync = () => runCommand(['task', 'plan-sync', 'ENG-P', '--reason', '调整计划', '--write'], { cwd: project });

@@ -123,11 +123,7 @@ test('adapter manifest v5 requires execution authority and the fixed Hook contra
     ], expected[adapter.id], adapter.id);
     assert.equal(typeof adapter.roleProjection.targetRoot, 'string', adapter.id);
     assert.equal(adapter.executionAuthority.projectConfigMayAuthorize, false, adapter.id);
-    assert.equal(
-      adapter.executionAuthority.highRiskEnforcement === 'host-required',
-      adapter.hookActivation !== 'unsupported',
-      adapter.id,
-    );
+    assert.equal(Object.hasOwn(adapter.executionAuthority, 'envelopeVersions'), false);
   }
   const missing = structuredClone(manifest);
   delete missing.items[0].hookEvents;
@@ -594,7 +590,7 @@ test('Skill 可移植性允许协议标识、操作端点、内部参考与声�
   }
 });
 
-test('Skill 授权、工作区核验、宿主信息和受阻处理缺失时仍失败', async () => {
+test('Skill 检查稳定标识与退役要求而不固定安全原句', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-skill-boundaries-'));
   try {
     const files = ['skills/core/vb-git-develop-flow/SKILL.md', 'skills/integrations/vb-linear-worktree-develop/SKILL.md', 'skills/integrations/linear-workflow/SKILL.md'];
@@ -606,14 +602,8 @@ test('Skill 授权、工作区核验、宿主信息和受阻处理缺失时仍�
       await writeFile(path.join(target, file), content);
     }
     assert.deepEqual(await validateSkillExecutionBoundaries(target), []);
-    // Entry Skills keep only the shared stop boundary and their operation-specific
-    // anchors. Full envelope fields and host proof remain in the resident rules.
     const sharedTerms = [
-      'Agent 不得自造',
-      '缺授权',
-      '暂停',
-      'contract-only/degraded',
-      '跨边界',
+      '授权',
       'worktree bootstrap',
       'integrated_cleanup_pending',
     ];
@@ -621,19 +611,14 @@ test('Skill 授权、工作区核验、宿主信息和受阻处理缺失时仍�
       ['skills/core/vb-git-develop-flow/SKILL.md', [
         ...sharedTerms,
         'origin/develop',
-        '主检出',
-        '推送确认即代码集成完成',
       ]],
       ['skills/integrations/vb-linear-worktree-develop/SKILL.md', [
         ...sharedTerms,
         'origin/develop',
-        '主检出',
-        '推送确认后标记 Done',
       ]],
       ['skills/integrations/linear-workflow/SKILL.md', [
         ...sharedTerms,
-        '不扫描 Ready 队列',
-        '推送确认即代码集成完成',
+        'Linear',
       ]],
     ]);
     for (const file of files) {
@@ -644,12 +629,14 @@ test('Skill 授权、工作区核验、宿主信息和受阻处理缺失时仍�
       }
       await writeFile(path.join(target, file), originals.get(file));
     }
-    // Positive control: the workspace-internal flow no longer needs a
-    // host-issued isolation proof, so dropping that wording there is not a
-    // violation — otherwise creating a worktree would stay blocked.
     const flowSkill = 'skills/core/vb-git-develop-flow/SKILL.md';
-    await writeFile(path.join(target, flowSkill), originals.get(flowSkill).replaceAll('process=isolated', 'REMOVED'));
+    await writeFile(path.join(target, flowSkill), originals.get(flowSkill)
+      .replaceAll('Agent 不得自造', '禁止伪造')
+      .replaceAll('缺授权', '授权缺失')
+      .replaceAll('推送确认即代码集成完成', '远端已核实即可报告集成'));
     assert.deepEqual(await validateSkillExecutionBoundaries(target), []);
+    await writeFile(path.join(target, flowSkill), `${originals.get(flowSkill)}\n写入需要 Execution Envelope。\n`);
+    assert.ok((await validateSkillExecutionBoundaries(target)).some((error) => error.includes('retired authorization')));
     await writeFile(path.join(target, flowSkill), originals.get(flowSkill));
   } finally {
     await rm(target, { force: true, recursive: true });

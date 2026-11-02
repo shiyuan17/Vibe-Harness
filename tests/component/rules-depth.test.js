@@ -339,14 +339,12 @@ test('授权、宿主核验、本地核验、拒绝与独立工作要求缺失�
     await assertRuleAnchors(pack, [file]);
     for (const term of [
       '每个写入动作都要有覆盖该动作的授权',
-      'hostContext 必须由宿主提供',
+      '不建立项目级授权凭证',
       'canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots',
-      '高风险或不可分类调用缺少有效授权记录、工作区核验或宿主核验信息时 fail-closed',
-      'Agent 不得自填这些信息冒充宿主核验',
       // worktree 生命周期改为本地核验授权后，删掉这些措辞必须判失败，
       // 否则规则又会把建 worktree 绑回不可获得的宿主证明。
       'worktree 生命周期只要求本地工作区核验',
-      '宿主核验只用于跨边界效果',
+      '独立安全检查',
       '不据此停止整个请求',
       '保留不依赖该操作的安全工作',
     ]) {

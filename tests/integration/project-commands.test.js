@@ -280,16 +280,8 @@ test('help 覆盖含 worktree、slice、patch 与 task 在内的全部项目命�
     'run.mjs <env|context|changes|verify|worktree|slice|patch|task|review> [--project <path>] [--json]（--project 缺省为当前目录）',
   );
   assert.equal(result.report.codebaseMemory, undefined);
-  assert.match(result.report.worktree, /worktree <list\|check\|bootstrap\|stage\|publish\|status\|discard\|cleanup\|recover>/u);
+  assert.match(result.report.worktree, /worktree <list\|check\|bootstrap\|stage\|status\|discard\|cleanup\|recover>/u);
   assert.match(result.report.worktree, /writes require --write/u);
-  assert.match(result.report.worktree, /only publish takes a repository FIFO turn/u);
-  assert.match(result.report.worktree, /queue position and owners/u);
-  assert.match(result.report.worktree, /stage --task <id> merges a detached candidate from the local base/u);
-  assert.match(result.report.worktree, /never fetches or moves the primary checkout/u);
-  assert.match(result.report.worktree, /publish --batch <id> auto-reconciles against the remote/u);
-  assert.match(result.report.worktree, /no-force push of the exact target, remote SHA readback/u);
-  assert.match(result.report.worktree, /independent candidates and live leases are retained/u);
-  assert.match(result.report.worktree, /recover takes no --batch\/--archive-integrated/u);
   assert.match(result.report.task, /task <init\|update\|status\|list\|plan-check\|plan-sync\|check\|freeze-tests\|rebaseline-tests>/u);
   assert.match(result.report.reuse, /--no-reuse/u);
 });

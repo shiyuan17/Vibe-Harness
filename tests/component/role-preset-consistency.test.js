@@ -7,10 +7,7 @@ import { validateRolePresetDerivations } from '../../scripts/lib/pack-validation
 import { EXECUTE_PRESETS, WRITE_PRESETS } from '../../scripts/lib/role-projection.js';
 import { DEFAULT_RED_ZONE_PATHS } from '../../runtime/hooks/lib/context.mjs';
 import { analyzeToolRequest, normalizeCodexHookInput } from '../../runtime/hooks/lib/policy.mjs';
-import {
-  EXECUTION_ENVELOPE_SCHEMA,
-  evaluateExecutionEnvelope,
-} from '../../runtime/hooks/lib/execution-envelope.mjs';
+import { evaluateExecutionSafety } from '../../runtime/hooks/lib/execution-safety.mjs';
 import {
   EXECUTABLE_PRESETS,
   WRITABLE_PRESETS,
@@ -46,7 +43,7 @@ function analyzeWithPreset(toolName, toolInput, permissionPreset) {
 
 function envelopeFixture(overrides = {}) {
   return {
-    schema: EXECUTION_ENVELOPE_SCHEMA,
+    schema: 'vibe-harness.execution-envelope/v1',
     sessionId: 'session',
     requestId: 'request-1',
     mode: 'execute',
@@ -156,7 +153,7 @@ test('policy 按预设层级拒绝写尝试（可写/可执行/只读）', () =>
     assert.equal(denied.reasonCode, 'ROLE_PERMISSION_PRESET', preset);
   }
 
-  // 可执行预设拒绝直接写文件的工具，shell 重定向留给 Execution Envelope。
+  // 可执行预设拒绝直接写文件的工具，shell 重定向留给 host-native permission。
   const executableWrite = write('verification');
   assert.equal(executableWrite.action, 'deny');
   assert.equal(executableWrite.reasonCode, 'ROLE_PERMISSION_PRESET');
@@ -181,13 +178,13 @@ test('policy 按预设层级拒绝写尝试（可写/可执行/只读）', () =>
   }
 });
 
-test('Execution Envelope 不能把角色抬升到预设层级之上', () => {
+test('host-native permission 不能把角色抬升到预设层级之上', () => {
   const writeInput = codexInput('Write', { file_path: 'src/app.js' }, {
     executionEnvelope: envelopeFixture({ allowedEffects: ['workspaceWrite'] }),
   });
 
   // 已签发的 Envelope 在预设判定之后才被解析：可执行预设仍拒绝直接写文件。
-  const escalated = evaluateExecutionEnvelope(writeInput, {
+  const escalated = evaluateExecutionSafety(writeInput, {
     environment: {},
     permissionPreset: 'verification',
   });
@@ -195,14 +192,14 @@ test('Execution Envelope 不能把角色抬升到预设层级之上', () => {
   assert.equal(escalated.reasonCode, 'ROLE_PERMISSION_PRESET');
 
   // 可写预设保持 Envelope 原语义。
-  const writable = evaluateExecutionEnvelope(writeInput, {
+  const writable = evaluateExecutionSafety(writeInput, {
     environment: {},
     permissionPreset: 'implementation',
   });
   assert.equal(writable.action, 'allow');
 
   // 只读预设拒绝带副作用的调用，即使未启用 Envelope 必需模式。
-  const validation = evaluateExecutionEnvelope(codexInput('Bash', { command: 'pnpm test' }), {
+  const validation = evaluateExecutionSafety(codexInput('Bash', { command: 'pnpm test' }), {
     environment: {},
     permissionPreset: 'analysis',
   });
@@ -210,7 +207,7 @@ test('Execution Envelope 不能把角色抬升到预设层级之上', () => {
   assert.equal(validation.reasonCode, 'ROLE_PERMISSION_PRESET');
 
   // 可执行预设的验证命令无需 Envelope 依旧放行。
-  const executableValidation = evaluateExecutionEnvelope(codexInput('Bash', { command: 'pnpm test' }), {
+  const executableValidation = evaluateExecutionSafety(codexInput('Bash', { command: 'pnpm test' }), {
     environment: {},
     permissionPreset: 'verification',
   });
@@ -218,7 +215,7 @@ test('Execution Envelope 不能把角色抬升到预设层级之上', () => {
 
   // 只读命令不受任何预设影响。
   for (const preset of ['analysis', 'verification', 'implementation']) {
-    const readOnly = evaluateExecutionEnvelope(codexInput('Bash', { command: 'git status --short' }), {
+    const readOnly = evaluateExecutionSafety(codexInput('Bash', { command: 'git status --short' }), {
       environment: {},
       permissionPreset: preset,
     });

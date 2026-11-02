@@ -1,7 +1,7 @@
 ---
 id: ADR-0027
 title: Linear Parent 单任务树批次交付
-status: accepted
+status: deprecated
 date: 2026-10-27
 review-date: 2027-04-27
 owner: vibe-harness-maintainers

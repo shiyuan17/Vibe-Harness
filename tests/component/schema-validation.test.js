@@ -168,7 +168,7 @@ test('project config accepts the worktree contract and rejects unknown keys', ()
   // outside-repository root docs/rules/git-rules.md §Worktree requires.
   assert.equal(validateProjectConfigWithSchema(defaultProjectConfig), true);
   assert.match(defaultProjectConfig.worktree.root, /\.\.\/.+?-worktrees$/u);
-  assert.equal(defaultProjectConfig.worktree.baseRef, 'origin/develop');
+  assert.equal(defaultProjectConfig.worktree.baseRef, 'develop');
 
   const full = structuredClone(defaultProjectConfig);
   full.worktree = {

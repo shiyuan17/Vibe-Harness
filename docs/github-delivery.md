@@ -4,10 +4,10 @@
 
 ## Develop ruleset
 
-从干净且最新的 <code>origin/main</code> 创建 <code>develop</code> 后，将 GitHub 默认分支切换到 <code>develop</code>。按 ADR-0013，<code>develop</code> 不配置服务器端 required gate：仓库保持 develop ruleset 为 disabled，集成分支接受直推与本地 <code>worktree stage</code> / <code>worktree publish</code> 的 no-ff 直落。
+从干净且最新的 <code>origin/main</code> 创建 <code>develop</code> 后，将 GitHub 默认分支切换到 <code>develop</code>。本地 stage 直接 no-ff 合入 develop，记录 localMergeCommit 与 local_integrated，不检查远端、不推送、不重复任务完成验证。
 
-- 任务分支与 staged local-land 落地无需 Pull Request：先 <code>worktree stage</code> 生成本地已验候选，再由 <code>worktree publish --batch &lt;id&gt;</code> 对齐最新 <code>origin/develop</code>、精确推送并回读 SHA；也可直接 <code>git push</code>，不要求人工审批或服务器端 required check。需要 PR 时仍可用 squash merge，合并后删除任务分支。
-- 质量责任前移到本地候选合并验证（lint、typecheck、unit，并按 change-plan 追加 component/integration）与提交前检查；<code>merge-gate</code> 聚合 job 保留，但只作为 main 发布边界的 required check。
+本地 stage 直接 no-ff 合入 develop，记录 localMergeCommit 与 local_integrated，不检查远端、不推送、不重复任务完成验证。需要 PR 时仍可用 squash merge，合并后删除任务分支。
+- 质量责任由任务完成阶段验证（lint、typecheck、unit，并按 change-plan 追加 component/integration）与提交前检查承担；local-land 的 stage 只核对本地合并、冲突与清理；<code>merge-gate</code> 聚合 job 保留，但只作为 main 发布边界的 required check。
 - 高风险变更按统一 Planner 选择契约、集成与受影响生命周期证据。必要检查不得 deferred 放行；不要求独立审查收据。develop 已集成只表示本地必要验证通过与远端确认，不代表 CI 已执行。
 - 任务分支目标存活不超过约两个工作日；更大工作使用拆分或 feature flag，而非长期共享 feature 分支。
 
@@ -21,7 +21,7 @@
 - 禁止 force push 和分支删除。
 - 当前不要求 reviewer 或 CODEOWNERS；有非作者写权限协作者后再启用高风险 owner review。
 
-`develop` 不创建 active ruleset，也不配置 required check：集成分支接受直推与本地 stage/publish 直落（ADR-0013）。失败 check 只在发布边界（main、release*）阻断合并。
+`develop` 不创建 active ruleset，也不配置 required check：集成分支接受直推与本地 本地 stage 直落（ADR-0013）。失败 check 只在发布边界（main、release*）阻断合并。
 
 失败 check 会使 merge-gate 失败；PR 新提交会生成新的 check suite，旧 SHA 的结果不能满足最新提交。
 

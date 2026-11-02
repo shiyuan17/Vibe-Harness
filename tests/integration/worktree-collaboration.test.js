@@ -15,8 +15,7 @@ import { buildVerificationPlan } from '../../scripts/lib/verification-plan.js';
 import { verifyProject } from '../../runtime/lib/verification-command.mjs';
 import { executeCommand } from '../../runtime/lib/verification-plan-support.mjs';
 import { processStartIdentity } from '../../runtime/lib/services.mjs';
-import { createPushVerification, inspectPushVerification, preparePushAttempt, resolvePushBaseline } from '../../runtime/lib/push-verification.mjs';
-import { readCandidateResources, saveCandidateResources } from '../../runtime/lib/candidate-resources.mjs';
+import { createPushVerification, resolvePushBaseline } from '../../runtime/lib/push-verification.mjs';
 import { removeTemporaryDirectory } from '../../scripts/lib/temp-cleanup.js';
 import { taskParentBatchEvidence } from '../../runtime/lib/task-command.mjs';
 import { parentBatchContract } from '../../runtime/lib/parent-batch.mjs';
@@ -91,7 +90,7 @@ async function parentFixture() {
     worktree: source, branch: 'feat/ENG-P', targetRef: 'refs/heads/develop', baseSha: base };
   const planPath = path.join(source, 'docs/plans/parent.md');
   const plan = (batch = executionBatch, nextUnits = units) => [
-    '# Parent batch', '## Goal', 'Deliver required children.', '## Non-goals', 'Do not publish partial work.',
+    '# Parent batch', '## Goal', 'Deliver required children.', '## Non-goals', 'Do not integrate partial work.',
     '## Plan of Work', 'One writer in native dependency order.', '## Validation and Acceptance',
     '| ID | Criterion |', '|---|---|', ...nextUnits.map((unit, index) => `| A-00${index + 1} | ${unit.id} content is correct |`),
     '```plan-units', JSON.stringify({ allowedScope: ['src/**'], units: nextUnits, executionBatch: batch }), '```',
@@ -124,64 +123,40 @@ async function parentFixture() {
   return { ...f, source, task, complete, finish, units, executionBatch, planPath, plan };
 }
 
-test('Parent 三个 Issue 共用一个任务树逐项提交，完成前远端不变，整批一次交付保留 SHA', async () => {
+test('Parent local integration preserves all member commits and supports completion after automatic cleanup', async () => {
   const f = await parentFixture();
   try {
     const initial = await git(f.origin, ['rev-parse', 'develop']);
-    const a = await f.complete('A');
-    const premature = await f.run('stage', '--task', 'ENG-P', '--write');
-    assert.equal(premature.integrationStatus, 'not_integrated');
-    assert.equal(await git(f.origin, ['rev-parse', 'develop']), initial);
-    const bypass = await f.run('stage', '--task', 'ENG-A:feat/ENG-P', '--write');
-    assert.equal(bypass.integrationStatus, 'not_integrated', '子 Issue 不能绕过 Parent 发布边界');
-    const b = await f.complete('B');
-    const dispatch = await f.task('check', 'ENG-P', '--unit', 'ENG-C', '--dispatch');
-    assert.equal(dispatch.status, 'passed', JSON.stringify(dispatch));
-    const c = await f.complete('C');
-    const worktrees = await git(f.repo, ['worktree', 'list', '--porcelain']);
-    assert.equal(worktrees.split('\n').filter((line) => line.startsWith('worktree ')).length, 2);
-    for (const [letter, head] of [['A', a.head], ['B', b.head], ['C', c.head]]) {
-      assert.equal(await git(f.repo, ['diff-tree', '--no-commit-id', '--name-only', '-r', head]), `src/${letter}.txt`);
-      assert.match(await git(f.repo, ['show', '-s', '--format=%s', head]), new RegExp(`ENG-${letter}`));
-    }
-    assert.equal(await git(f.origin, ['rev-parse', 'develop']), initial);
+    await f.complete('A');
+    assert.equal((await f.run('stage', '--task', 'ENG-P', '--write')).integrationStatus, 'not_integrated');
+    assert.equal((await f.run('stage', '--task', 'ENG-A:feat/ENG-P', '--write')).integrationStatus, 'not_integrated');
+    await f.complete('B');
+    await f.complete('C');
+    const checks = await readFile(f.counter, 'utf8');
     const staged = await f.run('stage', '--task', 'ENG-P', '--write');
-    assert.equal(staged.status, 'passed', JSON.stringify(staged));
-    assert.equal(staged.integrationStatus, 'local_staged');
-    assert.equal(await git(f.origin, ['rev-parse', 'develop']), initial);
-    const localOnly = await f.task('check', 'ENG-P', '--complete');
-    assert.equal(localOnly.deliveryStatus, 'not_published');
-    const state = await f.state(staged.batchId);
-    assert.equal(state.sources.length, 1);
-    assert.equal(state.sources[0].id, 'ENG-P');
-    assert.deepEqual(state.sources[0].executionBatch.members.map((unit) => unit.id), ['ENG-A', 'ENG-B', 'ENG-C']);
-    assert.deepEqual(state.sources[0].executionBatch.members.map((unit) => unit.verificationId),
-      [a, b, c].map((unit) => unit.verified.verification.id));
-    const stageChecks = (await readFile(f.counter, 'utf8')).trim().split('\n').length;
-    const reusedStage = await f.run('stage', '--resume', staged.batchId, '--write');
-    assert.equal(reusedStage.status, 'passed', JSON.stringify(reusedStage));
-    assert.equal((await readFile(f.counter, 'utf8')).trim().split('\n').length, stageChecks,
-      '同一有效 stage 收据无需重复验证');
-    const published = await f.run('publish', '--batch', staged.batchId, '--write');
-    assert.equal(published.integrationStatus, 'integrated_cleanup_pending', JSON.stringify(published));
-    assert.equal(existsSync(f.source), true, 'Linear 回写完成前保留共享任务锚点和工作区');
-    assert.equal((await f.task('check', 'ENG-P', '--complete')).deliveryStatus, 'remote_confirmed');
-    const remote = await git(f.origin, ['rev-parse', 'develop']);
-    for (const head of [a.head, b.head, c.head]) await git(f.repo, ['merge-base', '--is-ancestor', head, remote]);
-    const checks = (await readFile(f.counter, 'utf8')).trim().split('\n');
-    assert.ok(checks.includes(staged.candidateHead), '最终候选也必须取得验证');
-    const count = checks.length;
-    const retry = await f.run('publish', '--batch', staged.batchId, '--write');
-    assert.equal(retry.pushed, false);
-    assert.equal((await readFile(f.counter, 'utf8')).trim().split('\n').length, count);
-    assert.equal(await git(f.origin, ['rev-parse', 'develop']), remote);
-    assert.equal(existsSync(f.source), true, '状态回写失败后重试 publish 也不得清理任务工作区');
-    const cleaned = await f.run('cleanup', '--batch', staged.batchId, '--write');
-    assert.equal(cleaned.integrationStatus, 'integrated', JSON.stringify(cleaned));
+    assert.equal(staged.integrationStatus, 'local_integrated', JSON.stringify(staged));
     assert.equal(existsSync(f.source), false);
-    const cleanupRetry = await f.run('cleanup', '--batch', staged.batchId, '--write');
-    assert.equal(cleanupRetry.pushed, false);
-    assert.equal((await readFile(f.counter, 'utf8')).trim().split('\n').length, count);
+    assert.equal(await readFile(f.counter, 'utf8'), checks);
+    assert.equal(await git(f.origin, ['rev-parse', 'develop']), initial);
+    const complete = (await runCommand(['task', 'check', 'ENG-P', '--complete', '--project', f.repo, '--json'], { cwd: f.repo })).report;
+    assert.equal(complete.deliveryStatus, 'local_integrated', JSON.stringify(complete));
+    assert.equal(complete.publication.localMergeCommit, staged.localMergeCommit);
+    for (const member of complete.publication.members) {
+      await git(f.repo, ['merge-base', '--is-ancestor', member.commit, 'develop']);
+      const child = (await runCommand(['task', 'check', 'ENG-P', '--unit', member.id,
+        '--complete', '--project', f.repo, '--json'], { cwd: f.repo })).report;
+      assert.equal(child.deliveryStatus, 'local_integrated');
+    }
+    await writeFile(path.join(f.repo, 'later.txt'), 'later\n');
+    await git(f.repo, ['add', '.']);
+    await git(f.repo, ['commit', '-qm', 'feat: later local change']);
+    const later = (await runCommand(['task', 'check', 'ENG-P', '--complete', '--project', f.repo, '--json'], { cwd: f.repo })).report;
+    assert.equal(later.deliveryStatus, 'local_integrated', JSON.stringify(later));
+    const state = await f.state(staged.batchId);
+    state.sources[0].executionBatch.members[0].commit = '0'.repeat(40);
+    await writeFile(path.join(f.repo, '.git', `vibe-harness-land-batch-${staged.batchId}.json`), JSON.stringify(state));
+    const invalid = (await runCommand(['task', 'check', 'ENG-P', '--complete', '--project', f.repo, '--json'], { cwd: f.repo })).report;
+    assert.notEqual(invalid.status, 'passed');
   } finally { await removeTemporaryDirectory(f.root); }
 });
 
@@ -292,27 +267,6 @@ for (const invalid of ['dirty', 'hook-tree', 'forged-receipt', 'check-definition
   });
 }
 
-test('Parent 成员变化在 stage 后继续阻断 publish，确认 plan-sync 不自动完成新成员', async () => {
-  const f = await parentFixture();
-  try {
-    await f.finish();
-    const staged = await f.run('stage', '--task', 'ENG-P', '--write');
-    assert.equal(staged.status, 'passed', JSON.stringify(staged));
-    const nextUnits = [...f.units, { id: 'ENG-D', files: ['src/D.txt'], acceptance: ['A-004'], dependsOn: ['ENG-C'] }];
-    await writeFile(f.planPath, f.plan({ ...f.executionBatch, members: [...f.executionBatch.members, 'ENG-D'] }, nextUnits));
-    assert.equal((await f.task('plan-check', 'ENG-P')).code, 'VIBE_HARNESS_PLAN_DRIFT');
-    const refused = await f.run('publish', '--batch', staged.batchId, '--write');
-    assert.notEqual(refused.integrationStatus, 'integrated');
-    assert.equal(await git(f.origin, ['rev-parse', 'develop']), f.executionBatch.baseSha);
-    const sync = await f.task('plan-sync', 'ENG-P', '--reason', 'User confirmed adding ENG-D', '--write');
-    assert.equal(sync.status, 'passed');
-    const added = sync.anchor?.units?.find((unit) => unit.id === 'ENG-D');
-    const anchor = added ? sync.anchor : JSON.parse(await readFile(path.join(f.source, '.vibe-harness/tasks/ENG-P.json')));
-    assert.equal(anchor.units.find((unit) => unit.id === 'ENG-D').status, 'pending');
-    assert.equal((await f.run('stage', '--task', 'ENG-P', '--write')).integrationStatus, 'not_integrated');
-  } finally { await removeTemporaryDirectory(f.root); }
-});
-
 test('Parent 拒绝外部交付循环、未知依赖和多目标，外部前驱未交付不放行', async () => {
   const f = await parentFixture();
   try {
@@ -386,63 +340,12 @@ test('Parent 复用冻结基线中已交付任务的提交，不制造空提交�
     assert.equal(saved.status, 'passed', JSON.stringify(saved));
     assert.equal(await git(f.source, ['rev-parse', 'HEAD']), delivered);
     assert.equal((await f.task('check', 'ENG-P', '--unit', 'ENG-B', '--dispatch')).status, 'passed');
-    assert.equal((await f.task('check', 'ENG-P', '--complete')).deliveryStatus, 'not_published');
+    assert.equal((await f.task('check', 'ENG-P', '--complete')).deliveryStatus, 'not_integrated');
     const state = await taskParentBatchEvidence(f.source, 'ENG-P');
     assert.deepEqual(state.localCompleted, ['ENG-A']);
     assert.deepEqual(state.unmappedCommits, []);
   } finally { await removeTemporaryDirectory(f.root); }
 });
-
-for (const mode of ['advance', 'conflict', 'protected', 'multi-push', 'hook']) {
-  test(`Parent 统一发布在 ${mode} 时复用远端同步与拒绝边界`, async () => {
-    const f = await parentFixture();
-    try {
-      const heads = await f.finish();
-      const staged = await f.run('stage', '--task', 'ENG-P', '--write');
-      assert.equal(staged.status, 'passed', JSON.stringify(staged));
-      let remoteBefore = f.executionBatch.baseSha;
-      if (['advance', 'conflict'].includes(mode)) {
-        const other = path.join(f.root, 'other-clone');
-        await git(f.root, ['clone', '-q', '-b', 'develop', f.origin, other]);
-        await git(other, ['config', 'user.name', 'Other']);
-        await git(other, ['config', 'user.email', 'other@example.invalid']);
-        await mkdir(path.join(other, 'src'), { recursive: true });
-        await writeFile(path.join(other, mode === 'conflict' ? 'src/A.txt' : 'remote.txt'), 'remote change\n');
-        await git(other, ['add', '.']);
-        await git(other, ['commit', '-qm', 'feat(remote): advance develop']);
-        await git(other, ['push', '-q', 'origin', 'HEAD:refs/heads/develop']);
-        remoteBefore = await git(f.origin, ['rev-parse', 'develop']);
-      }
-      if (mode === 'protected') {
-        const receiver = path.join(f.origin, 'hooks/pre-receive');
-        await writeFile(receiver, '#!/bin/sh\necho "protected branch: direct updates rejected" >&2\nexit 1\n');
-        await chmod(receiver, 0o755);
-      }
-      if (mode === 'multi-push') {
-        await git(f.repo, ['config', '--add', 'remote.origin.pushurl', f.origin]);
-        await git(f.repo, ['config', '--add', 'remote.origin.pushurl', path.join(f.root, 'another.git')]);
-      }
-      if (mode === 'hook') {
-        const prePush = path.join(f.repo, '.git/hooks/pre-push');
-        await writeFile(prePush, '#!/bin/sh\nexit 1\n');
-        await chmod(prePush, 0o755);
-      }
-      const result = await f.run('publish', '--batch', staged.batchId, '--write');
-      if (mode === 'advance') {
-        assert.equal(result.integrationStatus, 'integrated_cleanup_pending', JSON.stringify(result));
-        const final = await git(f.origin, ['rev-parse', 'develop']);
-        await git(f.repo, ['merge-base', '--is-ancestor', remoteBefore, final]);
-        for (const head of heads) await git(f.repo, ['merge-base', '--is-ancestor', head, final]);
-        assert.ok((await readFile(f.counter, 'utf8')).trim().split('\n').includes(final), '新基线候选必须重验');
-      } else {
-        assert.notEqual(result.integrationStatus, 'integrated', JSON.stringify(result));
-        assert.equal(await git(f.origin, ['rev-parse', 'develop']), remoteBefore);
-        for (const head of heads) await git(f.repo, ['cat-file', '-e', `${head}^{commit}`]);
-        assert.equal(await git(f.source, ['rev-parse', 'HEAD']), heads.at(-1));
-      }
-    } finally { await removeTemporaryDirectory(f.root); }
-  });
-}
 
 test('delivery policy is identical for CLI/runtime and never omits required high-risk checks for quick', async () => {
   const f = await fixture();
@@ -464,96 +367,110 @@ test('delivery policy is identical for CLI/runtime and never omits required high
   } finally { await removeTemporaryDirectory(f.root); }
 });
 
-test('candidate identities and ports differ; named resources block only the matching checks', async () => {
+test('delivery preflight refuses unavailable inputs and mismatched candidates before product checks', async () => {
   const f = await fixture();
   try {
-    await f.source('A'); await f.source('B');
-    const [a, b] = await Promise.all([f.stage('A'), f.stage('B')]);
-    const ca = await readCandidateResources(f.repo, a.candidatePath);
-    const cb = await readCandidateResources(f.repo, b.candidatePath);
-    assert.notEqual(ca.id, cb.id);
-    assert.notEqual(ca.namespace, cb.namespace);
-    assert.notDeepEqual(ca.ports, cb.ports);
-    const lock = await acquireCheckResources(a.candidatePath, ['db/shared']);
-    assert.equal(lock.ok, true);
-    try {
-      const blocked = await acquireCheckResources(b.candidatePath, ['db/shared'], { timeoutMs: 80 });
-      assert.equal(blocked.code, 'CHECK_RESOURCE_BUSY');
-      const unrelated = await acquireCheckResources(b.candidatePath, ['db/other'], { timeoutMs: 80 });
-      assert.equal(unrelated.ok, true);
-      unrelated.release();
-    } finally { lock.release(); }
+    const wrong = await verifyProject(f.repo, { expectedHead: 'a'.repeat(40) });
+    assert.equal(wrong.code, 'VERIFICATION_CANDIDATE_MISMATCH');
+    f.config.worktree.dependencyRoots = ['../invalid'];
+    await writeFile(path.join(f.repo, 'vibe-harness.config.json'), JSON.stringify(f.config));
+    const unavailable = await verifyProject(f.repo, { deliveryEvidence: true });
+    assert.equal(unavailable.code, 'VERIFICATION_INPUTS_UNAVAILABLE');
+    assert.equal(existsSync(f.counter), false);
   } finally { await removeTemporaryDirectory(f.root); }
 });
 
-test('native managed push consumes exact proof once; cleanup retry does not rerun checks or push', async () => {
+test('resource waiters run FIFO for overlapping resources without blocking disjoint checks', async () => {
   const f = await fixture();
+  let holder, first, second, unrelated;
   try {
-    await f.source('A');
-    const staged = await f.stage('A');
-    await f.installHook();
-    await writeFile(path.join(f.repo, 'dirty-user.txt'), 'preserve');
-    const published = await f.run('publish', '--batch', staged.batchId, '--write');
-    assert.equal(published.integrationStatus, 'integrated', JSON.stringify(published));
-    assert.equal((await readFile(f.counter, 'utf8')).trim(), staged.candidateHead);
-    assert.equal(await git(f.origin, ['rev-parse', 'develop']), staged.candidateHead);
-    const dry = await f.run('cleanup', '--batch', staged.batchId);
-    assert.equal(dry.status, 'planned');
-    const retry = await f.run('cleanup', '--batch', staged.batchId, '--write');
-    assert.equal(retry.alreadyCleaned, true);
-    assert.equal(retry.pushed, false);
-    assert.equal((await readFile(f.counter, 'utf8')).trim(), staged.candidateHead);
-    assert.equal(await readFile(path.join(f.repo, 'dirty-user.txt'), 'utf8'), 'preserve');
-  } finally { await removeTemporaryDirectory(f.root); }
-});
-
-test('proof rejects changed ref, dependency bytes, environment and tampering; attempts are single-use', async () => {
-  const f = await fixture();
-  const previous = process.env.VH_PROOF_TEST;
-  try {
-    await f.source('A');
-    const staged = await f.stage('A');
-    const state = await f.state(staged.batchId);
-    assert.equal((await inspectPushVerification(f.repo, state.pushProof)).ok, true);
-    const endpoint = { url: f.origin, ref: 'refs/heads/develop' };
-    const attempt = await preparePushAttempt(f.repo, state.pushProof, endpoint);
-    assert.equal(attempt.ok, true);
-    assert.equal((await inspectPushVerification(f.repo, attempt.id,
-      { ...endpoint, sha: staged.candidateHead, ref: 'refs/heads/other' })).ok, false);
-    assert.equal((await inspectPushVerification(f.repo, attempt.id, { ...endpoint, sha: staged.candidateHead })).ok, true);
-    assert.equal((await inspectPushVerification(f.repo, attempt.id, { ...endpoint, sha: staged.candidateHead })).ok, false);
-    process.env.VH_PROOF_TEST = randomUUID();
-    assert.equal((await inspectPushVerification(f.repo, state.pushProof)).code, 'PUSH_PROOF_STALE');
-    if (previous === undefined) delete process.env.VH_PROOF_TEST; else process.env.VH_PROOF_TEST = previous;
-    await mkdir(path.join(staged.candidatePath, 'node_modules'), { recursive: true });
-    await writeFile(path.join(staged.candidatePath, 'node_modules/input'), 'changed');
-    assert.equal((await inspectPushVerification(f.repo, state.pushProof)).code, 'PUSH_PROOF_STALE');
-    const proofFile = path.join(f.repo, '.git/vibe-harness-push-proofs', `${state.pushProof}.json`);
-    const proof = JSON.parse(await readFile(proofFile, 'utf8'));
-    proof.head = 'a'.repeat(40);
-    await writeFile(proofFile, JSON.stringify(proof));
-    assert.equal((await inspectPushVerification(f.repo, state.pushProof)).ok, false);
+    holder = await acquireCheckResources(f.repo, ['backend'], { timeoutMs: 2000 });
+    assert.equal(holder.ok, true);
+    const order = [];
+    const pendingFirst = acquireCheckResources(f.repo, ['backend'], { timeoutMs: 10000 }).then((lock) => {
+      first = lock;
+      order.push('first');
+      return lock;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const pendingSecond = acquireCheckResources(f.repo, ['backend'], { timeoutMs: 10000 }).then((lock) => {
+      second = lock;
+      order.push('second');
+      return lock;
+    });
+    unrelated = await acquireCheckResources(f.repo, ['frontend'], { timeoutMs: 1000 });
+    assert.equal(unrelated.ok, true);
+    holder.release();
+    assert.equal((await pendingFirst).ok, true);
+    assert.deepEqual(order, ['first']);
+    first.release();
+    assert.equal((await pendingSecond).ok, true);
+    assert.deepEqual(order, ['first', 'second']);
   } finally {
-    if (previous === undefined) delete process.env.VH_PROOF_TEST; else process.env.VH_PROOF_TEST = previous;
+    for (const lock of [holder, first, second, unrelated]) lock?.release?.();
     await removeTemporaryDirectory(f.root);
   }
 });
 
-test('ordinary multi-ref push checks pushed SHA once despite dirty primary and ignores deleted refs', async () => {
+test('validation Git commands ignore a foreign hook repository and index', async () => {
+  const f = await fixture();
+  try {
+    const result = await executeCommand('git rev-parse HEAD', f.repo, 5000, f.repo, {
+      GIT_DIR: path.join(f.root, 'foreign.git'), GIT_WORK_TREE: f.root, GIT_INDEX_FILE: 'foreign-index',
+    });
+    assert.equal(result.status, 'passed', JSON.stringify(result));
+    assert.equal(result.stdout.trim(), await git(f.repo, ['rev-parse', 'HEAD']));
+  } finally { await removeTemporaryDirectory(f.root); }
+});
+
+test('explicit fresh evidence disables even deterministic check cache reuse', async () => {
+  const f = await fixture({ validationCommands: {
+    tiers: { quick: ['node check.mjs'], standard: ['node check.mjs'], deep: [] },
+    checks: [{ id: 'test', command: 'node check.mjs', deterministic: true, evidenceScope: 'fresh' }],
+  } });
+  try {
+    assert.equal((await verifyProject(f.repo, { reuse: true })).status, 'passed');
+    assert.equal((await verifyProject(f.repo, { reuse: true })).status, 'passed');
+    assert.equal((await readFile(f.counter, 'utf8')).trim().split('\n').length, 2);
+  } finally { await removeTemporaryDirectory(f.root); }
+});
+
+test('ordinary push rejects multiple refs and deletions before running checks', async () => {
   const f = await fixture();
   try {
     const source = await f.source('A');
     const head = await git(source, ['rev-parse', 'HEAD']);
     await f.installHook();
     await writeFile(path.join(f.repo, 'check.mjs'), 'throw new Error("dirty checkout must not execute");\n');
-    await git(f.repo, ['push', 'origin', `${head}:refs/heads/one`, `${head}:refs/heads/two`]);
-    assert.equal((await readFile(f.counter, 'utf8')).trim(), head);
-    await git(f.repo, ['push', 'origin', ':refs/heads/one']);
-    assert.equal((await readFile(f.counter, 'utf8')).trim(), head);
+    await assert.rejects(
+      git(f.repo, ['push', 'origin', `${head}:refs/heads/one`, `${head}:refs/heads/two`]),
+      (error) => /PUSH_TARGET_UNVERIFIED/u.test(String(error.stderr ?? error.message)),
+    );
+    await assert.rejects(
+      git(f.repo, ['push', 'origin', ':refs/heads/one']),
+      (error) => /PUSH_TARGET_UNVERIFIED/u.test(String(error.stderr ?? error.message)),
+    );
+    assert.equal(existsSync(f.counter), false);
   } finally { await removeTemporaryDirectory(f.root); }
 });
 
-test('isolated native push candidate preserves pnpm package dependency adjacency', async () => {
+test('ordinary exact current-branch push confirms Git only despite a dirty primary', async () => {
+  const f = await fixture();
+  try {
+    await mkdir(path.join(f.repo, 'src'), { recursive: true });
+    await writeFile(path.join(f.repo, 'src/exact.txt'), 'exact\n');
+    await git(f.repo, ['add', 'src/exact.txt']);
+    await git(f.repo, ['commit', '-qm', 'feat: exact push']);
+    const head = await git(f.repo, ['rev-parse', 'HEAD']);
+    await f.installHook();
+    await writeFile(path.join(f.repo, 'check.mjs'), 'throw new Error("dirty checkout must not execute");\n');
+    await git(f.repo, ['push', 'origin', `${head}:refs/heads/develop`]);
+    assert.equal(await git(f.origin, ['rev-parse', 'develop']), head);
+    assert.equal(existsSync(f.counter), false, '普通 push 不运行项目检查');
+  } finally { await removeTemporaryDirectory(f.root); }
+});
+
+test('isolated ordinary push does not create a verification candidate', async () => {
   const f = await fixture({
     worktree: { dependencyMode: 'isolated' },
     validationCommands: {
@@ -577,8 +494,8 @@ test('isolated native push candidate preserves pnpm package dependency adjacency
     const source = await f.source('A');
     const head = await git(source, ['rev-parse', 'HEAD']);
     await f.installHook();
-    await git(f.repo, ['push', 'origin', `${head}:refs/heads/native-deps`]);
-    assert.equal(await git(f.origin, ['rev-parse', 'native-deps']), head);
+    await git(source, ['push', 'origin', `${head}:refs/heads/feat/A`]);
+    assert.equal(await git(f.origin, ['rev-parse', 'feat/A']), head);
   } finally { await removeTemporaryDirectory(f.root); }
 });
 
@@ -608,145 +525,31 @@ test('proof creation rejects inputs changed after verification instead of signin
   }
 });
 
-test('externally integrated dirty source is retained, then batch cleanup finishes without merging or pushing', async () => {
-  const f = await fixture();
-  try {
-    const source = await f.source('A');
-    const staged = await f.stage('A');
-    await git(f.repo, ['push', 'origin', `${staged.sourceHead}:refs/heads/develop`]);
-    await writeFile(path.join(source, 'dirty.txt'), 'preserve');
-    const integrated = await f.run('publish', '--batch', staged.batchId, '--write');
-    assert.equal(integrated.integrationStatus, 'integrated_cleanup_pending', JSON.stringify(integrated));
-    assert.equal(existsSync(source), true);
-    // Restore only this fixture's deliberately added file.
-    const { unlink } = await import('node:fs/promises');
-    await unlink(path.join(source, 'dirty.txt'));
-    const retry = await f.run('cleanup', '--batch', staged.batchId, '--write');
-    assert.equal(retry.integrationStatus, 'integrated', JSON.stringify(retry));
-    assert.equal(retry.pushed, false);
-    assert.equal(await git(f.origin, ['rev-parse', 'develop']), staged.sourceHead);
-    assert.equal((await readFile(f.counter, 'utf8')).trim(), staged.candidateHead);
-  } finally { await removeTemporaryDirectory(f.root); }
-});
-
-test('candidate journal retains stopped ownership after directory removal and rejects foreign identity', async () => {
-  const f = await fixture();
-  try {
-    await f.source('A');
-    const staged = await f.stage('A');
-    const context = await readCandidateResources(f.repo, staged.candidatePath);
-    await assert.rejects(saveCandidateResources(f.repo, staged.candidatePath, { ...context, id: 'foreign' }), /ownership/);
-    await saveCandidateResources(f.repo, staged.candidatePath, { ...context, phase: 'stopped' });
-    await git(f.repo, ['worktree', 'remove', staged.candidatePath]);
-    assert.equal((await readCandidateResources(f.repo, staged.candidatePath)).phase, 'stopped');
-  } finally { await removeTemporaryDirectory(f.root); }
-});
-
-test('partial setup resumes only the unfinished step and failed teardown retains resource ownership', async () => {
-  const f = await fixture({
-    worktree: { provision: {
-      candidateSetupCommands: ['node setup.mjs first', 'node setup.mjs second'],
-      candidateTeardownCommands: ['node setup.mjs stop'],
-    } },
-    files: { 'setup.mjs': `import {existsSync,writeFileSync,appendFileSync} from 'node:fs';
-const step=process.argv[2];
-if (!process.env.VIBE_HARNESS_RESOURCE_STEP || !process.env.VIBE_HARNESS_WORKSPACE_ID) process.exit(9);
-if (step==='second' && !existsSync('.vibe-harness/retried')) {
-  writeFileSync('.vibe-harness/retried','1'); process.exit(2);
-}
-if (step==='stop' && !existsSync('.vibe-harness/stop-ready')) process.exit(3);
-appendFileSync('.vibe-harness/steps',step+'\\n');
-` },
-  });
-  try {
-    await f.source('A');
-    const failed = await f.run('stage', '--task', 'A', '--write');
-    assert.equal(failed.code, 'LAND_VERIFY_ENVIRONMENT_FAILED', JSON.stringify(failed));
-    const state = await f.state(failed.batchId);
-    const context = await readCandidateResources(f.repo, state.candidate);
-    assert.equal(context.setupNext, 1);
-    assert.equal(context.pendingStep, 'setup:1');
-    assert.equal(context.dependencyMode, 'isolated');
-    const resumed = await f.run('stage', '--resume', failed.batchId, '--write');
-    assert.equal(resumed.status, 'passed', JSON.stringify(resumed));
-    assert.equal(await readFile(path.join(state.candidate, '.vibe-harness/steps'), 'utf8'), 'first\nsecond\n');
-    const published = await f.run('publish', '--batch', failed.batchId, '--write');
-    assert.equal(published.integrationStatus, 'integrated_cleanup_pending', JSON.stringify(published));
-    assert.equal((await readCandidateResources(f.repo, state.candidate)).pendingStep, 'teardown:0');
-    await writeFile(path.join(state.candidate, '.vibe-harness/stop-ready'), '1');
-    const cleanup = await f.run('cleanup', '--batch', failed.batchId, '--write');
-    assert.equal(cleanup.integrationStatus, 'integrated', JSON.stringify(cleanup));
-    assert.equal((await readCandidateResources(f.repo, state.candidate)).phase, 'cleaned');
-  } finally { await removeTemporaryDirectory(f.root); }
-});
-
-test('dependency-writing candidate owns copies and cannot change primary dependency bytes', async () => {
-  const f = await fixture({ worktree: { dependencyMode: 'isolated' } });
-  try {
-    await mkdir(path.join(f.repo, 'node_modules'), { recursive: true });
-    await writeFile(path.join(f.repo, 'node_modules/input'), 'original');
-    await f.source('A');
-    const staged = await f.stage('A');
-    await writeFile(path.join(staged.candidatePath, 'node_modules/input'), 'changed');
-    assert.equal(await readFile(path.join(f.repo, 'node_modules/input'), 'utf8'), 'original');
-    const state = await f.state(staged.batchId);
-    assert.equal((await inspectPushVerification(f.repo, state.pushProof)).code, 'PUSH_PROOF_STALE');
-  } finally { await removeTemporaryDirectory(f.root); }
-});
-
-test('remote high-risk changes rebuild the required plan and failed integration never reaches the remote', async () => {
-  const f = await fixture({
-    validationCommands: { test: 'node check.mjs',
-      tiers: { quick: ['node check.mjs'], standard: ['node integration.mjs'], deep: [] },
-      checks: [{ id: 'test', command: 'node check.mjs', deterministic: true }] },
-    files: { 'integration.mjs': 'process.exit(3);\n' },
-  });
-  try {
-    await f.source('A');
-    const staged = await f.stage('A');
-    await mkdir(path.join(f.repo, 'schemas'));
-    await writeFile(path.join(f.repo, 'schemas/remote.json'), '{}');
-    await git(f.repo, ['add', '.']);
-    await git(f.repo, ['commit', '-qm', 'feat: remote contract']);
-    await git(f.repo, ['push', 'origin', 'develop']);
-    const remote = await git(f.origin, ['rev-parse', 'develop']);
-    const failed = await f.run('publish', '--batch', staged.batchId, '--write');
-    assert.equal(failed.code, 'LAND_VERIFY_FAILED', JSON.stringify(failed));
-    assert.ok(Object.values(failed.verification.checks).some((check) =>
-      check.command === 'node integration.mjs' && check.status === 'failed'));
-    assert.equal(await git(f.origin, ['rev-parse', 'develop']), remote);
-    const state = await f.state(staged.batchId);
-    assert.equal(state.risk.riskLevel, 'high');
-  } finally { await removeTemporaryDirectory(f.root); }
-});
-
-test('已认证分支首次推送按开发基线验证，缺失基线仍保守扩大', async () => {
+test('bootstrap 不创建推送证明，普通 push 不运行质量验证', async () => {
   const f = await fixture({ validationCommands: {
     tiers: { quick: ['node check.mjs'], standard: [], deep: ['node -e "process.exit(42)"'] },
     checks: [{ id: 'test', command: 'node check.mjs' }],
   } });
   try {
-    const base = await git(f.repo, ['rev-parse', 'HEAD']);
     const source = await f.source('A');
     const head = await git(source, ['rev-parse', 'HEAD']);
     const update = { localRef: 'refs/heads/feat/A', sha: head, remoteSha: '0'.repeat(40) };
-    assert.equal(await resolvePushBaseline(f.repo, update), base);
+    assert.equal(await resolvePushBaseline(f.repo, update), null);
     assert.equal(await resolvePushBaseline(f.repo, { ...update, localRef: 'refs/heads/unknown' }), null);
     await f.installHook();
     await git(source, ['push', 'origin', 'feat/A']);
-    assert.equal((await readFile(f.counter, 'utf8')).trim(), head);
+    assert.equal(existsSync(f.counter), false, '普通 push 不创建候选验证树或运行检查');
     await writeFile(path.join(source, 'src/A.txt'), 'second change');
     await git(source, ['commit', '-qam', 'fix: second change']);
     await git(source, ['push', 'origin', 'feat/A']);
-    assert.equal((await readFile(f.counter, 'utf8')).trim().split('\n').length, 2);
+    assert.equal(existsSync(f.counter), false);
     await git(source, ['branch', 'unproven']);
     await assert.rejects(git(source, ['push', 'origin', 'unproven']), /verification|failed|push/iu);
     await assert.rejects(git(f.origin, ['rev-parse', '--verify', 'refs/heads/unproven']));
   } finally { await removeTemporaryDirectory(f.root); }
 });
 
-
-test('纯文档 stage 只取必要文档证据，显式 quick 才增加快速层全集', async () => {
+test('纯文档 stage 不启动任何质量验证，即使传入旧 tier 参数', async () => {
   const f = await fixture({ validationCommands: {
     tiers: { quick: ['node check.mjs', 'node check.mjs docs'], standard: [], deep: [] },
     checks: [{ id: 'test', command: 'node check.mjs' }, { id: 'docs', command: 'node check.mjs docs' }],
@@ -759,12 +562,12 @@ test('纯文档 stage 只取必要文档证据，显式 quick 才增加快速层
     await git(source, ['add', '.']);
     await git(source, ['commit', '-qm', 'docs: note']);
     const base = ['stage', '--task', 'DOC'];
-    assert.deepEqual((await f.run(...base)).selectedChecks, ['docs']);
-    assert.deepEqual((await f.run(...base, '--tier', 'quick')).selectedChecks, ['test', 'docs']);
+    assert.equal((await f.run(...base)).selectedChecks, undefined);
+    assert.equal((await f.run(...base, '--tier', 'quick')).selectedChecks, undefined);
     const staged = await f.run(...base, '--write');
     assert.equal(staged.status, 'passed', JSON.stringify(staged));
-    assert.deepEqual(staged.integration.selectedChecks, ['docs']);
-    assert.equal((await readFile(f.counter, 'utf8')).trim().split('\n').length, 1);
+    assert.equal(staged.integrationStatus, 'local_integrated');
+    assert.equal(existsSync(f.counter), false);
   } finally { await removeTemporaryDirectory(f.root); }
 });
 

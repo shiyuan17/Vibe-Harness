@@ -1,5 +1,7 @@
 # Git worktree 并行开发与协作审查
 
+> 历史审计：旧远端交付步骤已由 [本地 Worktree 交付决策](../docs/specs/worktree-collaboration-migration.md)取代。以下保留当时证据，不作为当前操作要求。
+
 日期：2026-10-27。范围：governance-core、git-rules、两个显式 develop Skill、
 task-decomposition、Linear/协作/测试规则，以及 runtime、Git/Agent Hooks、CI。
 这是仓库实际状态审查，不是对真实 Linear 项目或远端分支保护的认证。
