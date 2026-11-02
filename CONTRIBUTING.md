@@ -72,6 +72,12 @@ git diff --check
 
 证据层级 L0-L6、成本档 quick/standard/deep 与运行范围 affected/layer/full 是三个独立维度；测试目录按 unit/component/integration/e2e/matrix 分类，不构成另一套证据层级或改变 `vibe-harness.config.json` 的命令归属。
 
+本地 stage 只记录本地 Git 合并事实，不消费或生成推送证明。质量验证在任务完成阶段执行；输入变化时只补受影响验证，不因提交或合并重复检查。
+
+共享依赖的复用以独立完整内容快照为依据，不以 `shared-immutable` 名称作信任证明。依赖图的文件字节、目录、链接边和执行权限均参与核对；缓存、报告和 Vite 临时配置应放入候选独立输出目录。资源按选中原子检查获取，只对相交资源请求排队；等待与执行分别报告，超过声明预算返回 blocked，不抢占活跃进程或按 TTL 删除未知归属锁。
+
+作用域感知的原子检查可返回 `not_applicable`，汇总后保留为 `not_selected`，不生成该项通过缓存。存在实际通过或有效复用的适用项、且没有失败、阻塞或未执行的适用项时，允许形成该范围的交付证据；全空选择仍为 unverified。推送证明保留未选项及原因，不把它们改写成通过；混合范围不使用会合成通过状态的整轮缓存，只逐项复用真实通过的原子检查。
+
 普通变更的默认门禁是 `pnpm check:fast`（语法/资产扫描、typecheck、单元测试，与 `vibe-harness verify` 快速层同一定义）；`pnpm check` 是 `pnpm check:full` 的别名，在 `check:fast` 之上追加 ESLint、安装结构校验、测试台账校验与组件测试（L2），升级到阶段收尾、合并前或高风险边界运行。CI 的 fast 门禁执行 `pnpm lint:eslint` 与 `pnpm check:fast`，full 门禁执行完整 `pnpm check`，本地不再与远端门禁存在覆盖差异。集成（L4）、端到端关键路径（L5）与全量矩阵（L6）按需显式运行，具体层级与成本档见 `docs/rules/test-rules.md`。
 
 installer 集成验证应覆盖已有文件拒写、红区确认、目标路径逃逸和事务回滚边界。
@@ -93,11 +99,11 @@ installer 集成验证应覆盖已有文件拒写、红区确认、目标路径�
 | `delivery.profile/stage`、`status` | 沿用实际交付模式；验证草稿保持 `stage=verify`，不因测试通过自动改成完整完成。 |
 | `acceptance` | 分别记录配置移除、隐私与拒绝回归、宿主生效；每项绑定实际命令或人工判据、范围及 `passed/failed/blocked/unverified`。 |
 | `verification` | 引用本轮 `id`、`finishedAt`、检查集合、选择理由、相关性审定、前后修订与指纹、`snapshotComparison`；失败时保留诊断和最终状态的同检查复验。 |
-| `source/target` | 使用实际来源和目标指纹；无远端证据时不声称已合并或发布。 |
-| `unverified`、`remainingRisks` | 列出深度层延期、未审定检查及未观察的宿主激活；`unreviewed/blocked/stale/queued/running` 均不能转述为通过。 |
+| `source/target` | 使用实际来源和目标指纹；本地合并与远端交付分别举证，不混用完成主张。 |
+| `unverified`、`remainingRisks` | 列出验收范围内的深度层延期和未审定检查；未观察的宿主激活不自动成为追加验收或待办，`unreviewed/blocked/stale/queued/running` 均不能转述为通过。 |
 | `rollback` | 只恢复受管安全处理器，不恢复原始输入 probe，不降低沙箱或处理旧日志。 |
 
-宿主生效独立于 CLI 用例：按宿主支持的方式重新加载配置后，用无副作用调用核对实际应用；合成拒绝输入仅验证处理器，不执行被测危险指令。无法观察宿主激活时交付为“配置修复及本地验证完成，宿主激活未验证”。短任务不因此强制创建任务锚点；已有锚点用 `task update <id> --unit <unit> --verification <file> --write` 登记真实验证报告，再运行 `task check <id> --complete`；旧 `--receipt` 参数明确拒绝。
+宿主生效独立于 CLI 用例；配置修复与 Envelope 退役以配置、源码、安装迁移及匹配的本地测试为验收依据，不追加宿主重载或外部系统确认。无法观察宿主激活时仅保留事实边界，不阻塞交付，也不把本地结果表述为真实宿主或 Linear 已成功。除非用户另行要求，不要求用户重试或提供外部写入证明，不把范围外确认列为待办。短任务不因此强制创建任务锚点；已有锚点用 `task update <id> --unit <unit> --verification <file> --write` 登记真实验证报告，再运行 `task check <id> --complete`；旧 `--receipt` 参数明确拒绝。
 
 本次优化的后续观察与修复交付分开：交付后 14 天内，在前 3 个自然发生的代码变更任务中沿用现有交付记录，记录最终变更与相关验证是否绑定、失败是否经诊断并复验、本地验证与实际接受是否区分。不制造任务、不新增自动监控或台账；目标是样本中没有无证据完成主张。至少两个独立可比任务才评估实际使用；缺少修复前可比基线时不宣称效率提升，窗口结束仍缺样本则记录“证据不足”。
 
@@ -130,13 +136,19 @@ H24-H29 为显式选择的在线试点，不进入默认或影响面派生的夜
 
 ## Eval reference 更新清单
 
-rules、runtime hooks 或 config 内容变更会使 `evals/references/` 的 asset fingerprint（config、hooks、rules、skills 分组哈希）按设计漂移，`pnpm eval:check`（复核 reference 与当前资产）与 `pnpm eval:replay`（复核签入 run 与当前资产）相应失败。reference 更新必须单独审查并显式确认，不得为让变更通过而自动提升：
+rules、runtime hooks 或 config 内容变更会使历史 reference 的输入指纹过期，但不自动改变批准判据。`pnpm eval:check` 校验历史资产合同并报告 stale，`pnpm eval:replay` 为当前输入生成新的 contract-replay 结果，`--write` 只写 `.vibe-harness/evals/` 新文件，保留旧 run/reference。两者不证明真实 Agent 行为。只有修改 oracle、预期、评分、权重、阈值或豁免才更新 reference，且必须单独审批，不得为消除失败自动提升：
 
 1. 确认指纹漂移分组与本轮预期变更一致（本轮只改 rules 时，漂移就应只有 rules 组）。
 2. 出现非预期分组漂移时先回到代码查因，不盲目再生成。
 3. 使用正规入口再生成：先 `pnpm vibe-harness eval run --project . --mode offline --write` 得到 run 文件（`.vibe-harness/evals/runs/<timestamp>.json`），再 `pnpm vibe-harness eval reference --project . --from <run 文件> --write --confirm-reference-update --force`；既有 reference 存在时缺少 `--force` 会以 `EVAL_REFERENCE_CONFLICT` 拒绝，`--force` 负责先备份旧文件再替换。命令细节见 `docs/evals.md`。`.agents/evals/` 镜像由 `pnpm eval:sync --write` 重生成（`pnpm eval:sync` 是只读检查，CI 的 `pnpm pack:contract` 已强制该镜像与 source 一致）；`evals/results/` 是运行产物，不参与镜像。
-   同一份资产指纹还嵌入签入的 replay 产物 `evals/results/vibe-harness-core.offline.json`，由 `pnpm eval:replay --write` 确定性重生成（旧文件备份到 `.vibe-harness/backups/`，该产物不参与 `.agents/evals/` 镜像）。`pnpm eval:check` 既交叉校验签入 run 与 reference 的指纹，也把 reference 指纹与当前资产树复核，两者不能只更新一侧：先再生成 reference，再用 `pnpm eval:replay --write` 重生成 run；`--write` 在 reference 仍不一致时以非零退出并给出下一步。
+   签入 run/reference 是历史配对，不用新源码指纹覆写。新 suite 输入在相同判据下可重跑；若 suite hash 已变，运行时从 reference 所属 Git 历史核对批准 suite，无法恢复时报告 blocked，不猜测判据未变。判据更新继续使用现有受保护入口和镜像同步。
 4. 重跑 `pnpm eval:check` 与 `pnpm eval:replay` 确认通过，并在 PR 说明中记录漂移分组与确认依据。
+
+## 源码与部署、交付例外
+
+`pnpm validate` 默认校验源包，不要求开发中立刻升级运行中的自安装 Hook；安装集成测试在临时目标中验证。`node scripts/validate.js --self-install` 和 doctor 保留当前部署一致性检查；源码通过不等于已部署。安装器先冻结实际内容差异，unchanged 文件不备份、不重写；真实红区修改和退役仍需一次覆盖完整差异的明确确认。
+
+普通 split-push 只做 Git 操作，不运行质量验证，不要求质量例外、宿主签名或审计空提交；历史 `runtime/lib/delivery-exception.mjs` 记录格式仅用于兼容，当前普通 Git Hook 不消费。实施阶段完成必要验证，本地 stage 不重复质量验证。
 
 ## 治理资产生成命令
 
@@ -146,7 +158,6 @@ rules、runtime hooks 或 config 内容变更会使 `evals/references/` 的 asse
 - `pnpm adr:new --title <标题> --owner <owner> [--write]`：按 `templates/adr/adr-template.md` 生成下一个 `docs/adr/ADR-0000-*.md`，并调用同一投影补齐 catalog、DECISIONS 与索引。非 ASCII 标题需要同时给出 `--slug`。
 - `pnpm eval:sync [--write]`：按 `adapters/install-map.json` 重生成 `.agents/evals/` 镜像；孤儿镜像项与缺失 source 只报告、不删除。
 - `pnpm release:readiness [--sha <sha>] [--require-clean] [--tarball <path>]`：核对版本一致性、changelog 条目与可选的发布边界事实，输出可随发布附带的就绪收据。
-- `pnpm envelope plan [--mode <mode>] [--issue <ID>] [--effect <effect>] --objective <text> --terminal <text> [--base-ref <ref>] [--host-context <file>] [--session-id <id>] [--emit receipt|envelope] [--out <path>] [--write]`：从当前工作区身份生成 Execution Envelope v2 草稿与随机 requestId，默认五分钟到期；sessionId 和 hostContext 只由宿主提供。`pnpm envelope check --file <path> [--cwd <path>]` 核对 schema、效果、时效与工作区；结构合格的 `source: "host"` 不等于可信签发，高风险检查返回 `HOST_PROOF_UNVERIFIED`。
 - `node .agents/runtime/commands/run.mjs review ocr --task <ISSUE-ID> --target <https-model-endpoint>` 只作受限预检，配置不就绪或协议不支持返回脱敏错误；即使预检成功也返回 `HOST_BROKER_REQUIRED`，不会启动 OCR 或生成独立评审回执。当前可使用真正独立的宿主原生 Reviewer 按既有审计契约提交回执。OCR 外发使用 v2 `dataEgress` 效果且须限定模型目标；管理员的旧 v2 兼容窗口不能授权新外发效果，具体配置与风险见 governance-core。
 - `pnpm receipt start|event|handoff|check`：固化 Linear 执行回执与交接协议。`start` 默认生成显式执行 v1 回执和新的 `executionId`、`runtimeInstanceId`（不复制宿主 thread、session、用户名、主机名或本地路径）；历史宿主管理的 Claim-bearing 运行使用 v3 并包含宿主提供的 `grantId`；v2/v3 仅供历史读取，活动队列自动派发已退役，显式执行不要求 Claim 或 Start/Terminal Receipt。`grantId` 只引用宿主保存的授权，不证明授权有效；Claim/Grant 字段由宿主产生，不要求用户补填。`event` 生成终结事件（`handed-off` 必须携带预生成的 successor ID），`handoff` 生成 `vibe-harness.handoff/v1` 载荷（声明 complete 必须同时满足 accepted 与 reviewed/passed 的 finalCheck），`check --file <comments.json> [--issue <ID>]` 同时分析 v1/v2/v3 回执历史：同 ID 不同内容、同一 Issue 多个 active execution、孤儿或重复终结事件、交接 successor 的 source 或目标 Issue 不符都报冲突并退出非零，交接未确认等合法中间态以 pending 报出。三个生成命令默认只打印记录，`--write` 时才写入 `--out`，且都不会写入 Linear 或派发任务。
 - `pnpm task-dag check --file <dag.json> --node <id> [--require-ready] [--json]`：按 `docs/rules/ai-collab-rules.md` 的节点字段校验派发前的轻量 Task DAG——节点契约、依赖边与环、writeScope 重叠、resourceLocks、ready 集与结构哈希；`hash` 输出确定性结构哈希供 checkpoint 记录。错误 fail-closed（未知前驱、环、自依赖、非法 writeScope、read 节点带写范围、write 节点无写范围、共享写路径且无依赖路径的两个 write 节点都不 ready）。共享运行资源只排队，不增加业务依赖；ready 和派发使用相同 trigger 判据。`--require-ready` 在无可派发节点时退出非零。命令只读，不写任何文件。`docs/templates/task.md` 的表格仍是人读记录，不被解析。
@@ -161,9 +172,9 @@ rules、runtime hooks 或 config 内容变更会使 `evals/references/` 的 asse
 
 PR 说明目标、影响范围、实际验证、未验证项和必要的回滚路径。一个 commit 表达一个逻辑目的；不要用格式化或无关重构掩盖行为变化。
 
-质量门禁由必要的本地候选自动验证和 CI 自动检查承担。`merge-gate` 聚合 product、supply-chain、security、branch-policy 与 change-plan；不消费本地独立审查收据，不增加人工批准 job。显式审查工具保留兼容接口，只有用户要求时才运行。风险说明直接引用 Planner 的风险、必要检查、非必需项与回滚信息。develop 直推不触发 CI，必须先完成最终候选的必要本地验证。
+质量门禁由任务完成阶段的必要验证和 CI 自动检查承担。`merge-gate` 聚合 product、supply-chain、security、branch-policy 与 change-plan；不消费本地独立审查收据，不增加人工批准 job。显式审查工具保留兼容接口，只有用户要求时才运行。风险说明直接引用 Planner 的风险、必要检查、非必需项与回滚信息。develop 直推不触发 CI；本地 stage 只核对 本地合并、冲突和安全 Hook，不重复任务完成验证。
 
-普通功能与修复从最新 <code>develop</code> 创建短期 <code>feat/*</code> 或 <code>fix/*</code> 分支，并以 squash merge 合入 <code>develop</code>；按 ADR-0013，<code>develop</code> 不配置服务器端 required gate，任务也可先以 <code>worktree stage</code> 生成本地已验证候选，再由 <code>worktree publish --batch &lt;id&gt;</code> 从最新 <code>origin/develop</code> 重建、验证、no-ff 发布并回读远端 SHA。紧急线上修复从 <code>main</code> 创建 <code>hotfix/*</code>，合入 <code>main</code> 后立即把 <code>main</code> 回同步到 <code>develop</code>。正式发布以 merge commit 将 <code>develop</code> 提升到 <code>main</code>；不得创建长期 <code>release/*</code> 分支。发布成功后必须将 <code>main</code> 回同步到 <code>develop</code>，版本文件未回同步时不得开始下一次发布提升。
+本地 stage 直接 no-ff 合入 develop，记录 localMergeCommit 与 local_integrated，不检查远端、不推送、不重复任务完成验证。紧急线上修复从 <code>main</code> 创建 <code>hotfix/*</code>，合入 <code>main</code> 后立即把 <code>main</code> 回同步到 <code>develop</code>。正式发布以 merge commit 将 <code>develop</code> 提升到 <code>main</code>；不得创建长期 <code>release/*</code> 分支。发布成功后必须将 <code>main</code> 回同步到 <code>develop</code>，版本文件未回同步时不得开始下一次发布提升。
 
 ## 发布
 

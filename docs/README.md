@@ -1,5 +1,7 @@
 # Vibe-Harness 文档索引
 
+当前 Worktree 交付采用[本地 develop 合并](specs/worktree-collaboration-migration.md)：不检查远端、不推送；历史两阶段 ADR 仅用于追溯。
+
 本页索引当前文档。机器真值位于 [`catalog.json`](catalog.json)；[`archive/`](archive/) 只用于历史追溯。
 
 ## 当前产品
@@ -34,8 +36,6 @@
 - [验证出队与秒级发布终锁的交付协议](adr/ADR-0024-out-of-queue-verification-and-second-scale-publish.md)
 - [候选取消限域、基线验证与环境失败续验](adr/ADR-0025-bounded-candidate-cancellation-and-retry.md)
 - [ADR Schema](schemas/adr.schema.json)
-- [Execution Envelope v1 Schema](schemas/execution-envelope.schema.json)
-- [Execution Envelope v2 Schema](schemas/execution-envelope-v2.schema.json)
 - [Linear Plan Schema](../schemas/linear-plan.schema.json)
 - [Linear Execution v3 Schema](../schemas/linear-execution-v3.schema.json)
 - [Linear Operations Event Schema](../schemas/linear-operations-event.schema.json)
@@ -43,8 +43,6 @@
 - [Project Config Schema](schemas/project-config.schema.json)
 - [ADR 模板](../templates/adr/adr-template.md)
 - [ADR 源 Schema](../schemas/adr.schema.json)
-- [Execution Envelope v1 源 Schema](../schemas/execution-envelope.schema.json)
-- [Execution Envelope v2 源 Schema](../schemas/execution-envelope-v2.schema.json)
 - [Project Verification Receipt 源 Schema](../schemas/project-verification.schema.json)
 - [Project Config 源 Schema](../schemas/project-config.schema.json)
 - [迁移指南](migration-guide.md)

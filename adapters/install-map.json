@@ -293,18 +293,6 @@
     },
     {
       "group": "schemas-core",
-      "source": "schemas/execution-envelope.schema.json",
-      "target": "docs/schemas/execution-envelope.schema.json",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "schemas-core",
-      "source": "schemas/execution-envelope-v2.schema.json",
-      "target": "docs/schemas/execution-envelope-v2.schema.json",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "schemas-core",
       "source": "schemas/role-pack.schema.json",
       "target": "docs/schemas/role-pack.schema.json",
       "contentStrategy": "replace"
@@ -471,12 +459,6 @@
       "group": "runtime-project-scripts",
       "source": "runtime/lib/worktree-command.mjs",
       "target": ".agents/runtime/lib/worktree-command.mjs",
-      "contentStrategy": "replace"
-    },
-    {
-      "group": "runtime-project-scripts",
-      "source": "runtime/lib/worktree-delivery-queue.mjs",
-      "target": ".agents/runtime/lib/worktree-delivery-queue.mjs",
       "contentStrategy": "replace"
     },
     {
@@ -1230,20 +1212,6 @@
     },
     {
       "group": "hooks",
-      "source": "runtime/hooks/lib/execution-envelope.mjs",
-      "target": ".agents/runtime/hooks/lib/execution-envelope.mjs",
-      "contentStrategy": "replace",
-      "redZone": true
-    },
-    {
-      "group": "hooks",
-      "source": "runtime/hooks/lib/legacy-envelope-compat.mjs",
-      "target": ".agents/runtime/hooks/lib/legacy-envelope-compat.mjs",
-      "contentStrategy": "replace",
-      "redZone": true
-    },
-    {
-      "group": "hooks",
       "source": "runtime/hooks/lib/frozen-test-writes.mjs",
       "target": ".agents/runtime/hooks/lib/frozen-test-writes.mjs",
       "contentStrategy": "replace",
@@ -1332,9 +1300,35 @@
     },
     {
       "group": "runtime-project-scripts",
+      "source": "runtime/lib/git-delivery-target.mjs",
+      "target": ".agents/runtime/lib/git-delivery-target.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
+      "source": "runtime/lib/delivery-exception.mjs",
+      "target": ".agents/runtime/lib/delivery-exception.mjs",
+      "contentStrategy": "replace"
+    },
+    {
+      "group": "runtime-project-scripts",
       "source": "runtime/lib/candidate-resources.mjs",
       "target": ".agents/runtime/lib/candidate-resources.mjs",
       "contentStrategy": "replace"
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/lib/execution-effects.mjs",
+      "target": ".agents/runtime/hooks/lib/execution-effects.mjs",
+      "contentStrategy": "replace",
+      "redZone": true
+    },
+    {
+      "group": "hooks",
+      "source": "runtime/hooks/lib/execution-safety.mjs",
+      "target": ".agents/runtime/hooks/lib/execution-safety.mjs",
+      "contentStrategy": "replace",
+      "redZone": true
     }
   ],
   "retiredEntries": [
@@ -1482,6 +1476,28 @@
     {
       "group": "hooks",
       "target": ".agents/vibe-harness/hooks/lib/policy.mjs"
+    },
+    {
+      "group": "schemas-core",
+      "target": "docs/schemas/execution-envelope.schema.json"
+    },
+    {
+      "group": "schemas-core",
+      "target": "docs/schemas/execution-envelope-v2.schema.json"
+    },
+    {
+      "group": "hooks",
+      "target": ".agents/runtime/hooks/lib/execution-envelope.mjs",
+      "redZone": true
+    },
+    {
+      "group": "hooks",
+      "target": ".agents/runtime/hooks/lib/legacy-envelope-compat.mjs",
+      "redZone": true
+    },
+    {
+      "group": "runtime-project-scripts",
+      "target": ".agents/runtime/lib/worktree-delivery-queue.mjs"
     }
   ]
 }

@@ -418,7 +418,6 @@
         "runtime/lib/verification-command.mjs",
         "runtime/lib/file-edit-command.mjs",
         "runtime/lib/worktree-command.mjs",
-        "runtime/lib/worktree-delivery-queue.mjs",
         "runtime/lib/worktree-audit.mjs",
         "runtime/lib/worktree-ports.mjs",
         "scripts/lib/project-verification.js",
@@ -455,8 +454,8 @@
       "disposition": "validator",
       "targets": [
         "runtime/hooks/codex-hook.mjs",
-        "runtime/hooks/lib/execution-envelope.mjs",
-        "runtime/hooks/lib/legacy-envelope-compat.mjs",
+        "runtime/hooks/lib/execution-effects.mjs",
+        "runtime/hooks/lib/execution-safety.mjs",
         "runtime/hooks/lib/policy.mjs",
         "runtime/hooks/lib/read-only-commands.mjs",
         "runtime/hooks/lib/context.mjs"
@@ -475,49 +474,6 @@
         "suites": [
           "evals/suites/vibe-harness-core.json",
           "evals/suites/vibe-harness-online-canary.json"
-        ]
-      }
-    },
-    {
-      "id": "execution-envelope-contract",
-      "source": "request-scoped execution authority, recovery checkpoint, and observable Hook enforcement",
-      "disposition": "validator",
-      "targets": [
-        "schemas/execution-envelope.schema.json",
-        "schemas/execution-envelope-v2.schema.json",
-        "runtime/hooks/lib/execution-envelope.mjs",
-        "runtime/hooks/lib/legacy-envelope-compat.mjs",
-        "runtime/hooks/codex-hook.mjs",
-        "docs/rules/governance-core.md",
-        "docs/rules/linear-workflow.md",
-        "skills/integrations/linear-workflow/SKILL.md",
-        "adapters/install-map.json"
-      ],
-      "tests": [
-        "tests/integration/hook-runtime.test.js",
-        "tests/e2e/hook-installation.test.js",
-        "tests/unit/execution-simplification.test.js",
-        "tests/integration/linear-workflow.test.js",
-        "tests/unit/eval-governance-metrics.test.js",
-        "tests/integration/eval-runner.test.js"
-      ],
-      "profiles": [
-        "minimal",
-        "core",
-        "full",
-        "docs-only"
-      ],
-      "docs": [
-        "docs/adr/ADR-0002-linear-execution-envelope-and-recovery.md",
-        "docs/specs/linear-multi-agent-workflow-spec.md",
-        "docs/schemas/execution-envelope.schema.json",
-        "docs/schemas/execution-envelope-v2.schema.json",
-        "docs/hooks.md"
-      ],
-      "evaluation": {
-        "required": true,
-        "suites": [
-          "evals/suites/linear-workflow-online.json"
         ]
       }
     },

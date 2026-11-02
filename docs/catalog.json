@@ -723,28 +723,6 @@
       ]
     },
     {
-      "path": "docs/schemas/execution-envelope.schema.json",
-      "kind": "spec",
-      "status": "current",
-      "language": "en",
-      "audiences": [
-        "contributor",
-        "maintainer",
-        "auditor"
-      ]
-    },
-    {
-      "path": "docs/schemas/execution-envelope-v2.schema.json",
-      "kind": "spec",
-      "status": "current",
-      "language": "en",
-      "audiences": [
-        "contributor",
-        "maintainer",
-        "auditor"
-      ]
-    },
-    {
       "path": "docs/schemas/project-verification.schema.json",
       "kind": "spec",
       "status": "current",
@@ -753,26 +731,6 @@
         "contributor",
         "maintainer",
         "auditor"
-      ]
-    },
-    {
-      "path": "schemas/execution-envelope.schema.json",
-      "kind": "spec",
-      "status": "current",
-      "language": "en",
-      "audiences": [
-        "contributor",
-        "maintainer"
-      ]
-    },
-    {
-      "path": "schemas/execution-envelope-v2.schema.json",
-      "kind": "spec",
-      "status": "current",
-      "language": "en",
-      "audiences": [
-        "contributor",
-        "maintainer"
       ]
     },
     {

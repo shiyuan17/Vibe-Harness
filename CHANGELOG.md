@@ -1,5 +1,11 @@
 # 更新日志
 
+## 2026-10-30 Execution Envelope 退役
+
+- 规范与流程优化：strict 将宿主激活未知与真实安全故障分开；普通提交支持消息文件、signoff 和同仓 `git -C`。历史行为结果只提示 stale，当前结果另存；跨 Parent 必要依赖允许只读核对，授权状态回写不依赖自动化。Parent 清理前持久保存同步恢复信息，批量批准的删除清单不逐项重复确认；团队工作方式保留为默认建议，不覆盖既有门禁。
+- 全局移除项目级信封、宿主证明和目标绑定门禁；旧输入忽略，保留独立安全检查与宿主实际权限，不宣称同等跨边界防护。
+- 退役 Envelope CLI/schema/安装产物；诊断与压缩恢复 Eval 解耦。升级迁移受管副本即可完成本地验收，不追加宿主重载或真实 Linear 确认；参见 docs/hooks.md。
+
 ## Unreleased
 
 - 2026-10-16 Git 子进程预算从五处 15 秒字面量收敛为单一可配置来源（关闭目标项目的 TD-EQUIP-1）。**A 单一来源**：新增 `runtime/lib/git-timeouts.mjs`，导出 `GIT_TIMEOUT_MS = 120_000` 与 `gitTimeoutMs(environment)`；`cli-runtime.mjs` 的 `runGit`、`git-fingerprint.mjs` 的两处 `execFile`、`verification-plan.mjs` 的 `execFileSync`、`worktree-command.mjs` 的 `worktree list` 全部改取该预算——此前各自写死 15 秒，任何一处被慢卷拖过预算都会以「命令被杀、结果为空」的形态返回，调用方读成「事实不可得」，`worktree land` 的候选检出因而无法建立（`LAND_CANDIDATE_CREATE_FAILED`，实测本机 D: 上 `git worktree add` 145 秒、同一命令在 %TEMP% 8.5 秒）。父进程可用 `VIBE_HARNESS_GIT_TIMEOUT_MS` 在 1000..3600000 内收紧或放宽，非整数、越界或缺失值回退默认，笔误不会静默取消护栏；与 land 锁预算刻意不同，这里允许放宽，因为实测失败形态是「卷慢于默认值」而不是「调用方不应延长的陈旧锁」。**B 登记面**：`adapters/install-map.json` 的 `runtime-project-scripts` 组新增该模块条目，`.agents/runtime/lib/` 五个文件镜像字节一致（`cli-runtime.mjs`、`git-fingerprint.mjs`、`verification-plan.mjs`、`worktree-command.mjs` 与新增模块），`runtime/commands/run.mjs` 的对外导出保持 `runCommand`／`main`／`assertSafeCommand`／`landLockTimeoutMs` 不变。**C 测试与台账**：`tests/integration/project-worktree-command.test.js` 新增两例——预算默认值、收紧/放宽边界、非法值回退与实时读环境，以及「四个 Git 调用点都取共享预算、不再自带 15 秒字面量」的结构断言（拦截旧形态回潮）；`tests/cases.json` 经 `pnpm tests:catalog sync --write` 收录（+2，无既有条目位移）。**验证**：`pnpm lint`、`pnpm typecheck`、`pnpm test:unit`、`node ./scripts/tests-catalog.js check`、`node ./scripts/validate.js`、`node ./scripts/pack-contract.js`（自安装一致性与分发契约）、聚焦文件 `node --test tests/integration/project-worktree-command.test.js` 与 `git diff --check`。本轮未触碰 config／hooks／rules／skills 四个 Eval 指纹分组，因此无 reference 漂移、无需重签；`docs/rules/git-rules.md` 尚未记录该环境变量，作为未关闭项保留（改动该文件会漂移 `rules` 分组并要求走受保护的重签流程，另批处理）。
