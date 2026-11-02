@@ -1,0 +1,5480 @@
+diff --git a/frontend/scripts/validation-runner.mjs b/frontend/scripts/validation-runner.mjs
+index ded2a97391da7283b7a2879456f98ef27faece4e..c36b895cc7d0701d8c0fdb5aaaa60766d408a4bc 100644
+--- a/frontend/scripts/validation-runner.mjs
++++ b/frontend/scripts/validation-runner.mjs
+@@ -1,1150 +1,1217 @@
+-#!/usr/bin/env node
+-/**
+- * BL-CNAS 的原子验证执行器。
+- *
+- * 职责边界：
+- * - 本脚本只执行**原子检查**（lint / typecheck / test / backend 测试），并按变更
+- *   范围选择要跑的子集。它不重新实现档位语义：档位命令集合的唯一真值源是
+- *   `vibe-harness.config.json` 的 `validationCommands.tiers`，`verify:standard`
+- *   直接转交统一运行时执行，避免「聚合入口调用聚合入口」形成递归。
+- * - 前后端分流：`frontend/**` 只触发前端检查；`backend/**` 使用仓库内 Maven Wrapper
+- *   （Windows `mvnw.cmd`，其他平台 `./mvnw`），不依赖全局 Maven 与子目录 `pom.xml`
+- *   被当成根项目；纯文档变更不启动行为测试。
+- * - 每个阶段记录时长、范围、缓存与失败原因，供 `verify-changed-runs.jsonl` 复盘。
+- *
+- * 用法：
+- *   bun run --cwd frontend verify:changed              # 按 origin/develop 的变更范围
+- *   bun run --cwd frontend verify:changed -- --paths <文件...>
+- *   bun run --cwd frontend verify:standard -- --reason merge-boundary
+- *   node scripts/validation-runner.mjs backend-unit    # 供档位配置引用的原子模式
+- *   node scripts/validation-runner.mjs preflight       # 仅检查工具链、依赖和缓存
+- */
+-import { spawn, spawnSync } from 'node:child_process';
+-import { randomUUID } from 'node:crypto';
+-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+-import { appendFile, mkdir, open, readFile, unlink } from 'node:fs/promises';
+-import { createRequire } from 'node:module';
+-import path from 'node:path';
+-import process from 'node:process';
+-import { fileURLToPath } from 'node:url';
+-
+-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+-const FRONTEND_ROOT = path.resolve(SCRIPT_DIR, '..');
+-const REPO_ROOT = path.resolve(FRONTEND_ROOT, '..');
+-const BACKEND_ROOT = path.join(REPO_ROOT, 'backend');
+-const RUNS_PATH = path.resolve(
+-  REPO_ROOT,
+-  '.vibe-harness',
+-  'artifacts',
+-  'verify-changed-runs.jsonl',
+-);
+-/** Windows 用 `mvnw.cmd`，其他平台用 `./mvnw`；两者都在 backend/ 下执行。 */
+-const MAVEN_WRAPPER = process.platform === 'win32' ? 'mvnw.cmd' : './mvnw';
+-/**
+- * 源码域 → 后端测试集合的显式映射；未知或部分覆盖仍扩大。
+- *
+- * Surefire 的 `-Dtest=<模式>` 选中类名匹配的测试；命中多个域时取并集。未命中任何
+- * 映射的后端路径（公共基础设施、通用配置、POM、迁移脚本、测试资源）回退完整后端
+- * 单测，宁可多跑，也不要因为映射缺口漏检。
+- */
+-const BACKEND_TEST_MAPPING = [
+-  {
+-    domain: 'organization-change-impact',
+-    prefixes: [
+-      'backend/src/main/java/com/blcnas/organization/application/ChangeImpactAssessment',
+-      'backend/src/main/java/com/blcnas/organization/infrastructure/ChangeImpactAssessment',
+-      'backend/src/main/java/com/blcnas/organization/integration/OrganizationWorkbenchTodoSource',
+-      'backend/src/test/java/com/blcnas/organization/OrganizationChangeImpactSliceTests.java',
+-      'backend/src/test/java/com/blcnas/organization/OrganizationWorkbenchTodoSourceTests.java',
+-    ],
+-    selectors: [
+-      'com.blcnas.organization.OrganizationChangeImpactSliceTests',
+-      'com.blcnas.organization.OrganizationWorkbenchTodoSourceTests',
+-    ],
+-  },
+-  {
+-    domain: 'organization',
+-    prefixes: ['backend/src/main/java/com/blcnas/organization/'],
+-    selectors: ['com.blcnas.organization.*Tests'],
+-  },
+-  {
+-    domain: 'iam',
+-    prefixes: ['backend/src/main/java/com/blcnas/iam/'],
+-    selectors: ['com.blcnas.iam.*Tests', 'com.blcnas.iam.application.*Tests'],
+-  },
+-  {
+-    domain: 'facility-equipment',
+-    prefixes: [
+-      'backend/src/main/java/com/blcnas/facility/',
+-      'backend/src/test/java/com/blcnas/facility/',
+-      'backend/src/main/java/com/blcnas/equipment/',
+-      'backend/src/test/java/com/blcnas/equipment/',
+-    ],
+-    // 两域共享监测绑定与设备采集契约；选中两域及子包的实际测试类。
+-    testRoots: ['com/blcnas/facility', 'com/blcnas/equipment'],
+-  },
+-];
+-
+-function parsePaths(argv) {
+-  const paths = [];
+-  for (let index = 0; index < argv.length; index += 1) {
+-    if (argv[index] !== '--paths') {
+-      throw new Error(`Unknown argument: ${argv[index]}`);
+-    }
+-    index += 1;
+-    while (index < argv.length && !argv[index].startsWith('--')) {
+-      paths.push(argv[index]);
+-      index += 1;
+-    }
+-    index -= 1;
+-  }
+-  if (argv.includes('--paths') && paths.length === 0) {
+-    throw new Error('Missing value for --paths');
+-  }
+-  return paths;
+-}
+-
+-function parseReason(argv) {
+-  const index = argv.indexOf('--reason');
+-  const reason = index === -1 ? '' : argv[index + 1]?.trim();
+-  if (!reason || reason.startsWith('--')) {
+-    throw new Error(
+-      'verify:standard requires --reason <merge-boundary|commit-boundary|targeted-regression>.',
+-    );
+-  }
+-  return reason;
+-}
+-
+-function gitLines(args) {
+-  // `core.quotepath=false`：默认转义会把非 ASCII 路径写成 "\346..."，导致文档等
+-  // 路径被误判成 unknown 并触发全量升级。
+-  const result = spawnSync('git', ['-c', 'core.quotepath=false', ...args], {
+-    cwd: REPO_ROOT,
+-    encoding: 'utf8',
+-    shell: false,
+-    windowsHide: true,
+-  });
+-  if (result.status !== 0) {
+-    throw new Error(`git ${args.join(' ')} failed: ${result.stderr.trim()}`);
+-  }
+-  return result.stdout
+-    .split('\n')
+-    .map((line) => line.trim())
+-    .filter(Boolean);
+-}
+-
+-function scopePaths(values) {
+-  if (
+-    !Array.isArray(values) ||
+-    values.some((value) => typeof value !== 'string' || !value.trim())
+-  ) {
+-    throw new Error('Invalid validation context paths.');
+-  }
+-  return [
+-    ...new Set(
+-      values.map((file) => {
+-        const normalized = normalizePath(file);
+-        if (
+-          path.isAbsolute(normalized) ||
+-          path.win32.isAbsolute(normalized) ||
+-          /^[a-z]:/iu.test(normalized) ||
+-          /[\r\n\0]/u.test(normalized) ||
+-          normalized.split('/').includes('..') ||
+-          normalized === '.'
+-        ) {
+-          throw new Error('Validation context path escapes the repository.');
+-        }
+-        return normalized.replace(/^\.\//u, '');
+-      }),
+-    ),
+-  ].toSorted((left, right) => left.localeCompare(right));
+-}
+-
+-function collectScope(
+-  explicitPaths,
+-  {
+-    env = process.env,
+-    git = gitLines,
+-    exists = (file) => existsSync(path.join(REPO_ROOT, file)),
+-  } = {},
+-) {
+-  if (explicitPaths.length > 0) {
+-    const files = scopePaths(explicitPaths);
+-    return {
+-      baseRef: null,
+-      deleted: files.filter((file) => !exists(file)),
+-      empty: false,
+-      files,
+-      mode: 'explicit-paths',
+-    };
+-  }
+-  const keys = [
+-    'VIBE_HARNESS_VERIFY_PATHS',
+-    'VIBE_HARNESS_VERIFY_BASE',
+-    'VIBE_HARNESS_VERIFY_SCOPE',
+-  ];
+-  if (keys.some((key) => env[key] !== undefined)) {
+-    if (!keys.every((key) => typeof env[key] === 'string')) {
+-      throw new Error(
+-        'Incomplete Harness validation context; refusing to recompute scope.',
+-      );
+-    }
+-    let values;
+-    try {
+-      values = JSON.parse(env.VIBE_HARNESS_VERIFY_PATHS);
+-    } catch {
+-      throw new Error('Invalid Harness validation context JSON.');
+-    }
+-    const files = scopePaths(values);
+-    const baseSha = env.VIBE_HARNESS_VERIFY_BASE;
+-    const requestedScope = env.VIBE_HARNESS_VERIFY_SCOPE;
+-    if (
+-      !/^[a-f0-9]{40,64}$/u.test(baseSha) ||
+-      !['affected', 'full', 'layer'].includes(requestedScope) ||
+-      git(['rev-parse', '--verify', `${baseSha}^{commit}`])[0] !== baseSha
+-    ) {
+-      throw new Error('Invalid Harness validation context baseline or scope.');
+-    }
+-    return {
+-      baseRef: baseSha,
+-      baseSha,
+-      requestedScope,
+-      files,
+-      deleted: files.filter((file) => !exists(file)),
+-      empty: files.length === 0,
+-      mode: 'harness-context',
+-    };
+-  }
+-  const baseRef = 'origin/develop';
+-  const [mergeBase] = git(['merge-base', 'HEAD', baseRef]);
+-  if (!mergeBase) throw new Error(`Cannot resolve merge-base for ${baseRef}.`);
+-  const files = [
+-    ...git(['diff', '--name-only', mergeBase, '--']),
+-    ...git(['ls-files', '--others', '--exclude-standard', '--full-name']),
+-  ];
+-  const deleted = git([
+-    'diff',
+-    '--name-only',
+-    '--diff-filter=D',
+-    mergeBase,
+-    '--',
+-  ]);
+-  const uniqueFiles = [...new Set(files)].toSorted((left, right) =>
+-    left.localeCompare(right),
+-  );
+-  return {
+-    baseRef,
+-    baseSha: mergeBase,
+-    deleted: [...new Set(deleted)].toSorted((left, right) =>
+-      left.localeCompare(right),
+-    ),
+-    empty: uniqueFiles.length === 0,
+-    files: uniqueFiles,
+-    mode: 'changed',
+-  };
+-}
+-
+-function normalizePath(file) {
+-  return file.replaceAll('\\', '/');
+-}
+-
+-function toFrontendPath(file) {
+-  const normalized = normalizePath(file);
+-  return normalized.startsWith('frontend/')
+-    ? normalized.slice('frontend/'.length)
+-    : normalized;
+-}
+-
+-function toRepositoryPath(file) {
+-  const normalized = normalizePath(file);
+-  return normalized.startsWith('frontend/')
+-    ? normalized
+-    : `frontend/${normalized}`;
+-}
+-
+-const DOC_PATTERN = /\.(?:md|mdx)$/u;
+-const CONTRACT_FIXTURE_PATTERN = /^docs\/contracts\/.*\.json$/u;
+-
+-/**
+- * 契约面路径前缀：API 定义、mock 数据与共享类型。命中时追加只读的
+- * `mock:check:bridge-parity`（前后端桥接一致性），**不**自动运行写盘 codegen。
+- */
+-const CONTRACT_PREFIXES = Object.freeze([
+-  'frontend/apps/mock-server/api/',
+-  'frontend/apps/mock-server/mock-data/',
+-  'frontend/apps/web/src/api/',
+-  'frontend/packages/prototype-contracts/',
+-]);
+-
+-function isContractPath(file) {
+-  const normalized = normalizePath(file);
+-  return CONTRACT_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+-}
+-
+-/**
+- * 把变更路径分到前端、后端与文档桶；未识别的路径归入 `unknown`，由调用方按
+- * 「无法界定 → 扩大范围」处理。
+- */
+-function classifyPaths(files) {
+-  const buckets = {
+-    backend: [],
+-    contract: [],
+-    deleted: [],
+-    docs: [],
+-    frontend: [],
+-    unknown: [],
+-  };
+-  for (const file of files) {
+-    const normalized = normalizePath(file);
+-    if (normalized.startsWith('frontend/')) {
+-      buckets.frontend.push(normalized);
+-      // 契约面是前端的子集，单独成桶以便追加桥接一致性检查。
+-      if (isContractPath(normalized)) buckets.contract.push(normalized);
+-    } else if (normalized.startsWith('backend/'))
+-      buckets.backend.push(normalized);
+-    else if (CONTRACT_FIXTURE_PATTERN.test(normalized)) {
+-      buckets.docs.push(normalized);
+-      buckets.contract.push(normalized);
+-    } else if (DOC_PATTERN.test(normalized)) buckets.docs.push(normalized);
+-    else buckets.unknown.push(normalized);
+-  }
+-  return buckets;
+-}
+-
+-/** 后端聚焦选择器：命中映射返回并集，未命中返回 null（= 完整后端单测）。 */
+-function backendTestSelectors(backendPaths) {
+-  const selectors = new Set();
+-  let mapped = 0;
+-  for (const file of backendPaths) {
+-    const normalized = normalizePath(file);
+-    for (const entry of BACKEND_TEST_MAPPING) {
+-      if (entry.prefixes.some((prefix) => normalized.startsWith(prefix))) {
+-        mapped += 1;
+-        const actualTests = (directory) =>
+-          readdirSync(path.join(BACKEND_ROOT, 'src/test/java', directory), {
+-            withFileTypes: true,
+-          }).flatMap((item) => {
+-            if (item.isDirectory())
+-              return actualTests(`${directory}/${item.name}`);
+-            if (item.name.endsWith('Tests.java')) {
+-              return [
+-                `${directory}/${item.name}`
+-                  .replace(/\.java$/u, '')
+-                  .replaceAll('/', '.'),
+-              ];
+-            }
+-            return [];
+-          });
+-        const selected = entry.testRoots
+-          ? entry.testRoots.flatMap(actualTests)
+-          : entry.selectors;
+-        if (selected.length === 0)
+-          throw new Error(`No tests in mapped domain: ${entry.domain}`);
+-        for (const selector of selected) {
+-          if (
+-            !selector.includes('*') &&
+-            !existsSync(
+-              path.join(
+-                BACKEND_ROOT,
+-                'src/test/java',
+-                `${selector.replaceAll('.', '/')}.java`,
+-              ),
+-            )
+-          ) {
+-            throw new Error(
+-              `映射的测试尚未进入当前候选树：${selector}；请先合入对应测试，不可将部分选择当作通过。`,
+-            );
+-          }
+-          selectors.add(selector);
+-        }
+-        break;
+-      }
+-    }
+-  }
+-  // A partial mapping cannot prove the unrecognised paths have no tests.
+-  if (mapped !== backendPaths.length || selectors.size === 0) return null;
+-  return [...selectors].toSorted((left, right) => left.localeCompare(right));
+-}
+-
+-/** 失败现场只保留尾部：够定位 turbo/编译器的启动期错误，又不撑爆运行记录。 */
+-const FAILURE_TAIL_CHARS = 4000;
+-
+-function validationCacheDirectory() {
+-  return path.join(
+-    process.env.VIBE_HARNESS_CACHE_DIR ||
+-      path.join(REPO_ROOT, '.vibe-harness/cache'),
+-    'turbo',
+-  );
+-}
+-
+-/** 检查实际包邻接关系；不安装依赖，也不修补共享 node_modules。 */
+-function missingPackageDependencies(directory) {
+-  const missing = [];
+-  const visited = new Set();
+-  const inspect = (current) => {
+-    const actual = realpathSync(current);
+-    if (visited.has(actual)) return;
+-    visited.add(actual);
+-    const manifestPath = path.join(actual, 'package.json');
+-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+-    const require = createRequire(manifestPath);
+-    for (const [name, version] of Object.entries({
+-      ...manifest.dependencies,
+-      ...manifest.devDependencies,
+-    })) {
+-      const installed = require.resolve
+-        .paths(name)
+-        ?.map((lookup) => path.join(lookup, name))
+-        .find((lookup) => existsSync(path.join(lookup, 'package.json')));
+-      if (!installed) missing.push(`${manifest.name ?? current}: ${name}`);
+-      else if (String(version).startsWith('workspace:')) inspect(installed);
+-    }
+-  };
+-  inspect(directory);
+-  return missing;
+-}
+-
+-async function probeWritable(directory) {
+-  await mkdir(directory, { recursive: true });
+-  const file = path.join(directory, `.preflight-${randomUUID()}`);
+-  const handle = await open(file, 'wx');
+-  try {
+-    await handle.writeFile('preflight');
+-  } finally {
+-    await handle.close();
+-    await unlink(file);
+-  }
+-}
+-
+-async function preflightStages(stages, metadata) {
+-  const frontend = stages.some((stage) => stage.command === 'bun');
+-  const backend = stages.some((stage) => stage.maven);
+-  const probe = (command, args) => {
+-    const result = spawnSync(command, args, {
+-      encoding: 'utf8',
+-      shell: false,
+-      stdio: 'pipe',
+-      timeout: 5000,
+-      windowsHide: true,
+-    });
+-    if (result.error || result.status !== 0)
+-      throw new Error(`Toolchain unavailable: ${command}`);
+-  };
+-  if (frontend) {
+-    probe('bun', ['--version']);
+-    const directories = new Set([FRONTEND_ROOT]);
+-    for (const file of metadata?.scope?.files ?? []) {
+-      if (!file.startsWith('frontend/')) continue;
+-      let directory = path.dirname(path.join(REPO_ROOT, file));
+-      while (directory.startsWith(`${FRONTEND_ROOT}${path.sep}`)) {
+-        if (existsSync(path.join(directory, 'package.json'))) {
+-          directories.add(directory);
+-          break;
+-        }
+-        directory = path.dirname(directory);
+-      }
+-    }
+-    const missing = [...directories].flatMap((directory) =>
+-      missingPackageDependencies(directory),
+-    );
+-    if (missing.length > 0)
+-      throw new Error(
+-        `Missing dependencies: ${missing.slice(0, 12).join(', ')}`,
+-      );
+-    await probeWritable(validationCacheDirectory());
+-  }
+-  if (backend) {
+-    if (!existsSync(path.join(BACKEND_ROOT, MAVEN_WRAPPER)))
+-      throw new Error('Maven Wrapper unavailable.');
+-    const suffix = process.platform === 'win32' ? '.exe' : '';
+-    for (const tool of ['java', 'javac']) {
+-      probe(
+-        process.env.JAVA_HOME
+-          ? path.join(process.env.JAVA_HOME, 'bin', `${tool}${suffix}`)
+-          : tool,
+-        ['-version'],
+-      );
+-    }
+-  }
+-  await probeWritable(path.dirname(RUNS_PATH));
+-}
+-
+-function teeStream(stream, name, sink) {
+-  stream.setEncoding('utf8');
+-  stream.on('data', (chunk) => {
+-    sink.output = (sink.output + chunk).slice(-FAILURE_TAIL_CHARS);
+-    (name === 'stderr' ? process.stderr : process.stdout).write(chunk);
+-  });
+-}
+-
+-function runCommand(command, args, cwd) {
+-  return new Promise((resolve, reject) => {
+-    const startedAt = Date.now();
+-    const child = spawn(command, args, {
+-      cwd,
+-      env: {
+-        ...process.env,
+-        TURBO_CACHE_DIR: validationCacheDirectory(),
+-      },
+-      shell: false,
+-      // Pipe + relay keeps the live console behavior of `inherit` while a tail
+-      // of the output survives into the run record: the 2026-10 S5 turbo
+-      // failures died in under a second and left no evidence behind.
+-      stdio: ['inherit', 'pipe', 'pipe'],
+-      windowsHide: true,
+-    });
+-    const stdoutTail = { output: '' };
+-    const stderrTail = { output: '' };
+-    if (child.stdout) teeStream(child.stdout, 'stdout', stdoutTail);
+-    if (child.stderr) teeStream(child.stderr, 'stderr', stderrTail);
+-    child.on('error', reject);
+-    child.on('close', (exitCode) => {
+-      resolve({
+-        durationMs: Date.now() - startedAt,
+-        exitCode: exitCode ?? 1,
+-        stderrTail: stderrTail.output,
+-        stdoutTail: stdoutTail.output,
+-      });
+-    });
+-  });
+-}
+-
+-/** Maven Wrapper 在 Windows 上是 .cmd，需要经 cmd.exe 解析。 */
+-function runMaven(args) {
+-  return process.platform === 'win32'
+-    ? runCommand('cmd.exe', ['/d', '/c', MAVEN_WRAPPER, ...args], BACKEND_ROOT)
+-    : runCommand(MAVEN_WRAPPER, args, BACKEND_ROOT);
+-}
+-
+-async function runStages(
+-  stages,
+-  metadata,
+-  {
+-    prepare = preflightStages,
+-    execute = (stage) =>
+-      stage.maven
+-        ? runMaven(stage.args)
+-        : runCommand(stage.command, stage.args, stage.cwd),
+-    record = writeRun,
+-  } = {},
+-) {
+-  const results = [];
+-  const preparationStartedAt = Date.now();
+-  try {
+-    await prepare(stages, metadata);
+-  } catch (error) {
+-    const run = {
+-      ...metadata,
+-      generatedAt: new Date().toISOString(),
+-      status: 'blocked',
+-      failureReason: error.message,
+-      results: [
+-        {
+-          name: 'environment-preflight',
+-          status: 'blocked',
+-          exitCode: 2,
+-          durationMs: Date.now() - preparationStartedAt,
+-        },
+-      ],
+-    };
+-    await record(run);
+-    console.error(`[validation:summary] ${JSON.stringify(run)}`);
+-    console.log(
+-      `[VIBE_HARNESS_CHECK] ${JSON.stringify({ status: 'blocked', reason: 'environment-preflight-failed' })}`,
+-    );
+-    return 2;
+-  }
+-  const preparationMs = Date.now() - preparationStartedAt;
+-  for (const stage of stages) {
+-    console.warn(`[validation] ${stage.name} started (${stage.scope})`);
+-    const started = Date.now();
+-    const heartbeat = setInterval(() => {
+-      console.warn(
+-        `[validation:heartbeat] ${JSON.stringify({ stage: stage.name, scope: stage.scope, elapsedMs: Date.now() - started })}`,
+-      );
+-    }, 30_000);
+-    heartbeat.unref();
+-    let result;
+-    try {
+-      result = await execute(stage);
+-    } finally {
+-      clearInterval(heartbeat);
+-    }
+-    results.push({
+-      cache: stage.cache ?? 'none',
+-      durationMs: result.durationMs,
+-      exitCode: result.exitCode,
+-      name: stage.name,
+-      scope: stage.scope,
+-      ...(result.stderrTail?.trim()
+-        ? { stderrTail: result.stderrTail.trim() }
+-        : {}),
+-    });
+-    console.warn(
+-      `[validation] ${stage.name} exit=${result.exitCode} durationMs=${result.durationMs}`,
+-    );
+-    if (result.exitCode !== 0) break;
+-  }
+-  const failed = results.find((item) => item.exitCode !== 0);
+-  const run = {
+-    generatedAt: new Date().toISOString(),
+-    failureReason: failed
+-      ? `${failed.name} exited ${failed.exitCode}${failed.stderrTail ? `: ${failed.stderrTail.slice(-600)}` : ''}`
+-      : null,
+-    lintTypecheckMs:
+-      (results.find((item) => item.name === 'lint')?.durationMs ?? 0) +
+-      (results.find((item) => item.name === 'typecheck')?.durationMs ?? 0),
+-    results,
+-    preparationMs,
+-    ...metadata,
+-  };
+-  await record(run);
+-  console.warn(`[validation:summary] ${JSON.stringify(run)}`);
+-  return failed?.exitCode ?? 0;
+-}
+-
+-async function writeRun(run) {
+-  await mkdir(path.dirname(RUNS_PATH), { recursive: true });
+-  await appendFile(RUNS_PATH, `${JSON.stringify(run)}\n`, 'utf8');
+-}
+-
+-/** lint 与 test 共用的作用域标签；同一判断不写成嵌套三元表达式。 */
+-function frontendScope(escalate, explicit) {
+-  if (escalate) return 'frontend-full';
+-  return explicit ? 'explicit-paths' : 'changed';
+-}
+-
+-/**
+- * Turbo 在 linked worktree 中启动 Bun 包脚本时可能无法重新读取 package.json。
+- * 只使用 Turbo 的静态任务计划确定包集合，再逐包交给 Bun 执行，保留消费方扩展语义。
+- */
+-function parseTypecheckDryRun(output) {
+-  let plan;
+-  try {
+-    plan = JSON.parse(output);
+-  } catch {
+-    throw new Error('Turbo typecheck dry run did not return valid JSON.');
+-  }
+-  if (!plan || !Array.isArray(plan.tasks)) {
+-    throw new Error('Turbo typecheck dry run did not return a task list.');
+-  }
+-  const directories = new Set();
+-  for (const task of plan.tasks) {
+-    if (task?.task !== 'typecheck' || task.command === '<NONEXISTENT>')
+-      continue;
+-    if (typeof task.directory !== 'string' || !task.directory.trim()) {
+-      throw new Error('Turbo typecheck task is missing its package directory.');
+-    }
+-    const directory = normalizePath(task.directory).replace(/\/+$/u, '');
+-    const absolute = path.resolve(FRONTEND_ROOT, directory);
+-    if (
+-      path.isAbsolute(directory) ||
+-      path.win32.isAbsolute(directory) ||
+-      /^[a-z]:/iu.test(directory) ||
+-      directory.split('/').includes('..') ||
+-      (absolute !== FRONTEND_ROOT &&
+-        !absolute.startsWith(`${FRONTEND_ROOT}${path.sep}`))
+-    ) {
+-      throw new Error(
+-        `Turbo typecheck directory escapes the frontend: ${directory}`,
+-      );
+-    }
+-    if (!existsSync(path.join(absolute, 'package.json'))) {
+-      throw new Error(`Turbo typecheck package is missing: ${directory}`);
+-    }
+-    directories.add(normalizePath(path.relative(FRONTEND_ROOT, absolute)));
+-  }
+-  if (directories.size === 0) {
+-    throw new Error('Turbo typecheck dry run selected no packages.');
+-  }
+-  return [...directories].toSorted((left, right) => left.localeCompare(right));
+-}
+-
+-async function runTypecheckPackages(argv) {
+-  const affected = argv.includes('--affected');
+-  const unknown = argv.filter(
+-    (argument) => argument.startsWith('--') && argument !== '--affected',
+-  );
+-  if (unknown.length > 0) {
+-    throw new Error(`Unknown typecheck argument: ${unknown[0]}`);
+-  }
+-  const filters = argv.filter((argument) => argument !== '--affected');
+-  const turboArgs = [
+-    'x',
+-    'turbo',
+-    'run',
+-    'typecheck',
+-    ...(affected ? ['--affected'] : []),
+-    ...filters.map(
+-      (directory) => `--filter=...{./${normalizePath(directory)}}`,
+-    ),
+-    '--dry=json',
+-  ];
+-  const planned = spawnSync('bun', turboArgs, {
+-    cwd: FRONTEND_ROOT,
+-    encoding: 'utf8',
+-    env: {
+-      ...process.env,
+-      ...(affected
+-        ? { TURBO_SCM_BASE: process.env.TURBO_SCM_BASE ?? 'origin/develop' }
+-        : {}),
+-    },
+-    maxBuffer: 64 * 1024 * 1024,
+-    shell: false,
+-    stdio: ['ignore', 'pipe', 'pipe'],
+-    windowsHide: true,
+-  });
+-  if (planned.stderr) process.stderr.write(planned.stderr);
+-  if (planned.error) throw planned.error;
+-  if (planned.status !== 0) return planned.status ?? 1;
+-
+-  let directories;
+-  try {
+-    directories = parseTypecheckDryRun(planned.stdout);
+-  } catch (error) {
+-    console.error(`[validation] typecheck plan rejected: ${error.message}`);
+-    return 1;
+-  }
+-  for (const directory of directories) {
+-    console.warn(`[validation] typecheck ${directory} started`);
+-    const result = await runCommand(
+-      'bun',
+-      ['run', '--cwd', directory, 'typecheck'],
+-      FRONTEND_ROOT,
+-    );
+-    console.warn(
+-      `[validation] typecheck ${directory} exit=${result.exitCode} durationMs=${result.durationMs}`,
+-    );
+-    if (result.exitCode !== 0) return result.exitCode;
+-  }
+-  return 0;
+-}
+-
+-/** 前端三条原子检查：显式路径贯穿 lint 与测试；typecheck 按所属包扩大。 */
+-function frontendStages(paths, { escalate }) {
+-  const frontendPaths = paths.map((file) => toFrontendPath(file));
+-  const explicit = frontendPaths.length > 0;
+-  const lintArgs = explicit
+-    ? [
+-        'x',
+-        'vsh',
+-        'lint',
+-        ...frontendPaths.filter((file) => !file.endsWith('.md')),
+-      ]
+-    : ['run', 'lint:changed'];
+-  const testArgs = explicit
+-    ? [
+-        'run',
+-        'test:changed',
+-        '--',
+-        '--paths',
+-        ...paths.map((file) => toRepositoryPath(file)),
+-      ]
+-    : ['run', 'test:changed'];
+-  return [
+-    {
+-      args: escalate ? ['run', 'lint'] : lintArgs,
+-      command: 'bun',
+-      cwd: FRONTEND_ROOT,
+-      name: 'lint',
+-      scope: frontendScope(escalate, explicit),
+-    },
+-    {
+-      args: [
+-        './scripts/validation-runner.mjs',
+-        'typecheck-packages',
+-        ...(escalate ? [] : affectedTypecheckFilters(paths)),
+-      ],
+-      command: 'bun',
+-      cwd: FRONTEND_ROOT,
+-      name: 'typecheck',
+-      scope: escalate ? 'frontend-full' : 'explicit-packages-and-dependents',
+-    },
+-    {
+-      args: escalate ? ['run', 'test:unit'] : testArgs,
+-      command: 'bun',
+-      cwd: FRONTEND_ROOT,
+-      name: 'test',
+-      scope: frontendScope(escalate, explicit),
+-    },
+-  ];
+-}
+-
+-/** Turbo --affected 会重新选基线；显式 package filters 保持冻结路径并包含消费方。 */
+-function affectedTypecheckFilters(paths) {
+-  const packages = new Set();
+-  for (const file of paths) {
+-    let directory = path.dirname(path.resolve(REPO_ROOT, file));
+-    while (
+-      directory !== FRONTEND_ROOT &&
+-      directory.startsWith(`${FRONTEND_ROOT}${path.sep}`)
+-    ) {
+-      if (existsSync(path.join(directory, 'package.json'))) break;
+-      directory = path.dirname(directory);
+-    }
+-    if (
+-      directory === FRONTEND_ROOT ||
+-      !directory.startsWith(`${FRONTEND_ROOT}${path.sep}`)
+-    )
+-      return [];
+-    packages.add(normalizePath(path.relative(FRONTEND_ROOT, directory)));
+-  }
+-  return [...packages].toSorted((left, right) => left.localeCompare(right));
+-}
+-
+-/** 后端阶段：命中映射时聚焦，否则完整单测；迁移/POM 变更明确不产生 DM8 证据。 */
+-function backendStages(backendPaths, { escalate }) {
+-  const selectors = escalate ? null : backendTestSelectors(backendPaths);
+-  const args = selectors
+-    ? [
+-        `-Dtest=${selectors.join(',')}`,
+-        '-Dsurefire.failIfNoSpecifiedTests=true',
+-        'test',
+-      ]
+-    : ['test'];
+-  return [
+-    {
+-      args,
+-      maven: true,
+-      name: 'backend-test',
+-      scope: selectors
+-        ? `mapped-domains:${selectors.join(',')}`
+-        : 'backend-full',
+-    },
+-  ];
+-}
+-
+-const DOC_STAGE = Object.freeze({
+-  args: ['run', 'check:docs-consistency'],
+-  command: 'bun',
+-  cwd: FRONTEND_ROOT,
+-  name: 'docs-static',
+-  scope: 'docs-consistency',
+-});
+-
+-/** 契约定更后的只读一致性检查：不触发写盘 codegen，也不改写生成物。 */
+-const CONTRACT_STAGE = Object.freeze({
+-  args: ['run', 'mock:check:bridge-parity'],
+-  cache: 'read-only',
+-  command: 'bun',
+-  cwd: FRONTEND_ROOT,
+-  name: 'contract-parity',
+-  scope: 'mock-bridge-parity（只读；未运行写盘 codegen）',
+-});
+-const CONTRACT_STANDARD_STAGE = Object.freeze({
+-  args: ['run', 'check:openapi'],
+-  command: 'bun',
+-  cwd: FRONTEND_ROOT,
+-  name: 'contract-openapi',
+-  scope: 'affected-contract',
+-});
+-const MIGRATION_STANDARD_STAGE = Object.freeze({
+-  args: [
+-    '-Dtest=*MigrationTests',
+-    '-Dsurefire.failIfNoSpecifiedTests=true',
+-    'test',
+-  ],
+-  maven: true,
+-  name: 'backend-migration',
+-  scope: 'migration-contract',
+-});
+-
+-async function runChanged(argv, { standard = false } = {}) {
+-  const paths = parsePaths(argv);
+-  const scope = collectScope(paths);
+-  if (scope.empty && scope.requestedScope !== 'full') {
+-    const run = {
+-      generatedAt: new Date().toISOString(),
+-      lowerBound: 'empty-scope',
+-      results: [],
+-      scope,
+-    };
+-    await writeRun(run);
+-    console.warn(
+-      `[validation:summary] ${JSON.stringify(run)}\n[validation] 空变更范围；未执行验证，不构成完整通过证据。`,
+-    );
+-    return 1;
+-  }
+-
+-  const buckets = classifyPaths(scope.files);
+-  // 删除文件无法界定影响面，且 `test:changed --paths` 不接受不存在的路径：按桶整体扩大。
+-  const deleted = classifyPaths(scope.deleted);
+-  const escalateFrontend = deleted.frontend.length > 0;
+-  const escalateBackend = deleted.backend.length > 0;
+-  const contractTouched =
+-    buckets.contract.length > 0 ||
+-    deleted.contract.length > 0 ||
+-    // 未识别路径已扩大到完整前端验证时，契约一致性属同一范围。
+-    buckets.unknown.length > 0;
+-  // 未识别路径无法断定属于哪一端，按「扩大范围」处理：两端都不放过。
+-  const unknownEscalates =
+-    buckets.unknown.length > 0 || scope.requestedScope === 'full';
+-
+-  const stages = [];
+-  if (
+-    !standard &&
+-    (buckets.frontend.length > 0 || escalateFrontend || unknownEscalates)
+-  ) {
+-    stages.push(
+-      ...frontendStages(buckets.frontend, {
+-        escalate: escalateFrontend || unknownEscalates,
+-      }),
+-    );
+-  }
+-  // 契约检查廉价且只读：紧随前端检查之后、后端长测之前，避免反馈被后端耗时掩盖。
+-  if (!standard && contractTouched) stages.push(CONTRACT_STAGE);
+-  if (
+-    !standard &&
+-    (buckets.backend.length > 0 || escalateBackend || unknownEscalates)
+-  ) {
+-    stages.push(
+-      ...backendStages(buckets.backend, {
+-        escalate: escalateBackend || unknownEscalates,
+-      }),
+-    );
+-  }
+-  if (standard && contractTouched) stages.push(CONTRACT_STANDARD_STAGE);
+-  if (
+-    standard &&
+-    [...buckets.backend, ...deleted.backend].some((file) =>
+-      file.startsWith('backend/src/main/resources/db/changelog/'),
+-    )
+-  )
+-    stages.push(MIGRATION_STANDARD_STAGE);
+-  if (standard && stages.length === 0) {
+-    await writeRun({
+-      generatedAt: new Date().toISOString(),
+-      results: [],
+-      scope,
+-      status: 'not_applicable',
+-    });
+-    console.warn(
+-      '[validation] standard-slice：无适用的额外契约/迁移检查；quick 的实测结果仍是本次证据。',
+-    );
+-    console.log(
+-      '[VIBE_HARNESS_CHECK] {"status":"not_applicable","reason":"no-additional-contract-or-migration-checks"}',
+-    );
+-    return 0;
+-  }
+-  if (
+-    !standard &&
+-    stages.length === 0 &&
+-    (buckets.docs.length > 0 || deleted.docs.length > 0)
+-  ) {
+-    stages.push(DOC_STAGE);
+-  }
+-
+-  return runStages(stages, {
+-    buckets: {
+-      backend: buckets.backend.length,
+-      contract: buckets.contract.length,
+-      deleted: scope.deleted.length,
+-      docs: buckets.docs.length,
+-      frontend: buckets.frontend.length,
+-      unknown: buckets.unknown.length,
+-    },
+-    lowerBound:
+-      unknownEscalates || escalateFrontend || escalateBackend
+-        ? 'escalated-unknown-scope'
+-        : 'changed-scope',
+-    scope,
+-  });
+-}
+-
+-/**
+- * 档位入口：委派统一运行时执行 `validationCommands.tiers`。
+- * 本脚本不重新解释档位含义，避免与运行时产生第二套语义。
+- */
+-async function runTier(tier, argv) {
+-  const reason = parseReason(argv);
+-  const runtime = path.join(
+-    REPO_ROOT,
+-    '.agents',
+-    'runtime',
+-    'commands',
+-    'run.mjs',
+-  );
+-  const existing = await readFile(runtime, 'utf8').then(
+-    () => true,
+-    () => false,
+-  );
+-  if (!existing) {
+-    throw new Error(
+-      `找不到统一运行时 ${path.relative(REPO_ROOT, runtime)}；请先安装或升级 Vibe-Harness 受管文件。`,
+-    );
+-  }
+-  const result = await runCommand(
+-    process.execPath,
+-    [runtime, 'verify', '--project', REPO_ROOT, '--tier', tier, '--json'],
+-    REPO_ROOT,
+-  );
+-  await writeRun({
+-    generatedAt: new Date().toISOString(),
+-    mode: `tier:${tier}`,
+-    reason,
+-    results: [
+-      {
+-        cache: 'runtime',
+-        durationMs: result.durationMs,
+-        exitCode: result.exitCode,
+-        name: `verify:${tier}`,
+-        scope: `tier:${tier}`,
+-      },
+-    ],
+-  });
+-  return result.exitCode;
+-}
+-
+-const BACKEND_MODES = Object.freeze({
+-  'backend-dm-it': {
+-    args: ['verify', '-Pdm-it', '-Dspring.profiles.active=dm-it'],
+-    name: 'backend-dm-it',
+-    scope:
+-      'dm8-integration（需要 DM8_JDBC_URL + DM8_APP_USERNAME/PASSWORD + DM8_MIGRATOR_USERNAME/PASSWORD）',
+-  },
+-  'backend-unit': {
+-    args: ['test'],
+-    name: 'backend-unit',
+-    scope: 'backend-full',
+-  },
+-  'backend-verify': {
+-    args: ['verify'],
+-    name: 'backend-verify',
+-    scope: 'backend-verify',
+-  },
+-});
+-
+-/**
+- * dm-it 档的凭据判空契约：与 `.gitlab-ci.yml` 的 dm-it shadow 作业、ADR-0007 §3
+- * 以及 `backend/src/main/resources/application-dm-it.yml` 逐字一致，只认这五个键。
+- *
+- * 旧口径 `DM8_HOST` / `DM8_PORT` / `DM8_USER` / `DM8_PASSWORD` 是过渡期遗留：它既不是
+- * Infisical 现在注入的键名，也不足以让 dm-it 档启动（连接串 `DM8_JDBC_URL` 是该档的
+- * 必需项，不是可选项，没有它 maven 连 profile 都解析不了）。继续按旧键判空，只会让
+- * 门禁在 maven 启动前把「凭据齐备」误判成「凭据缺失」，把可达实例的证据写成 blocked。
+- */
+-const DM8_INTEGRATION_KEYS = Object.freeze([
+-  'DM8_JDBC_URL',
+-  'DM8_APP_USERNAME',
+-  'DM8_APP_PASSWORD',
+-  'DM8_MIGRATOR_USERNAME',
+-  'DM8_MIGRATOR_PASSWORD',
+-]);
+-
+-/** 供档位配置引用的原子模式；DM8 集成在没有环境时明确报 blocked 而不是假通过。 */
+-async function runBackendMode(mode) {
+-  const stage = BACKEND_MODES[mode];
+-  if (!stage) throw new Error(`Unknown backend mode: ${mode}`);
+-  if (mode === 'backend-dm-it') {
+-    const missing = DM8_INTEGRATION_KEYS.filter((name) => !process.env[name]);
+-    if (missing.length > 0) {
+-      await writeRun({
+-        generatedAt: new Date().toISOString(),
+-        mode,
+-        results: [
+-          {
+-            cache: 'none',
+-            durationMs: 0,
+-            exitCode: 2,
+-            name: stage.name,
+-            reason: `missing DM8 environment: ${missing.join(', ')}`,
+-            scope: stage.scope,
+-          },
+-        ],
+-      });
+-      console.error(
+-        `[validation] DM8 集成证据不可用：缺少 ${missing.join(', ')}（dm-it 档需要 DM8_JDBC_URL + DM8_APP_USERNAME/PASSWORD + DM8_MIGRATOR_USERNAME/PASSWORD，通常由 infisical run 注入）；H2 单测通过不代表 DM8 行为已验收（blocked）。`,
+-      );
+-      return 2;
+-    }
+-  }
+-  return runStages(
+-    [
+-      {
+-        args: stage.args,
+-        maven: true,
+-        name: stage.name,
+-        scope: stage.scope,
+-      },
+-    ],
+-    { mode },
+-  );
+-}
+-
+-async function runDirect(argv) {
+-  const separator = argv.indexOf('--');
+-  const name = argv[0];
+-  const command = argv[separator + 1];
+-  const args = argv.slice(separator + 2);
+-  if (!name || separator < 1 || !command) {
+-    throw new Error('direct usage: direct <name> -- <command> [...args]');
+-  }
+-  if (!process.env.CI && process.env.BL_CNAS_STANDARD_VALIDATION !== '1') {
+-    console.warn(
+-      `[validation:soft-gate] 正在直接运行全仓 ${name}。开发内循环请使用 bun run verify:changed；合并前请使用 bun run verify:standard -- --reason <reason>。`,
+-    );
+-  }
+-  return runStages(
+-    [{ name, command, args, cwd: FRONTEND_ROOT, scope: 'frontend-full' }],
+-    { mode: `direct:${name}` },
+-  );
+-}
+-
+-async function main() {
+-  const [mode, ...argv] = process.argv.slice(2);
+-  let exitCode;
+-  if (mode === 'changed') exitCode = await runChanged(argv);
+-  else if (mode === 'standard-slice')
+-    exitCode = await runChanged(argv, { standard: true });
+-  else if (mode === 'standard') exitCode = await runTier('standard', argv);
+-  else if (mode === 'quick') exitCode = await runTier('quick', argv);
+-  else if (mode === 'deep') exitCode = await runTier('deep', argv);
+-  else if (mode === 'typecheck-packages')
+-    exitCode = await runTypecheckPackages(argv);
+-  else if (mode === 'direct') exitCode = await runDirect(argv);
+-  else if (mode === 'preflight') {
+-    exitCode = await runStages(
+-      [],
+-      { mode },
+-      {
+-        prepare: () =>
+-          preflightStages([{ command: 'bun' }, { maven: true }], {
+-            scope: { files: scopePaths(parsePaths(argv)) },
+-          }),
+-      },
+-    );
+-  } else if (Object.hasOwn(BACKEND_MODES, mode)) {
+-    exitCode = await runBackendMode(mode);
+-  } else throw new Error(`Unknown validation mode: ${mode ?? '<missing>'}`);
+-  process.exitCode = exitCode;
+-}
+-
+-if (
+-  process.argv[1] &&
+-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+-) {
+-  main().catch((error) => {
+-    console.error(
+-      `[validation] failed: ${error instanceof Error ? error.message : error}`,
+-    );
+-    process.exitCode = 1;
+-  });
+-}
+-
+-export {
+-  backendStages,
+-  backendTestSelectors,
+-  classifyPaths,
+-  collectScope,
+-  frontendStages,
+-  isContractPath,
+-  missingPackageDependencies,
+-  parsePaths,
+-  parseReason,
+-  parseTypecheckDryRun,
+-  preflightStages,
+-  runStages,
+-  runTypecheckPackages,
+-  toFrontendPath,
+-  toRepositoryPath,
+-};
++#!/usr/bin/env node
++/**
++ * BL-CNAS 的原子验证执行器。
++ *
++ * 职责边界：
++ * - 本脚本只执行**原子检查**（lint / typecheck / test / backend 测试），并按变更
++ *   范围选择要跑的子集。它不重新实现档位语义：档位命令集合的唯一真值源是
++ *   `vibe-harness.config.json` 的 `validationCommands.tiers`，`verify:standard`
++ *   直接转交统一运行时执行，避免「聚合入口调用聚合入口」形成递归。
++ * - 前后端分流：`frontend/**` 只触发前端检查；`backend/**` 使用仓库内 Maven Wrapper
++ *   （Windows `mvnw.cmd`，其他平台 `./mvnw`），不依赖全局 Maven 与子目录 `pom.xml`
++ *   被当成根项目；纯文档变更不启动行为测试。
++ * - 每个阶段记录时长、范围、缓存与失败原因，供 `verify-changed-runs.jsonl` 复盘。
++ *
++ * 用法：
++ *   bun run --cwd frontend verify:changed              # 按 origin/develop 的变更范围
++ *   bun run --cwd frontend verify:changed -- --paths <文件...>
++ *   bun run --cwd frontend verify:standard -- --reason merge-boundary
++ *   node scripts/validation-runner.mjs backend-unit    # 供档位配置引用的原子模式
++ *   node scripts/validation-runner.mjs preflight       # 仅检查工具链、依赖和缓存
++ */
++import { spawn, spawnSync } from 'node:child_process';
++import { randomUUID } from 'node:crypto';
++import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
++import { appendFile, mkdir, open, readFile, unlink } from 'node:fs/promises';
++import { createRequire } from 'node:module';
++import path from 'node:path';
++import process from 'node:process';
++import { fileURLToPath } from 'node:url';
++import { validationGitEnvironment } from './validation-git-environment.mjs';
++
++const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
++const VALIDATION_RUN_ID = process.env.VIBE_HARNESS_VERIFICATION_ID ?? randomUUID();
++const FRONTEND_ROOT = path.resolve(SCRIPT_DIR, '..');
++const REPO_ROOT = path.resolve(FRONTEND_ROOT, '..');
++const BACKEND_ROOT = path.join(REPO_ROOT, 'backend');
++const RUNS_PATH = path.resolve(
++  REPO_ROOT,
++  '.vibe-harness',
++  'artifacts',
++  'verify-changed-runs.jsonl',
++);
++/** Windows 用 `mvnw.cmd`，其他平台用 `./mvnw`；两者都在 backend/ 下执行。 */
++const MAVEN_WRAPPER = process.platform === 'win32' ? 'mvnw.cmd' : './mvnw';
++/**
++ * 源码域 → 后端测试集合的显式映射；未知或部分覆盖仍扩大。
++ *
++ * Surefire 的 `-Dtest=<模式>` 选中类名匹配的测试；命中多个域时取并集。未命中任何
++ * 映射的后端路径（公共基础设施、通用配置、POM、迁移脚本、测试资源）回退完整后端
++ * 单测，宁可多跑，也不要因为映射缺口漏检。
++ */
++const BACKEND_TEST_MAPPING = [
++  {
++    domain: 'organization-change-impact',
++    prefixes: [
++      'backend/src/main/java/com/blcnas/organization/application/ChangeImpactAssessment',
++      'backend/src/main/java/com/blcnas/organization/infrastructure/ChangeImpactAssessment',
++      'backend/src/main/java/com/blcnas/organization/integration/OrganizationWorkbenchTodoSource',
++      'backend/src/test/java/com/blcnas/organization/OrganizationChangeImpactSliceTests.java',
++      'backend/src/test/java/com/blcnas/organization/OrganizationWorkbenchTodoSourceTests.java',
++    ],
++    selectors: [
++      'com.blcnas.organization.OrganizationChangeImpactSliceTests',
++      'com.blcnas.organization.OrganizationWorkbenchTodoSourceTests',
++    ],
++  },
++  {
++    domain: 'organization',
++    prefixes: ['backend/src/main/java/com/blcnas/organization/'],
++    selectors: ['com.blcnas.organization.*Tests'],
++  },
++  {
++    domain: 'iam',
++    prefixes: ['backend/src/main/java/com/blcnas/iam/'],
++    selectors: ['com.blcnas.iam.*Tests', 'com.blcnas.iam.application.*Tests'],
++  },
++  {
++    domain: 'facility-equipment',
++    prefixes: [
++      'backend/src/main/java/com/blcnas/facility/',
++      'backend/src/test/java/com/blcnas/facility/',
++      'backend/src/main/java/com/blcnas/equipment/',
++      'backend/src/test/java/com/blcnas/equipment/',
++    ],
++    // 两域共享监测绑定与设备采集契约；选中两域及子包的实际测试类。
++    testRoots: ['com/blcnas/facility', 'com/blcnas/equipment'],
++  },
++];
++
++function parsePaths(argv) {
++  argv = argv.filter((arg) => !['--plan', '--full'].includes(arg));
++  const paths = [];
++  for (let index = 0; index < argv.length; index += 1) {
++    if (argv[index] !== '--paths') {
++      throw new Error(`Unknown argument: ${argv[index]}`);
++    }
++    index += 1;
++    while (index < argv.length && !argv[index].startsWith('--')) {
++      paths.push(argv[index]);
++      index += 1;
++    }
++    index -= 1;
++  }
++  if (argv.includes('--paths') && paths.length === 0) {
++    throw new Error('Missing value for --paths');
++  }
++  return paths;
++}
++
++function parseReason(argv) {
++  const index = argv.indexOf('--reason');
++  const reason = index === -1 ? '' : argv[index + 1]?.trim();
++  if (!reason || reason.startsWith('--')) {
++    throw new Error(
++      'verify:standard requires --reason <merge-boundary|commit-boundary|targeted-regression>.',
++    );
++  }
++  return reason;
++}
++
++function gitLines(args) {
++  // `core.quotepath=false`：默认转义会把非 ASCII 路径写成 "\346..."，导致文档等
++  // 路径被误判成 unknown 并触发全量升级。
++  const result = spawnSync('git', ['-c', 'core.quotepath=false', ...args], {
++    cwd: REPO_ROOT,
++    env: validationGitEnvironment(process.env, REPO_ROOT),
++    encoding: 'utf8',
++    shell: false,
++    windowsHide: true,
++  });
++  if (result.status !== 0) {
++    throw new Error(`git ${args.join(' ')} failed: ${result.stderr.trim()}`);
++  }
++  return result.stdout
++    .split('\n')
++    .map((line) => line.trim())
++    .filter(Boolean);
++}
++
++function scopePaths(values) {
++  if (
++    !Array.isArray(values) ||
++    values.some((value) => typeof value !== 'string' || !value.trim())
++  ) {
++    throw new Error('Invalid validation context paths.');
++  }
++  return [
++    ...new Set(
++      values.map((file) => {
++        const normalized = normalizePath(file);
++        if (
++          path.isAbsolute(normalized) ||
++          path.win32.isAbsolute(normalized) ||
++          /^[a-z]:/iu.test(normalized) ||
++          /[\r\n\0]/u.test(normalized) ||
++          normalized.split('/').includes('..') ||
++          normalized === '.'
++        ) {
++          throw new Error('Validation context path escapes the repository.');
++        }
++        return normalized.replace(/^\.\//u, '');
++      }),
++    ),
++  ].toSorted((left, right) => left.localeCompare(right));
++}
++
++function collectScope(
++  explicitPaths,
++  {
++    env = process.env,
++    git = gitLines,
++    exists = (file) => existsSync(path.join(REPO_ROOT, file)),
++  } = {},
++) {
++  if (explicitPaths.length > 0) {
++    const files = scopePaths(explicitPaths);
++    return {
++      baseRef: null,
++      deleted: files.filter((file) => !exists(file)),
++      empty: false,
++      files,
++      mode: 'explicit-paths',
++    };
++  }
++  const keys = [
++    'VIBE_HARNESS_VERIFY_PATHS',
++    'VIBE_HARNESS_VERIFY_BASE',
++    'VIBE_HARNESS_VERIFY_SCOPE',
++  ];
++  if (keys.some((key) => env[key] !== undefined)) {
++    if (!keys.every((key) => typeof env[key] === 'string')) {
++      throw new Error(
++        'Incomplete Harness validation context; refusing to recompute scope.',
++      );
++    }
++    let values;
++    try {
++      values = JSON.parse(env.VIBE_HARNESS_VERIFY_PATHS);
++    } catch {
++      throw new Error('Invalid Harness validation context JSON.');
++    }
++    const files = scopePaths(values);
++    const baseSha = env.VIBE_HARNESS_VERIFY_BASE;
++    const requestedScope = env.VIBE_HARNESS_VERIFY_SCOPE;
++    if (
++      !/^[a-f0-9]{40,64}$/u.test(baseSha) ||
++      !['affected', 'full', 'layer'].includes(requestedScope) ||
++      git(['rev-parse', '--verify', `${baseSha}^{commit}`])[0] !== baseSha
++    ) {
++      throw new Error('Invalid Harness validation context baseline or scope.');
++    }
++    return {
++      baseRef: baseSha,
++      baseSha,
++      requestedScope,
++      files,
++      deleted: files.filter((file) => !exists(file)),
++      empty: files.length === 0,
++      mode: 'harness-context',
++    };
++  }
++  const baseRef = 'origin/develop';
++  const [mergeBase] = git(['merge-base', 'HEAD', baseRef]);
++  if (!mergeBase) throw new Error(`Cannot resolve merge-base for ${baseRef}.`);
++  const files = [
++    ...git(['diff', '--name-only', mergeBase, '--']),
++    ...git(['ls-files', '--others', '--exclude-standard', '--full-name']),
++  ];
++  const deleted = git([
++    'diff',
++    '--name-only',
++    '--diff-filter=D',
++    mergeBase,
++    '--',
++  ]);
++  const uniqueFiles = [...new Set(files)].toSorted((left, right) =>
++    left.localeCompare(right),
++  );
++  return {
++    baseRef,
++    baseSha: mergeBase,
++    deleted: [...new Set(deleted)].toSorted((left, right) =>
++      left.localeCompare(right),
++    ),
++    empty: uniqueFiles.length === 0,
++    files: uniqueFiles,
++    mode: 'changed',
++  };
++}
++
++function normalizePath(file) {
++  return file.replaceAll('\\', '/');
++}
++
++function toFrontendPath(file) {
++  const normalized = normalizePath(file);
++  return normalized.startsWith('frontend/')
++    ? normalized.slice('frontend/'.length)
++    : normalized;
++}
++
++function toRepositoryPath(file) {
++  const normalized = normalizePath(file);
++  return normalized.startsWith('frontend/')
++    ? normalized
++    : `frontend/${normalized}`;
++}
++
++const DOC_PATTERN = /\.(?:md|mdx)$/u;
++const CONTRACT_FIXTURE_PATTERN = /^docs\/contracts\/.*\.json$/u;
++
++/**
++ * 契约面路径前缀：API 定义、mock 数据与共享类型。命中时追加只读的
++ * `mock:check:bridge-parity`（前后端桥接一致性），**不**自动运行写盘 codegen。
++ */
++const CONTRACT_PREFIXES = Object.freeze([
++  'frontend/apps/mock-server/api/',
++  'frontend/apps/mock-server/mock-data/',
++  'frontend/apps/web/src/api/',
++  'frontend/packages/prototype-contracts/',
++]);
++
++function isContractPath(file) {
++  const normalized = normalizePath(file);
++  return CONTRACT_PREFIXES.some((prefix) => normalized.startsWith(prefix));
++}
++
++/**
++ * 把变更路径分到前端、后端与文档桶；未识别的路径归入 `unknown`，由调用方按
++ * 「无法界定 → 扩大范围」处理。
++ */
++function classifyPaths(files) {
++  const buckets = {
++    backend: [],
++    contract: [],
++    deleted: [],
++    docs: [],
++    frontend: [],
++    operational: [],
++    unknown: [],
++  };
++  for (const file of files) {
++    const normalized = normalizePath(file);
++    if (normalized.startsWith('frontend/')) {
++      buckets.frontend.push(normalized);
++      // 契约面是前端的子集，单独成桶以便追加桥接一致性检查。
++      if (isContractPath(normalized)) buckets.contract.push(normalized);
++    } else if (normalized.startsWith('backend/'))
++      buckets.backend.push(normalized);
++    else if (CONTRACT_FIXTURE_PATTERN.test(normalized)) {
++      buckets.docs.push(normalized);
++      buckets.contract.push(normalized);
++    } else if (DOC_PATTERN.test(normalized)) buckets.docs.push(normalized);
++    else if (normalized === '.infisical.json' || normalized === 'scripts/simulator.ps1') buckets.operational.push(normalized);
++    else buckets.unknown.push(normalized);
++  }
++  return buckets;
++}
++
++/** 后端聚焦选择器：命中映射返回并集，未命中返回 null（= 完整后端单测）。 */
++function backendTestSelectors(backendPaths) {
++  const selectors = new Set();
++  let mapped = 0;
++  for (const file of backendPaths) {
++    const normalized = normalizePath(file);
++    if (/^backend\/src\/test\/java\/.+Tests\.java$/u.test(normalized)) {
++      selectors.add(normalized.slice('backend/src/test/java/'.length).replace(/\.java$/u, '').replaceAll('/', '.'));
++      mapped += 1;
++      continue;
++    }
++    for (const entry of BACKEND_TEST_MAPPING) {
++      if (entry.prefixes.some((prefix) => normalized.startsWith(prefix))) {
++        mapped += 1;
++        const actualTests = (directory) =>
++          readdirSync(path.join(BACKEND_ROOT, 'src/test/java', directory), {
++            withFileTypes: true,
++          }).flatMap((item) => {
++            if (item.isDirectory())
++              return actualTests(`${directory}/${item.name}`);
++            if (item.name.endsWith('Tests.java')) {
++              return [
++                `${directory}/${item.name}`
++                  .replace(/\.java$/u, '')
++                  .replaceAll('/', '.'),
++              ];
++            }
++            return [];
++          });
++        const selected = entry.testRoots
++          ? entry.testRoots.flatMap(actualTests)
++          : entry.selectors;
++        if (selected.length === 0)
++          throw new Error(`No tests in mapped domain: ${entry.domain}`);
++        for (const selector of selected) {
++          if (
++            !selector.includes('*') &&
++            !existsSync(
++              path.join(
++                BACKEND_ROOT,
++                'src/test/java',
++                `${selector.replaceAll('.', '/')}.java`,
++              ),
++            )
++          ) {
++            throw new Error(
++              `映射的测试尚未进入当前候选树：${selector}；请先合入对应测试，不可将部分选择当作通过。`,
++            );
++          }
++          selectors.add(selector);
++        }
++        break;
++      }
++    }
++  }
++  // A partial mapping cannot prove the unrecognised paths have no tests.
++  if (mapped !== backendPaths.length || selectors.size === 0) return null;
++  return [...selectors].toSorted((left, right) => left.localeCompare(right));
++}
++
++/** 失败现场只保留尾部：够定位 turbo/编译器的启动期错误，又不撑爆运行记录。 */
++const FAILURE_TAIL_CHARS = 4000;
++
++function validationCacheDirectory() {
++  return path.join(
++    process.env.VIBE_HARNESS_CACHE_DIR ||
++      path.join(REPO_ROOT, '.vibe-harness/cache'),
++    'turbo',
++  );
++}
++
++/** 检查实际包邻接关系；不安装依赖，也不修补共享 node_modules。 */
++function missingPackageDependencies(directory) {
++  const missing = [];
++  const visited = new Set();
++  const inspect = (current) => {
++    const actual = realpathSync(current);
++    if (visited.has(actual)) return;
++    visited.add(actual);
++    const manifestPath = path.join(actual, 'package.json');
++    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
++    const require = createRequire(manifestPath);
++    for (const [name, version] of Object.entries({
++      ...manifest.dependencies,
++      ...manifest.devDependencies,
++    })) {
++      const installed = require.resolve
++        .paths(name)
++        ?.map((lookup) => path.join(lookup, name))
++        .find((lookup) => existsSync(path.join(lookup, 'package.json')));
++      if (!installed) missing.push(`${manifest.name ?? current}: ${name}`);
++      else if (String(version).startsWith('workspace:')) inspect(installed);
++    }
++  };
++  inspect(directory);
++  return missing;
++}
++
++async function probeWritable(directory) {
++  await mkdir(directory, { recursive: true });
++  const file = path.join(directory, `.preflight-${randomUUID()}`);
++  const handle = await open(file, 'wx');
++  try {
++    await handle.writeFile('preflight');
++  } finally {
++    await handle.close();
++    await unlink(file);
++  }
++}
++
++async function preflightStages(stages, metadata) {
++  const frontend = stages.some((stage) => stage.command === 'bun');
++  const backend = stages.some((stage) => stage.maven);
++  const probe = (command, args) => {
++    const result = spawnSync(command, args, {
++      env: validationGitEnvironment(process.env, REPO_ROOT),
++      encoding: 'utf8',
++      shell: false,
++      stdio: 'pipe',
++      timeout: 5000,
++      windowsHide: true,
++    });
++    if (result.error || result.status !== 0)
++      throw new Error(`Toolchain unavailable: ${command}`);
++  };
++  if (frontend) {
++    probe('bun', ['--version']);
++    const directories = new Set([FRONTEND_ROOT]);
++    for (const file of metadata?.scope?.files ?? []) {
++      if (!file.startsWith('frontend/')) continue;
++      let directory = path.dirname(path.join(REPO_ROOT, file));
++      while (directory.startsWith(`${FRONTEND_ROOT}${path.sep}`)) {
++        if (existsSync(path.join(directory, 'package.json'))) {
++          directories.add(directory);
++          break;
++        }
++        directory = path.dirname(directory);
++      }
++    }
++    const missing = [...directories].flatMap((directory) =>
++      missingPackageDependencies(directory),
++    );
++    if (missing.length > 0)
++      throw new Error(
++        `Missing dependencies: ${missing.slice(0, 12).join(', ')}`,
++      );
++    await probeWritable(validationCacheDirectory());
++  }
++  if (backend) {
++    if (!existsSync(path.join(BACKEND_ROOT, MAVEN_WRAPPER)))
++      throw new Error('Maven Wrapper unavailable.');
++    const suffix = process.platform === 'win32' ? '.exe' : '';
++    for (const tool of ['java', 'javac']) {
++      probe(
++        process.env.JAVA_HOME
++          ? path.join(process.env.JAVA_HOME, 'bin', `${tool}${suffix}`)
++          : tool,
++        ['-version'],
++      );
++    }
++  }
++  await probeWritable(path.dirname(RUNS_PATH));
++}
++
++function teeStream(stream, name, sink) {
++  stream.setEncoding('utf8');
++  stream.on('data', (chunk) => {
++    sink.output = (sink.output + chunk).slice(-FAILURE_TAIL_CHARS);
++    (name === 'stderr' ? process.stderr : process.stdout).write(chunk);
++  });
++}
++
++function runCommand(command, args, cwd) {
++  return new Promise((resolve, reject) => {
++    const startedAt = Date.now();
++    const child = spawn(command, args, {
++      cwd,
++      env: {
++        ...validationGitEnvironment(process.env, REPO_ROOT),
++        VIBE_HARNESS_VERIFICATION_ID: VALIDATION_RUN_ID,
++        TURBO_CACHE_DIR: validationCacheDirectory(),
++      },
++      shell: false,
++      // Pipe + relay keeps the live console behavior of `inherit` while a tail
++      // of the output survives into the run record: the 2026-10 S5 turbo
++      // failures died in under a second and left no evidence behind.
++      stdio: ['inherit', 'pipe', 'pipe'],
++      windowsHide: true,
++    });
++    const stdoutTail = { output: '' };
++    const stderrTail = { output: '' };
++    if (child.stdout) teeStream(child.stdout, 'stdout', stdoutTail);
++    if (child.stderr) teeStream(child.stderr, 'stderr', stderrTail);
++    child.on('error', reject);
++    child.on('close', (exitCode) => {
++      resolve({
++        durationMs: Date.now() - startedAt,
++        exitCode: exitCode ?? 1,
++        stderrTail: stderrTail.output,
++        stdoutTail: stdoutTail.output,
++      });
++    });
++  });
++}
++
++/** Maven Wrapper 在 Windows 上是 .cmd，需要经 cmd.exe 解析。 */
++function runMaven(args) {
++  return process.platform === 'win32'
++    ? runCommand('cmd.exe', ['/d', '/c', MAVEN_WRAPPER, ...args], BACKEND_ROOT)
++    : runCommand(MAVEN_WRAPPER, args, BACKEND_ROOT);
++}
++
++async function runStages(
++  stages,
++  metadata,
++  {
++    prepare = preflightStages,
++    execute = undefined,
++    record = writeRun,
++  } = {},
++) {
++  const results = [];
++  const preparationStartedAt = Date.now();
++  try {
++    await prepare(stages, metadata);
++  } catch (error) {
++    const run = {
++      ...metadata,
++      generatedAt: new Date().toISOString(),
++      status: 'blocked',
++      failureReason: error.message,
++      results: [
++        {
++          name: 'environment-preflight',
++          status: 'blocked',
++          exitCode: 2,
++          durationMs: Date.now() - preparationStartedAt,
++        },
++      ],
++    };
++    await record(run);
++    console.error(`[validation:summary] ${JSON.stringify(run)}`);
++    console.log(
++      `[VIBE_HARNESS_CHECK] ${JSON.stringify({ status: 'blocked', reason: 'environment-preflight-failed' })}`,
++    );
++    return 2;
++  }
++  const preparationMs = Date.now() - preparationStartedAt;
++  for (const stage of stages) {
++    console.warn(`[validation] ${stage.name} started (${stage.scope})`);
++    const started = Date.now();
++    const heartbeat = setInterval(() => {
++      console.warn(
++        `[validation:heartbeat] ${JSON.stringify({ stage: stage.name, scope: stage.scope, elapsedMs: Date.now() - started })}`,
++      );
++    }, 30_000);
++    heartbeat.unref();
++    let result;
++    let resources;
++    try {
++      const { acquireCheckResources } = await import('../../.agents/runtime/lib/check-resources.mjs');
++      const names = stage.maven ? ['backend-build']
++        : stage.scope.startsWith('frontend') || ['lint', 'typecheck', 'test'].includes(stage.name)
++          ? ['frontend-validation'] : [];
++      resources = await acquireCheckResources(REPO_ROOT, names, {
++        timeoutMs: 3_000_000,
++        onWait: (detail) => console.warn(`[validation:resource-wait] ${JSON.stringify(detail)}`),
++      });
++      if (!resources.ok) {
++        console.log(`[VIBE_HARNESS_CHECK] ${JSON.stringify({ status: 'blocked', reason: resources.code })}`);
++        return 2;
++      }
++      resources.begin?.();
++      if (execute) result = await execute(stage);
++      else {
++        const { executeCommand } = await import('../../.agents/runtime/lib/verification-plan-support.mjs');
++        const command = [stage.maven ? MAVEN_WRAPPER : stage.command, ...stage.args]
++          .map((token) => JSON.stringify(token)).join(' ');
++        const observed = await executeCommand(command, stage.cwd, Math.max(1, 3_000_000 - resources.waitMs), REPO_ROOT,
++          validationGitEnvironment(process.env, REPO_ROOT), { onProcess: (tree) => resources.begin?.(tree) });
++        result = { ...observed, durationMs: Date.now() - started, stderrTail: observed.stderr, stdoutTail: observed.stdout };
++        if (observed.stdout) process.stdout.write(observed.stdout);
++        if (observed.stderr) process.stderr.write(observed.stderr);
++        if (observed.status === 'blocked') {
++          console.log(`[VIBE_HARNESS_CHECK] ${JSON.stringify({ status: 'blocked', reason: observed.code })}`);
++          return 2;
++        }
++      }
++    } finally {
++      resources?.release?.({ retain: ['TIMEOUT', 'OUTPUT_LIMIT'].includes(result?.code) && result?.processTreeStopped !== true });
++      clearInterval(heartbeat);
++    }
++    results.push({
++      cache: stage.cache ?? 'none',
++      durationMs: result.durationMs,
++      exitCode: result.exitCode,
++      name: stage.name,
++      scope: stage.scope,
++      ...(result.stderrTail?.trim()
++        ? { stderrTail: result.stderrTail.trim() }
++        : {}),
++    });
++    console.warn(
++      `[validation] ${stage.name} exit=${result.exitCode} durationMs=${result.durationMs}`,
++    );
++    if (result.exitCode !== 0) break;
++  }
++  const failed = results.find((item) => item.exitCode !== 0);
++  const run = {
++    generatedAt: new Date().toISOString(),
++    failureReason: failed
++      ? `${failed.name} exited ${failed.exitCode}${failed.stderrTail ? `: ${failed.stderrTail.slice(-600)}` : ''}`
++      : null,
++    lintTypecheckMs:
++      (results.find((item) => item.name === 'lint')?.durationMs ?? 0) +
++      (results.find((item) => item.name === 'typecheck')?.durationMs ?? 0),
++    results,
++    preparationMs,
++    ...metadata,
++  };
++  await record(run);
++  console.warn(`[validation:summary] ${JSON.stringify(run)}`);
++  return failed?.exitCode ?? 0;
++}
++
++async function writeRun(run) {
++  await mkdir(path.dirname(RUNS_PATH), { recursive: true });
++  await appendFile(RUNS_PATH, `${JSON.stringify(run)}\n`, 'utf8');
++}
++
++/** lint 与 test 共用的作用域标签；同一判断不写成嵌套三元表达式。 */
++function frontendScope(escalate, explicit) {
++  if (escalate) return 'frontend-full';
++  return explicit ? 'explicit-paths' : 'changed';
++}
++
++/**
++ * Turbo 在 linked worktree 中启动 Bun 包脚本时可能无法重新读取 package.json。
++ * 只使用 Turbo 的静态任务计划确定包集合，再逐包交给 Bun 执行，保留消费方扩展语义。
++ */
++function parseTypecheckDryRun(output) {
++  let plan;
++  try {
++    plan = JSON.parse(output);
++  } catch {
++    throw new Error('Turbo typecheck dry run did not return valid JSON.');
++  }
++  if (!plan || !Array.isArray(plan.tasks)) {
++    throw new Error('Turbo typecheck dry run did not return a task list.');
++  }
++  const directories = new Set();
++  for (const task of plan.tasks) {
++    if (task?.task !== 'typecheck' || task.command === '<NONEXISTENT>')
++      continue;
++    if (typeof task.directory !== 'string' || !task.directory.trim()) {
++      throw new Error('Turbo typecheck task is missing its package directory.');
++    }
++    const directory = normalizePath(task.directory).replace(/\/+$/u, '');
++    const absolute = path.resolve(FRONTEND_ROOT, directory);
++    if (
++      path.isAbsolute(directory) ||
++      path.win32.isAbsolute(directory) ||
++      /^[a-z]:/iu.test(directory) ||
++      directory.split('/').includes('..') ||
++      (absolute !== FRONTEND_ROOT &&
++        !absolute.startsWith(`${FRONTEND_ROOT}${path.sep}`))
++    ) {
++      throw new Error(
++        `Turbo typecheck directory escapes the frontend: ${directory}`,
++      );
++    }
++    if (!existsSync(path.join(absolute, 'package.json'))) {
++      throw new Error(`Turbo typecheck package is missing: ${directory}`);
++    }
++    directories.add(normalizePath(path.relative(FRONTEND_ROOT, absolute)));
++  }
++  if (directories.size === 0) {
++    throw new Error('Turbo typecheck dry run selected no packages.');
++  }
++  return [...directories].toSorted((left, right) => left.localeCompare(right));
++}
++
++async function runTypecheckPackages(argv) {
++  const affected = argv.includes('--affected');
++  const unknown = argv.filter(
++    (argument) => argument.startsWith('--') && argument !== '--affected',
++  );
++  if (unknown.length > 0) {
++    throw new Error(`Unknown typecheck argument: ${unknown[0]}`);
++  }
++  const filters = argv.filter((argument) => argument !== '--affected');
++  const turboArgs = [
++    'x',
++    'turbo',
++    'run',
++    'typecheck',
++    ...(affected ? ['--affected'] : []),
++    ...filters.map(
++      (directory) => `--filter=...{./${normalizePath(directory)}}`,
++    ),
++    '--dry=json',
++  ];
++  const planned = spawnSync('bun', turboArgs, {
++    cwd: FRONTEND_ROOT,
++    encoding: 'utf8',
++    env: {
++      ...validationGitEnvironment(process.env, REPO_ROOT),
++      ...(affected
++        ? { TURBO_SCM_BASE: process.env.TURBO_SCM_BASE ?? 'origin/develop' }
++        : {}),
++    },
++    maxBuffer: 64 * 1024 * 1024,
++    timeout: 120_000,
++    shell: false,
++    stdio: ['ignore', 'pipe', 'pipe'],
++    windowsHide: true,
++  });
++  if (planned.stderr) process.stderr.write(planned.stderr);
++  if (planned.error) throw planned.error;
++  if (planned.status !== 0) return planned.status ?? 1;
++
++  let directories;
++  try {
++    directories = parseTypecheckDryRun(planned.stdout);
++  } catch (error) {
++    console.error(`[validation] typecheck plan rejected: ${error.message}`);
++    return 1;
++  }
++  for (const directory of directories) {
++    console.warn(`[validation] typecheck ${directory} started`);
++    const result = await runCommand(
++      'bun',
++      ['run', '--cwd', directory, 'typecheck'],
++      FRONTEND_ROOT,
++    );
++    console.warn(
++      `[validation] typecheck ${directory} exit=${result.exitCode} durationMs=${result.durationMs}`,
++    );
++    if (result.exitCode !== 0) return result.exitCode;
++  }
++  return 0;
++}
++
++/** 前端三条原子检查：显式路径贯穿 lint 与测试；typecheck 按所属包扩大。 */
++function frontendStages(paths, { escalate }) {
++  const frontendPaths = paths.filter((file) => existsSync(path.join(REPO_ROOT, file))).map((file) => toFrontendPath(file));
++  const explicit = frontendPaths.length > 0;
++  const lintArgs = explicit
++    ? [
++        'x',
++        'vsh',
++        'lint',
++        ...frontendPaths.filter((file) => !file.endsWith('.md')),
++      ]
++    : ['run', 'lint:changed'];
++  const testArgs = explicit
++    ? [
++        'run',
++        'test:changed',
++        '--',
++        '--paths',
++        ...paths.map((file) => toRepositoryPath(file)),
++      ]
++    : ['run', 'test:changed'];
++  return [
++    {
++      args: escalate ? ['run', 'lint'] : lintArgs,
++      command: 'bun',
++      cwd: FRONTEND_ROOT,
++      name: 'lint',
++      scope: frontendScope(escalate, explicit),
++    },
++    {
++      args: [
++        './scripts/validation-runner.mjs',
++        'typecheck-packages',
++        ...(escalate ? [] : affectedTypecheckFilters(paths)),
++      ],
++      command: 'bun',
++      cwd: FRONTEND_ROOT,
++      name: 'typecheck',
++      scope: escalate ? 'frontend-full' : 'explicit-packages-and-dependents',
++    },
++    {
++      args: escalate ? ['run', 'test:unit'] : testArgs,
++      command: 'bun',
++      cwd: FRONTEND_ROOT,
++      name: 'test',
++      scope: frontendScope(escalate, explicit),
++    },
++  ];
++}
++
++/** Turbo --affected 会重新选基线；显式 package filters 保持冻结路径并包含消费方。 */
++function affectedTypecheckFilters(paths) {
++  const packages = new Set();
++  for (const file of paths) {
++    let directory = path.dirname(path.resolve(REPO_ROOT, file));
++    while (
++      directory !== FRONTEND_ROOT &&
++      directory.startsWith(`${FRONTEND_ROOT}${path.sep}`)
++    ) {
++      if (existsSync(path.join(directory, 'package.json'))) break;
++      directory = path.dirname(directory);
++    }
++    if (
++      directory === FRONTEND_ROOT ||
++      !directory.startsWith(`${FRONTEND_ROOT}${path.sep}`)
++    )
++      return [];
++    packages.add(normalizePath(path.relative(FRONTEND_ROOT, directory)));
++  }
++  return [...packages].toSorted((left, right) => left.localeCompare(right));
++}
++
++/** 后端阶段：命中映射时聚焦，否则完整单测；迁移/POM 变更明确不产生 DM8 证据。 */
++function backendStages(backendPaths, { escalate }) {
++  const selectors = escalate ? null : backendTestSelectors(backendPaths);
++  const args = selectors
++    ? [
++        `-Dtest=${selectors.join(',')}`,
++        '-Dsurefire.failIfNoSpecifiedTests=true',
++        'test',
++      ]
++    : ['test'];
++  return [
++    {
++      args,
++      maven: true,
++      name: 'backend-test',
++      scope: selectors
++        ? `mapped-domains:${selectors.join(',')}`
++        : 'backend-full',
++    },
++  ];
++}
++
++const DOC_STAGE = Object.freeze({
++  args: ['run', 'check:docs-consistency'],
++  command: 'bun',
++  cwd: FRONTEND_ROOT,
++  name: 'docs-static',
++  scope: 'docs-consistency',
++});
++
++/** 契约定更后的只读一致性检查：不触发写盘 codegen，也不改写生成物。 */
++const CONTRACT_STAGE = Object.freeze({
++  args: ['run', 'mock:check:bridge-parity'],
++  cache: 'read-only',
++  command: 'bun',
++  cwd: FRONTEND_ROOT,
++  name: 'contract-parity',
++  scope: 'mock-bridge-parity（只读；未运行写盘 codegen）',
++});
++const CONTRACT_STANDARD_STAGE = Object.freeze({
++  args: ['run', 'check:openapi'],
++  command: 'bun',
++  cwd: FRONTEND_ROOT,
++  name: 'contract-openapi',
++  scope: 'affected-contract',
++});
++const MIGRATION_STANDARD_STAGE = Object.freeze({
++  args: [
++    '-Dtest=*MigrationTests',
++    '-Dsurefire.failIfNoSpecifiedTests=true',
++    'test',
++  ],
++  maven: true,
++  name: 'backend-migration',
++  scope: 'migration-contract',
++});
++
++async function runChanged(argv, { standard = false, atomic = null } = {}) {
++  const paths = parsePaths(argv);
++  const scope = collectScope(paths);
++  if (scope.empty && scope.requestedScope !== 'full') {
++    if (argv.includes('--plan')) {
++      console.log(`[validation:plan] ${JSON.stringify({ scope, selectedChecks: [], status: 'unverified', reason: 'empty-scope' })}`);
++      return 2;
++    }
++    const run = {
++      generatedAt: new Date().toISOString(),
++      lowerBound: 'empty-scope',
++      results: [],
++      scope,
++    };
++    await writeRun(run);
++    console.warn(
++      `[validation:summary] ${JSON.stringify(run)}\n[validation] 空变更范围；未执行验证，不构成完整通过证据。`,
++    );
++    return 1;
++  }
++
++  const buckets = classifyPaths(scope.files);
++  // 删除文件无法界定影响面，且 `test:changed --paths` 不接受不存在的路径：按桶整体扩大。
++  const deleted = classifyPaths(scope.deleted);
++  const escalateFrontend = false; // Deleted sources are resolved by test:changed against the frozen baseline/domain.
++  const escalateBackend = deleted.backend.length > 0;
++  const contractTouched =
++    buckets.contract.length > 0 ||
++    deleted.contract.length > 0;
++  const unknownEscalates = argv.includes('--full') || scope.requestedScope === 'full';
++
++  const stages = [];
++  if (buckets.operational.length) stages.push({
++    name: 'operational-static', command: 'node', cwd: FRONTEND_ROOT,
++    args: ['./scripts/validation-operational.mjs', ...buckets.operational],
++    scope: 'explicit-operational-inputs',
++  });
++  if (
++    !standard &&
++    (buckets.frontend.length > 0 || escalateFrontend || unknownEscalates)
++  ) {
++    stages.push(
++      ...frontendStages(buckets.frontend, {
++        escalate: escalateFrontend || unknownEscalates,
++      }),
++    );
++  }
++  // 契约检查廉价且只读：紧随前端检查之后、后端长测之前，避免反馈被后端耗时掩盖。
++  if (!standard && contractTouched) stages.push(CONTRACT_STAGE);
++  if (
++    !standard &&
++    (buckets.backend.length > 0 || escalateBackend || unknownEscalates)
++  ) {
++    stages.push(
++      ...backendStages(buckets.backend, {
++        escalate: escalateBackend || unknownEscalates,
++      }),
++    );
++  }
++  if (standard && contractTouched) stages.push(CONTRACT_STANDARD_STAGE);
++  if (
++    standard &&
++    [...buckets.backend, ...deleted.backend].some((file) =>
++      file.startsWith('backend/src/main/resources/db/changelog/'),
++    )
++  )
++    stages.push(MIGRATION_STANDARD_STAGE);
++  if (standard && stages.length === 0) {
++    if (argv.includes('--plan')) {
++      console.log(`[validation:plan] ${JSON.stringify({ scope, selectedChecks: [], status: 'not_selected' })}`);
++      return 0;
++    }
++    await writeRun({
++      generatedAt: new Date().toISOString(),
++      results: [],
++      scope,
++      status: 'not_applicable',
++    });
++    console.warn(
++      '[validation] standard-slice：无适用的额外契约/迁移检查；quick 的实测结果仍是本次证据。',
++    );
++    console.log(
++      '[VIBE_HARNESS_CHECK] {"status":"not_applicable","reason":"no-additional-contract-or-migration-checks"}',
++    );
++    return 0;
++  }
++  if (
++    !standard &&
++    stages.length === 0 &&
++    (buckets.docs.length > 0 || deleted.docs.length > 0)
++  ) {
++    stages.push(DOC_STAGE);
++  }
++
++  const selected = atomic ? stages.filter((stage) => stage.name === atomic) : stages;
++  const plan = { ...scope, selectedChecks: selected, excludedDomains: {
++    backend: !selected.some((stage) => stage.maven),
++    contract: !contractTouched && !unknownEscalates,
++  }, coverageGaps: unknownEscalates ? [] : buckets.unknown,
++  expansionReasons: unknownEscalates ? ['explicit-full'] : escalateBackend ? ['deleted-backend-source'] : [],
++  reuse: 'atomic Harness receipts; aggregate changed is not deterministic' };
++  console.log(`[validation:plan] ${JSON.stringify(plan)}`);
++  if (argv.includes('--plan')) return plan.coverageGaps.length ? 2 : 0;
++  if (plan.coverageGaps.length) {
++    console.log('[VIBE_HARNESS_CHECK] {"status":"blocked","reason":"unclassified-inputs; use explicit task paths or classify related domain"}');
++    return 2;
++  }
++  if (atomic && selected.length === 0) {
++    console.log('[VIBE_HARNESS_CHECK] {"status":"not_applicable","reason":"atomic-check-outside-task-scope"}');
++    return 0;
++  }
++  return runStages(selected, {
++    buckets: {
++      backend: buckets.backend.length,
++      contract: buckets.contract.length,
++      deleted: scope.deleted.length,
++      docs: buckets.docs.length,
++      frontend: buckets.frontend.length,
++      unknown: buckets.unknown.length,
++    },
++    lowerBound:
++      unknownEscalates || escalateFrontend || escalateBackend
++        ? 'escalated-unknown-scope'
++        : 'changed-scope',
++    scope, runId: VALIDATION_RUN_ID,
++  });
++}
++
++/**
++ * 档位入口：委派统一运行时执行 `validationCommands.tiers`。
++ * 本脚本不重新解释档位含义，避免与运行时产生第二套语义。
++ */
++async function runTier(tier, argv) {
++  const reason = parseReason(argv);
++  const runtime = path.join(
++    REPO_ROOT,
++    '.agents',
++    'runtime',
++    'commands',
++    'run.mjs',
++  );
++  const existing = await readFile(runtime, 'utf8').then(
++    () => true,
++    () => false,
++  );
++  if (!existing) {
++    throw new Error(
++      `找不到统一运行时 ${path.relative(REPO_ROOT, runtime)}；请先安装或升级 Vibe-Harness 受管文件。`,
++    );
++  }
++  const result = await runCommand(
++    process.execPath,
++    [runtime, 'verify', '--project', REPO_ROOT, '--tier', tier, '--json'],
++    REPO_ROOT,
++  );
++  await writeRun({
++    generatedAt: new Date().toISOString(),
++    mode: `tier:${tier}`,
++    reason,
++    results: [
++      {
++        cache: 'runtime',
++        durationMs: result.durationMs,
++        exitCode: result.exitCode,
++        name: `verify:${tier}`,
++        scope: `tier:${tier}`,
++      },
++    ],
++  });
++  return result.exitCode;
++}
++
++const BACKEND_MODES = Object.freeze({
++  'backend-dm-it': {
++    args: ['verify', '-Pdm-it', '-Dspring.profiles.active=dm-it'],
++    name: 'backend-dm-it',
++    scope:
++      'dm8-integration（需要 DM8_JDBC_URL + DM8_APP_USERNAME/PASSWORD + DM8_MIGRATOR_USERNAME/PASSWORD）',
++  },
++  'backend-unit': {
++    args: ['test'],
++    name: 'backend-unit',
++    scope: 'backend-full',
++  },
++  'backend-verify': {
++    args: ['verify'],
++    name: 'backend-verify',
++    scope: 'backend-verify',
++  },
++});
++
++/**
++ * dm-it 档的凭据判空契约：与 `.gitlab-ci.yml` 的 dm-it shadow 作业、ADR-0007 §3
++ * 以及 `backend/src/main/resources/application-dm-it.yml` 逐字一致，只认这五个键。
++ *
++ * 旧口径 `DM8_HOST` / `DM8_PORT` / `DM8_USER` / `DM8_PASSWORD` 是过渡期遗留：它既不是
++ * Infisical 现在注入的键名，也不足以让 dm-it 档启动（连接串 `DM8_JDBC_URL` 是该档的
++ * 必需项，不是可选项，没有它 maven 连 profile 都解析不了）。继续按旧键判空，只会让
++ * 门禁在 maven 启动前把「凭据齐备」误判成「凭据缺失」，把可达实例的证据写成 blocked。
++ */
++const DM8_INTEGRATION_KEYS = Object.freeze([
++  'DM8_JDBC_URL',
++  'DM8_APP_USERNAME',
++  'DM8_APP_PASSWORD',
++  'DM8_MIGRATOR_USERNAME',
++  'DM8_MIGRATOR_PASSWORD',
++]);
++
++/** 供档位配置引用的原子模式；DM8 集成在没有环境时明确报 blocked 而不是假通过。 */
++async function runBackendMode(mode) {
++  const stage = BACKEND_MODES[mode];
++  if (!stage) throw new Error(`Unknown backend mode: ${mode}`);
++  if (mode === 'backend-dm-it') {
++    const missing = DM8_INTEGRATION_KEYS.filter((name) => !process.env[name]);
++    if (missing.length > 0) {
++      await writeRun({
++        generatedAt: new Date().toISOString(),
++        mode,
++        results: [
++          {
++            cache: 'none',
++            durationMs: 0,
++            exitCode: 2,
++            name: stage.name,
++            reason: `missing DM8 environment: ${missing.join(', ')}`,
++            scope: stage.scope,
++          },
++        ],
++      });
++      console.error(
++        `[validation] DM8 集成证据不可用：缺少 ${missing.join(', ')}（dm-it 档需要 DM8_JDBC_URL + DM8_APP_USERNAME/PASSWORD + DM8_MIGRATOR_USERNAME/PASSWORD，通常由 infisical run 注入）；H2 单测通过不代表 DM8 行为已验收（blocked）。`,
++      );
++      return 2;
++    }
++  }
++  return runStages(
++    [
++      {
++        args: stage.args,
++        maven: true,
++        name: stage.name,
++        scope: stage.scope,
++      },
++    ],
++    { mode },
++  );
++}
++
++async function runDirect(argv) {
++  const separator = argv.indexOf('--');
++  const name = argv[0];
++  const command = argv[separator + 1];
++  const args = argv.slice(separator + 2);
++  if (!name || separator < 1 || !command) {
++    throw new Error('direct usage: direct <name> -- <command> [...args]');
++  }
++  if (!process.env.CI && !process.env.VIBE_HARNESS_VERIFICATION_ID && process.env.BL_CNAS_STANDARD_VALIDATION !== '1') {
++    console.warn(
++      `[validation:soft-gate] 正在直接运行全仓 ${name}。开发内循环请使用 bun run verify:changed；合并前请使用 bun run verify:standard -- --reason <reason>。`,
++    );
++  }
++  return runStages(
++    [{ name, command, args, cwd: FRONTEND_ROOT, scope: 'frontend-full' }],
++    { mode: `direct:${name}` },
++  );
++}
++
++async function main() {
++  const [mode, ...argv] = process.argv.slice(2);
++  let exitCode;
++  if (mode === 'changed') exitCode = await runChanged(argv);
++  else if (mode === 'changed-atom') exitCode = await runChanged(argv.slice(1), { atomic: argv[0] });
++  else if (mode === 'standard-slice')
++    exitCode = await runChanged(argv, { standard: true });
++  else if (mode === 'standard') exitCode = await runTier('standard', argv);
++  else if (mode === 'quick') exitCode = await runTier('quick', argv);
++  else if (mode === 'deep') exitCode = await runTier('deep', argv);
++  else if (mode === 'typecheck-packages')
++    exitCode = await runTypecheckPackages(argv);
++  else if (mode === 'direct') exitCode = await runDirect(argv);
++  else if (mode === 'preflight') {
++    exitCode = await runStages(
++      [],
++      { mode },
++      {
++        prepare: () =>
++          preflightStages([{ command: 'bun' }, { maven: true }], {
++            scope: { files: scopePaths(parsePaths(argv)) },
++          }),
++      },
++    );
++  } else if (Object.hasOwn(BACKEND_MODES, mode)) {
++    exitCode = await runBackendMode(mode);
++  } else throw new Error(`Unknown validation mode: ${mode ?? '<missing>'}`);
++  process.exitCode = exitCode;
++}
++
++if (
++  process.argv[1] &&
++  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
++) {
++  main().catch((error) => {
++    console.error(
++      `[validation] failed: ${error instanceof Error ? error.message : error}`,
++    );
++    process.exitCode = 1;
++  });
++}
++
++export {
++  backendStages,
++  backendTestSelectors,
++  classifyPaths,
++  collectScope,
++  frontendStages,
++  isContractPath,
++  missingPackageDependencies,
++  parsePaths,
++  parseReason,
++  parseTypecheckDryRun,
++  preflightStages,
++  runStages,
++  runTypecheckPackages,
++  toFrontendPath,
++  toRepositoryPath,
++};
+diff --git a/frontend/scripts/vitest-changed.mjs b/frontend/scripts/vitest-changed.mjs
+index 523ae8dcb683bcf5ba3f0d2caf92aa161b1c6250..2a7d9bee70c4e9bf41896e5a755b346adafb315c 100644
+--- a/frontend/scripts/vitest-changed.mjs
++++ b/frontend/scripts/vitest-changed.mjs
+@@ -1,703 +1,734 @@
+-#!/usr/bin/env node
+-/**
+- * 按变更范围运行前端单测。
+- *
+- * 选择依据是 Vitest/Vite 自己的模块图：`vitest related <源文件...>`。它解析
+- * tsconfig/vite 别名、重导出与传递依赖，比「同名用例 + 直接导入扫描」更接近真实
+- * 影响面。实测（2026-09-28，vitest 4.1.10）：
+- *   --paths apps/web/src/api/organization/check-in.ts
+- *   静态扫描 → 1 个测试文件；vitest related → 4 个（多出 router/views 的传递依赖）。
+- * 单次 `vitest related` 约 50 秒（含执行），`vitest list` 全量收集约 307 秒，因此
+- * 不做全量收集，只在需要时按分组回退完整集合。
+- *
+- * 用法：
+- *   bun run --cwd frontend test:changed
+- *   bun run --cwd frontend test:changed -- --since origin/develop
+- *   bun run --cwd frontend test:changed -- --paths <文件...>
+- *   bun run --cwd frontend test:changed -- --dry-run
+- *
+- * 约定：
+- * - 默认基准 ref 为 `origin/develop`（与 `worktree.baseRef` 一致），ref 缺失时显式报错，
+- *   不静默回退全量。
+- * - 变更集合 = 基准 ref 与 HEAD 的 merge-base 到工作区（含暂存与未跟踪文件）。
+- * - 范围分两组执行：根配置跑 web 侧用例；`apps/mock-server` 与
+- *   `packages/prototype-contracts` 的用例由专用配置 `apps/mock-server/vitest.config.ts`
+- *   收集，根配置显式排除了它们，所以这两组必须分开跑，否则相关用例会被静默跳过。
+- * - `--paths` 用于 fan-in / 合并后复核（此时按变更范围会选中空集合）。
+- * - 影响面无法界定时按分组回退完整集合，而不是静默跳过：vitest 配置变更、锁文件变更、
+- *   删除文件、`vitest related` 选不出用例或执行失败都会触发回退。
+- * - 空变更范围立即退出 0 并打印「未产生行为证据」；这不是通过证据。
+- */
+-import { spawn } from 'node:child_process';
+-import { readFile, stat } from 'node:fs/promises';
+-import path from 'node:path';
+-import process from 'node:process';
+-import { fileURLToPath } from 'node:url';
+-
+-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+-const FRONTEND_ROOT = path.resolve(SCRIPT_DIR, '..');
+-const REPO_ROOT = path.resolve(FRONTEND_ROOT, '..');
+-const DEFAULT_BASE_REF = 'origin/develop';
+-/** 专用 vitest 配置覆盖的目录（根配置把这些测试显式排除）。 */
+-const MOCK_SCOPE_PREFIXES = [
+-  'apps/mock-server/',
+-  'packages/prototype-contracts/',
+-];
+-const MOCK_CONFIG_PATH = 'apps/mock-server/vitest.config.ts';
+-const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:c|m)?[jt]sx?$/u;
+-const VITEST_CONFIG_PATTERN = /(?:^|\/)vitest\.config\.[cm]?[jt]s$/u;
+-const LOCKFILE_PATTERN =
+-  /^frontend\/(?:bun\.lockb?|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/u;
+-const SOURCE_EXTENSIONS = new Set([
+-  '.cjs',
+-  '.cts',
+-  '.js',
+-  '.jsx',
+-  '.mjs',
+-  '.mts',
+-  '.ts',
+-  '.tsx',
+-  '.vue',
+-]);
+-/** 根配置与 mock 专用配置各跑一次 related，因此一次最多两个分组调用。 */
+-const GROUPS = Object.freeze({
+-  mock: { configPath: MOCK_CONFIG_PATH, label: 'mock-server+contracts' },
+-  web: { configPath: undefined, label: 'web' },
+-});
+-/** Windows 命令行长度上限约 8191 字符，留出余量后分片调用。 */
+-const MAX_ARG_CHARS = 6000;
+-const NO_TESTS_PATTERN = /No test files found|passWithNoTests/iu;
+-
+-function parseArgs(argv) {
+-  const options = {
+-    baseRef: DEFAULT_BASE_REF,
+-    dryRun: false,
+-    paths: [],
+-    passthrough: [],
+-  };
+-  for (let index = 0; index < argv.length; index += 1) {
+-    const flag = argv[index];
+-    if (flag === '--paths') {
+-      let next = argv[index + 1];
+-      while (next !== undefined && !next.startsWith('--')) {
+-        options.paths.push(next);
+-        index += 1;
+-        next = argv[index + 1];
+-      }
+-      if (options.paths.length === 0) {
+-        throw new Error('Missing value for --paths');
+-      }
+-      continue;
+-    }
+-    if (flag === '--since') {
+-      const value = argv[index + 1];
+-      if (value === undefined || value.startsWith('--')) {
+-        throw new Error('Missing value for --since');
+-      }
+-      options.baseRef = value;
+-      index += 1;
+-      continue;
+-    }
+-    if (flag === '--dry-run') {
+-      options.dryRun = true;
+-      continue;
+-    }
+-    throw new Error(`Unknown argument: ${flag}`);
+-  }
+-  return options;
+-}
+-
+-/** 运行 git 命令，返回按行切分的 stdout。 */
+-function gitLines(args) {
+-  return new Promise((resolve, reject) => {
+-    // `core.quotepath=false`：否则非 ASCII 路径会被转义成 "\346..."，既无法匹配
+-    // 分组前缀，也会被误判成「无法界定影响面」。
+-    const child = spawn('git', ['-c', 'core.quotepath=false', ...args], {
+-      cwd: REPO_ROOT,
+-      shell: false,
+-      windowsHide: true,
+-    });
+-    let stdout = '';
+-    let stderr = '';
+-    child.stdout.on('data', (chunk) => {
+-      stdout += chunk;
+-    });
+-    child.stderr.on('data', (chunk) => {
+-      stderr += chunk;
+-    });
+-    child.on('error', reject);
+-    child.on('close', (code) => {
+-      const lines = stdout
+-        .split('\n')
+-        .map((line) => line.trim())
+-        .filter(Boolean);
+-      if (code === 0) {
+-        resolve(lines);
+-        return;
+-      }
+-      reject(new Error(`git ${args.join(' ')} failed: ${stderr.trim()}`));
+-    });
+-  });
+-}
+-
+-/** 解析基准 ref 与 HEAD 的 merge-base；ref 缺失时抛错而不是回退全量。 */
+-async function resolveMergeBase(baseRef) {
+-  const existing = await gitLines([
+-    'rev-parse',
+-    '--verify',
+-    '--quiet',
+-    `${baseRef}^{commit}`,
+-  ]);
+-  if (existing.length === 0) {
+-    throw new Error(
+-      `基准 ref ${baseRef} 不存在。请先 fetch（git fetch origin develop）或显式传 --since <ref>。`,
+-    );
+-  }
+-  const [mergeBase] = await gitLines(['merge-base', 'HEAD', baseRef]);
+-  if (!mergeBase) {
+-    throw new Error(`无法计算 HEAD 与 ${baseRef} 的 merge-base。`);
+-  }
+-  return mergeBase;
+-}
+-
+-/** 收集基准 ref 以来的变更文件（含暂存、未暂存与未跟踪），返回仓库相对路径。 */
+-async function collectChangedFiles(mergeBase) {
+-  const tracked = await gitLines(['diff', '--name-only', mergeBase, '--']);
+-  const untracked = await gitLines([
+-    'ls-files',
+-    '--others',
+-    '--exclude-standard',
+-    '--full-name',
+-  ]);
+-  return [...new Set([...tracked, ...untracked])].toSorted((a, b) =>
+-    a.localeCompare(b),
+-  );
+-}
+-
+-/** 基准 ref 以来被删除的文件（仓库相对路径）。 */
+-async function collectDeletedFiles(mergeBase) {
+-  const deleted = await gitLines([
+-    'diff',
+-    '--name-only',
+-    '--diff-filter=D',
+-    mergeBase,
+-    '--',
+-  ]);
+-  return deleted.toSorted((a, b) => a.localeCompare(b));
+-}
+-
+-/** 把仓库相对或绝对路径转换到 frontend/ 下的相对路径；不在 frontend/ 内返回 null。 */
+-function toFrontendRelative(file) {
+-  const normalized = file.replaceAll('\\', '/');
+-  const absolute = path.isAbsolute(normalized)
+-    ? normalized
+-    : path.resolve(REPO_ROOT, normalized).replaceAll('\\', '/');
+-  const frontendRoot = FRONTEND_ROOT.replaceAll('\\', '/');
+-  const comparable = (value) =>
+-    process.platform === 'win32' ? value.toLowerCase() : value;
+-  if (!comparable(absolute).startsWith(`${comparable(frontendRoot)}/`)) {
+-    return null;
+-  }
+-  return absolute.slice(frontendRoot.length + 1);
+-}
+-
+-/**
+- * 只保留前端源文件，并转换为相对 frontend/ 的路径。
+- * 输入可以是仓库相对路径，也可以是绝对路径（`--paths` 场景）。
+- */
+-function toFrontendSources(files) {
+-  const result = [];
+-  for (const file of files) {
+-    const relative = toFrontendRelative(file);
+-    if (relative === null) continue;
+-    if (relative.includes('node_modules/')) continue;
+-    // e2e 目录属于 Playwright 旅程，不在 vitest 单测范围内（由 CI 的 e2e 作业覆盖）。
+-    if (relative.includes('/e2e/') || relative.startsWith('e2e/')) continue;
+-    if (relative.includes('playwright.')) continue;
+-    const lastDot = relative.lastIndexOf('.');
+-    if (lastDot === -1) continue;
+-    if (!SOURCE_EXTENSIONS.has(relative.slice(lastDot).toLowerCase())) continue;
+-    result.push(relative);
+-  }
+-  return [...new Set(result)].toSorted((a, b) => a.localeCompare(b));
+-}
+-
+-/** 判断是否为单测文件（e2e 由 Playwright 覆盖，不计入 vitest 范围）。 */
+-function isTestFile(file) {
+-  return TEST_FILE_PATTERN.test(file) && !file.includes('/e2e/');
+-}
+-
+-/** 源文件归属的分组：mock-server / prototype-contracts 走专用配置，其余走根配置。 */
+-function groupOf(file) {
+-  return MOCK_SCOPE_PREFIXES.some((prefix) => file.startsWith(prefix))
+-    ? 'mock'
+-    : 'web';
+-}
+-
+-/**
+- * 影响面无法由 `vitest related` 界定时必须整体回退的原因。
+- *
+- * 每条原因带 group：`all` 表示两组都回退，`web`/`mock` 只回退对应分组。宁可多跑，
+- * 也不要因为选择器看不见依赖而放行。
+- */
+-function escalationReasons({ changedFiles, deletedFiles, hasSources }) {
+-  const reasons = [];
+-  for (const file of changedFiles) {
+-    if (VITEST_CONFIG_PATTERN.test(file)) {
+-      reasons.push({ group: 'all', text: `vitest 配置变更：${file}` });
+-    } else if (LOCKFILE_PATTERN.test(file)) {
+-      reasons.push({ group: 'all', text: `锁文件变更：${file}` });
+-    }
+-  }
+-  for (const file of deletedFiles) {
+-    const relative = toFrontendRelative(file);
+-    if (relative === null || relative.includes('node_modules/')) continue;
+-    if (isTestFile(relative)) continue; // Removing a test is not a reason to execute every remaining test.
+-    reasons.push({ group: groupOf(relative), text: `删除文件：${relative}` });
+-  }
+-  if (!hasSources && changedFiles.length > 0) {
+-    reasons.push({ group: 'all', text: '变更集合不含可解析的前端源文件' });
+-  }
+-  const seen = new Set();
+-  return reasons.filter((reason) => {
+-    const key = `${reason.group}\u0000${reason.text}`;
+-    if (seen.has(key)) return false;
+-    seen.add(key);
+-    return true;
+-  });
+-}
+-
+-function chunkByLength(items, maxChars) {
+-  const chunks = [];
+-  let current = [];
+-  let length = 0;
+-  for (const item of items) {
+-    if (current.length > 0 && length + item.length + 1 > maxChars) {
+-      chunks.push(current);
+-      current = [];
+-      length = 0;
+-    }
+-    current.push(item);
+-    length += item.length + 1;
+-  }
+-  if (current.length > 0) chunks.push(current);
+-  return chunks;
+-}
+-
+-/** 取不含目录与扩展名的文件名。 */
+-function baseName(file) {
+-  const name = file.slice(file.lastIndexOf('/') + 1);
+-  const dot = name.indexOf('.');
+-  return dot === -1 ? name : name.slice(0, dot);
+-}
+-
+-function stripModuleSuffix(file) {
+-  const withoutQuery = file.split(/[?#]/u, 1)[0];
+-  const withoutExtension = withoutQuery.replace(
+-    /\.(?:c|m)?[jt]sx?$|\.vue$/u,
+-    '',
+-  );
+-  return withoutExtension.endsWith('/index')
+-    ? withoutExtension.slice(0, -'/index'.length)
+-    : withoutExtension;
+-}
+-
+-/** Expand an empty related selection to test files in the affected source domain only. */
+-function affectedDomainTests(sources, tests, group) {
+-  const domains = new Set(
+-    sources.map((source) => {
+-      const segments = source.split('/');
+-      return segments.length >= 5 &&
+-        segments[0] === 'apps' &&
+-        segments[1] === 'web' &&
+-        segments[2] === 'src'
+-        ? `${segments.slice(0, 5).join('/')}/`
+-        : `${path.posix.dirname(source)}/`;
+-    }),
+-  );
+-  return tests.filter(
+-    (file) =>
+-      isTestFile(file) &&
+-      groupOf(file) === group &&
+-      [...domains].some((domain) => file.startsWith(domain)),
+-  );
+-}
+-
+-function extractModuleSpecifiers(source) {
+-  const specifiers = new Set();
+-  const patterns = [
+-    /\b(?:export|import)\s+(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]/gu,
+-    /\b(?:import|require)\s*\(\s*['"]([^'"]+)['"]\s*\)/gu,
+-  ];
+-  for (const pattern of patterns) {
+-    for (const match of source.matchAll(pattern)) specifiers.add(match[1]);
+-  }
+-  return specifiers;
+-}
+-
+-function resolveModuleSpecifier(testFile, specifier) {
+-  if (specifier.startsWith('.')) {
+-    return stripModuleSuffix(
+-      path.posix.normalize(
+-        path.posix.join(path.posix.dirname(testFile), specifier),
+-      ),
+-    );
+-  }
+-  if (specifier.startsWith('#/')) {
+-    return stripModuleSuffix(`apps/web/src/${specifier.slice(2)}`);
+-  }
+-  if (specifier.startsWith('frontend/')) {
+-    return stripModuleSuffix(toFrontendRelative(specifier) ?? specifier);
+-  }
+-  return stripModuleSuffix(specifier);
+-}
+-
+-export function testImportsSource(testFile, testSource, sourceFile) {
+-  const normalizedSource = stripModuleSuffix(sourceFile);
+-  return [...extractModuleSpecifiers(testSource)].some(
+-    (specifier) =>
+-      resolveModuleSpecifier(testFile, specifier) === normalizedSource,
+-  );
+-}
+-
+-/** 列出 frontend/ 下所有跟踪与未跟踪文件（相对 frontend/ 的路径）。 */
+-async function listFrontendFiles() {
+-  const files = await gitLines([
+-    'ls-files',
+-    '--cached',
+-    '--others',
+-    '--exclude-standard',
+-    '--full-name',
+-    '--',
+-    'frontend',
+-  ]);
+-  return files
+-    .map((file) => toFrontendRelative(file))
+-    .filter((file) => file !== null);
+-}
+-
+-/**
+- * 静态估算（--dry-run 用）：同名用例 + 直接导入扫描。
+- * 只用于预览；真正执行时以 `vitest related` 的模块图为准，因此估算值只看下限。
+- */
+-async function staticEstimate(sources) {
+-  const selected = new Set();
+-  const plainSources = [];
+-  for (const file of sources) {
+-    if (isTestFile(file)) selected.add(file);
+-    else plainSources.push(file);
+-  }
+-  if (plainSources.length === 0) {
+-    return [...selected].toSorted((a, b) => a.localeCompare(b));
+-  }
+-  const frontendFiles = await listFrontendFiles();
+-  const tests = frontendFiles.filter((file) => isTestFile(file));
+-  for (const source of plainSources) {
+-    const name = baseName(source);
+-    for (const test of tests) {
+-      if (baseName(test) === name) selected.add(test);
+-    }
+-  }
+-  for (const test of tests) {
+-    const testSource = await readFile(path.join(FRONTEND_ROOT, test), 'utf8');
+-    if (
+-      plainSources.some((source) => testImportsSource(test, testSource, source))
+-    ) {
+-      selected.add(test);
+-    }
+-  }
+-  return [...selected].toSorted((a, b) => a.localeCompare(b));
+-}
+-
+-/** 执行一次 vitest，把 stdout/stderr 交给调用方判定。 */
+-function runVitest(args) {
+-  return new Promise((resolve, reject) => {
+-    const startedAt = Date.now();
+-    const child = spawn(
+-      process.execPath,
+-      [
+-        path.join(FRONTEND_ROOT, 'node_modules', 'vitest', 'vitest.mjs'),
+-        ...args,
+-      ],
+-      {
+-        cwd: FRONTEND_ROOT,
+-        shell: false,
+-        stdio: ['ignore', 'pipe', 'pipe'],
+-        windowsHide: true,
+-      },
+-    );
+-    let stdout = '';
+-    let stderr = '';
+-    child.stdout.on('data', (chunk) => {
+-      stdout += chunk;
+-    });
+-    child.stderr.on('data', (chunk) => {
+-      stderr += chunk;
+-    });
+-    child.on('error', reject);
+-    child.on('close', (code) => {
+-      resolve({
+-        code: code ?? 1,
+-        durationMs: Date.now() - startedAt,
+-        stderr,
+-        stdout,
+-      });
+-    });
+-  });
+-}
+-
+-/** 把子进程输出转发到终端，保持失败原因可见。 */
+-function relay(result) {
+-  if (result.stdout) process.stdout.write(result.stdout);
+-  if (result.stderr) process.stderr.write(result.stderr);
+-}
+-
+-function relatedArgs(group, sources, passthrough) {
+-  const args = ['related', ...sources];
+-  const { configPath } = GROUPS[group];
+-  if (configPath === undefined) args.push('--dom');
+-  else args.push('--config', configPath);
+-  args.push(...passthrough);
+-  return args;
+-}
+-
+-function fullArgs(group, passthrough) {
+-  const args = ['run'];
+-  const { configPath } = GROUPS[group];
+-  if (configPath === undefined) args.push('--dom');
+-  else args.push('--config', configPath);
+-  return [...args, ...passthrough];
+-}
+-
+-/**
+- * 运行一个分组：默认用 `vitest related` 按模块图选用例。
+- * 选不出用例时按分组回退完整集合，并记录回退原因。
+- */
+-async function runGroup(group, payload) {
+-  const { escalateBecause, passthrough, sources } = payload;
+-  const label = GROUPS[group].label;
+-  if (escalateBecause || sources.length === 0) {
+-    const reason = escalateBecause ?? '分组内没有可解析源文件';
+-    console.warn(
+-      `[test:changed] ${label}：无法界定影响面（${reason}），回退完整集合。`,
+-    );
+-    const result = await runVitest(fullArgs(group, passthrough));
+-    relay(result);
+-    return {
+-      durationMs: result.durationMs,
+-      exitCode: result.code,
+-      mode: 'full',
+-      reason,
+-    };
+-  }
+-  // Windows 的单条命令行上限约 8k 字符；变更面较大时按长度分片，避免 related 调用
+-  // 直接 E2BIG 失败。分片只影响调用次数，不改变「以模块图选集」的语义。
+-  const chunks = chunkByLength(sources, MAX_ARG_CHARS);
+-  const estimate = await staticEstimate(sources);
+-  console.warn(
+-    `[test:changed] ${label}：related 输入 ${sources.length} 个源文件，静态下限 ${estimate.length} 个测试文件；模块图为实际选择依据。`,
+-  );
+-  const relatedResults = [];
+-  let emptySelection = false;
+-  for (const chunk of chunks) {
+-    const related = await runVitest(relatedArgs(group, chunk, passthrough));
+-    relay(related);
+-    relatedResults.push(related);
+-    // `vitest related` 选不中用例时退出码是 0（“No test files found”），这正是
+-    // 需要拦下的假通过：先看输出，再看退出码。
+-    if (NO_TESTS_PATTERN.test(`${related.stdout}${related.stderr}`)) {
+-      emptySelection = true;
+-    }
+-  }
+-  const relatedMs = relatedResults.reduce(
+-    (total, item) => total + item.durationMs,
+-    0,
+-  );
+-  if (emptySelection) {
+-    const affected = affectedDomainTests(
+-      sources,
+-      await listFrontendFiles(),
+-      group,
+-    );
+-    if (affected.length === 0) {
+-      console.error(
+-        `[test:changed] ${label}：related 空选择且受影响域无测试；覆盖缺口，检查失败。`,
+-      );
+-      return {
+-        durationMs: relatedMs,
+-        exitCode: 1,
+-        mode: 'coverage-gap',
+-        reason: '相关测试及受影响域测试均为空',
+-        selectedFiles: 0,
+-      };
+-    }
+-    console.warn(
+-      `[test:changed] ${label}：related 空选择（覆盖缺口），扩大到受影响域 ${affected.length} 个测试文件。`,
+-    );
+-    const fallback = await runVitest([
+-      'run',
+-      ...affected,
+-      ...(GROUPS[group].configPath
+-        ? ['--config', GROUPS[group].configPath]
+-        : ['--dom']),
+-      ...passthrough,
+-    ]);
+-    relay(fallback);
+-    return {
+-      durationMs: relatedMs + fallback.durationMs,
+-      exitCode: fallback.code,
+-      mode: 'domain',
+-      reason: 'vitest related 未选中用例',
+-      selectedFiles: affected.length,
+-    };
+-  }
+-  const failed = relatedResults.find((item) => item.code !== 0);
+-  return {
+-    durationMs: relatedMs,
+-    exitCode: failed ? failed.code : 0,
+-    mode: 'related',
+-    reason: null,
+-    selectedFilesLowerBound: estimate.length,
+-  };
+-}
+-
+-async function missingExplicitPaths(sources) {
+-  const missing = [];
+-  for (const source of sources) {
+-    try {
+-      await stat(path.join(FRONTEND_ROOT, source));
+-    } catch {
+-      missing.push(source);
+-    }
+-  }
+-  return missing;
+-}
+-
+-function groupReasonsFor(reasons, group) {
+-  return reasons
+-    .filter((reason) => reason.group === 'all' || reason.group === group)
+-    .map((reason) => reason.text);
+-}
+-
+-async function main() {
+-  const options = parseArgs(process.argv.slice(2));
+-  let scopeLabel;
+-  let changedFiles;
+-  let deletedFiles;
+-  if (options.paths.length > 0) {
+-    scopeLabel = `显式路径（${options.paths.length} 个输入）`;
+-    changedFiles = [...options.paths];
+-    deletedFiles = [];
+-  } else {
+-    const mergeBase = await resolveMergeBase(options.baseRef);
+-    scopeLabel = `${options.baseRef}（merge-base ${mergeBase.slice(0, 9)}）`;
+-    changedFiles = await collectChangedFiles(mergeBase);
+-    deletedFiles = await collectDeletedFiles(mergeBase);
+-  }
+-
+-  const allSources = toFrontendSources(changedFiles);
+-  /*
+-   * `--paths` 是人工输入，路径打错属于调用错误，必须显式报错；
+-   * 变更集里被删除的源文件同样解析不出文件，但那是正常的重构结果：
+-   * 它已由 `escalationReasons` 按分组触发「回退完整集合」，不能在此直接中断
+-   * （否则任何删除源文件的改动都无法运行本检查）。
+-   */
+-  if (options.paths.length > 0) {
+-    const missing = await missingExplicitPaths(allSources);
+-    if (missing.length > 0) {
+-      throw new Error(`显式路径不存在，无法界定影响面：${missing.join(', ')}`);
+-    }
+-  }
+-  const frontendChanged = changedFiles.filter(
+-    (file) => toFrontendRelative(file) !== null,
+-  );
+-  if (frontendChanged.length === 0) {
+-    console.error(
+-      `[test:changed] 范围：${scopeLabel}；无前端变更，空选择不构成通过。`,
+-    );
+-    process.exitCode = 1;
+-    return;
+-  }
+-  const reasons = escalationReasons({
+-    changedFiles: frontendChanged,
+-    deletedFiles,
+-    hasSources: allSources.length > 0,
+-  });
+-  const byGroup = { mock: [], web: [] };
+-  for (const source of allSources) byGroup[groupOf(source)].push(source);
+-
+-  if (options.dryRun) {
+-    const estimate = await staticEstimate(allSources);
+-    console.warn(
+-      `[test:changed] 范围：${scopeLabel}；${allSources.length} 个前端源文件。`,
+-    );
+-    console.warn(
+-      `[test:changed] 计划：web ${byGroup.web.length} / mock+contracts ${byGroup.mock.length} 个源文件；实际选择由 vitest related 模块图决定。`,
+-    );
+-    for (const reason of reasons) {
+-      console.warn(
+-        `[test:changed] 回退完整集合（${reason.group}）：${reason.text}`,
+-      );
+-    }
+-    console.warn(
+-      `[test:changed] 静态估算（不含传递依赖，仅下限）：${estimate.length} 个测试文件`,
+-    );
+-    for (const file of estimate) console.warn(`  test ${file}`);
+-    return;
+-  }
+-
+-  const startedAt = Date.now();
+-  const results = [];
+-  for (const group of ['web', 'mock']) {
+-    const groupSources = byGroup[group];
+-    const groupReasons = groupReasonsFor(reasons, group);
+-    if (groupSources.length === 0 && groupReasons.length === 0) continue;
+-    const outcome = await runGroup(group, {
+-      escalateBecause: groupReasons.length > 0 ? groupReasons.join('；') : null,
+-      passthrough: options.passthrough,
+-      sources: groupSources,
+-    });
+-    results.push({ group, ...outcome });
+-    if (outcome.exitCode !== 0) process.exitCode = outcome.exitCode;
+-  }
+-  if (results.length === 0) {
+-    console.error('[test:changed] 没有选中任何前端检查；覆盖缺口，检查失败。');
+-    process.exitCode = 1;
+-  }
+-
+-  console.warn(
+-    `[validation:selection] ${JSON.stringify({
+-      durationMs: Date.now() - startedAt,
+-      groups: results,
+-      mode: 'vitest-related',
+-      reasons: reasons.map((reason) => reason.text),
+-      scope: scopeLabel,
+-      sources: allSources.length,
+-    })}`,
+-  );
+-}
+-
+-if (
+-  process.argv[1] &&
+-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+-) {
+-  main().catch((error) => {
+-    console.error(
+-      `[test:changed] failed: ${error instanceof Error ? error.message : error}`,
+-    );
+-    process.exitCode = 1;
+-  });
+-}
+-
+-export {
+-  affectedDomainTests,
+-  chunkByLength,
+-  collectChangedFiles,
+-  escalationReasons,
+-  groupOf,
+-  isTestFile,
+-  parseArgs,
+-  staticEstimate,
+-  toFrontendRelative,
+-  toFrontendSources,
+-};
++#!/usr/bin/env node
++/**
++ * 按变更范围运行前端单测。
++ *
++ * 选择依据是 Vitest/Vite 自己的模块图：`vitest related <源文件...>`。它解析
++ * tsconfig/vite 别名、重导出与传递依赖，比「同名用例 + 直接导入扫描」更接近真实
++ * 影响面。实测（2026-09-28，vitest 4.1.10）：
++ *   --paths apps/web/src/api/organization/check-in.ts
++ *   静态扫描 → 1 个测试文件；vitest related → 4 个（多出 router/views 的传递依赖）。
++ * 单次 `vitest related` 约 50 秒（含执行），`vitest list` 全量收集约 307 秒，因此
++ * 不做全量收集，只在需要时按分组回退完整集合。
++ *
++ * 用法：
++ *   bun run --cwd frontend test:changed
++ *   bun run --cwd frontend test:changed -- --since origin/develop
++ *   bun run --cwd frontend test:changed -- --paths <文件...>
++ *   bun run --cwd frontend test:changed -- --dry-run
++ *
++ * 约定：
++ * - 默认基准 ref 为 `origin/develop`（与 `worktree.baseRef` 一致），ref 缺失时显式报错，
++ *   不静默回退全量。
++ * - 变更集合 = 基准 ref 与 HEAD 的 merge-base 到工作区（含暂存与未跟踪文件）。
++ * - 范围分两组执行：根配置跑 web 侧用例；`apps/mock-server` 与
++ *   `packages/prototype-contracts` 的用例由专用配置 `apps/mock-server/vitest.config.ts`
++ *   收集，根配置显式排除了它们，所以这两组必须分开跑，否则相关用例会被静默跳过。
++ * - `--paths` 用于 fan-in / 合并后复核（此时按变更范围会选中空集合）。
++ * - 影响面无法界定时按分组回退完整集合，而不是静默跳过：vitest 配置变更、锁文件变更、
++ *   删除文件、`vitest related` 选不出用例或执行失败都会触发回退。
++ * - 空变更范围立即退出 0 并打印「未产生行为证据」；这不是通过证据。
++ */
++import { spawn } from 'node:child_process';
++import { readFile, stat } from 'node:fs/promises';
++import path from 'node:path';
++import process from 'node:process';
++import { fileURLToPath } from 'node:url';
++
++const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
++const FRONTEND_ROOT = path.resolve(SCRIPT_DIR, '..');
++const REPO_ROOT = path.resolve(FRONTEND_ROOT, '..');
++const DEFAULT_BASE_REF = 'origin/develop';
++/** 专用 vitest 配置覆盖的目录（根配置把这些测试显式排除）。 */
++const MOCK_SCOPE_PREFIXES = [
++  'apps/mock-server/',
++  'packages/prototype-contracts/',
++];
++const MOCK_CONFIG_PATH = 'apps/mock-server/vitest.config.ts';
++// File-reading page contracts are invisible to Vite's import graph.
++const PAGE_CONTRACT_INPUTS = [
++  'apps/web/src/views/facility/sensor-management.vue',
++  'apps/web/src/views/facility/area-management.vue',
++  'apps/web/src/views/facility/_components/AreaSafetyReferencesFields.vue',
++  'apps/web/src/views/facility/_components/SensorCalibrationCertificateField.vue',
++];
++function pageContractTests(sources) {
++  return sources.some((source) => PAGE_CONTRACT_INPUTS.includes(source))
++    ? ['apps/web/src/views/facility/sensor-management.test.ts'] : [];
++}
++const TEST_FILE_PATTERN = /\.(?:test|spec)\.(?:c|m)?[jt]sx?$/u;
++const VITEST_CONFIG_PATTERN = /(?:^|\/)vitest\.config\.[cm]?[jt]s$/u;
++const LOCKFILE_PATTERN =
++  /^frontend\/(?:bun\.lockb?|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/u;
++const SOURCE_EXTENSIONS = new Set([
++  '.cjs',
++  '.cts',
++  '.js',
++  '.jsx',
++  '.mjs',
++  '.mts',
++  '.ts',
++  '.tsx',
++  '.vue',
++]);
++/** 根配置与 mock 专用配置各跑一次 related，因此一次最多两个分组调用。 */
++const GROUPS = Object.freeze({
++  mock: { configPath: MOCK_CONFIG_PATH, label: 'mock-server+contracts' },
++  web: { configPath: undefined, label: 'web' },
++});
++/** Windows 命令行长度上限约 8191 字符，留出余量后分片调用。 */
++const MAX_ARG_CHARS = 6000;
++const NO_TESTS_PATTERN = /No test files found|passWithNoTests/iu;
++
++function parseArgs(argv) {
++  const options = {
++    baseRef: DEFAULT_BASE_REF,
++    dryRun: false,
++    paths: [],
++    passthrough: [],
++  };
++  for (let index = 0; index < argv.length; index += 1) {
++    const flag = argv[index];
++    if (flag === '--paths') {
++      let next = argv[index + 1];
++      while (next !== undefined && !next.startsWith('--')) {
++        options.paths.push(next);
++        index += 1;
++        next = argv[index + 1];
++      }
++      if (options.paths.length === 0) {
++        throw new Error('Missing value for --paths');
++      }
++      continue;
++    }
++    if (flag === '--since') {
++      const value = argv[index + 1];
++      if (value === undefined || value.startsWith('--')) {
++        throw new Error('Missing value for --since');
++      }
++      options.baseRef = value;
++      index += 1;
++      continue;
++    }
++    if (flag === '--dry-run') {
++      options.dryRun = true;
++      continue;
++    }
++    throw new Error(`Unknown argument: ${flag}`);
++  }
++  return options;
++}
++
++/** 运行 git 命令，返回按行切分的 stdout。 */
++function gitLines(args) {
++  return new Promise((resolve, reject) => {
++    // `core.quotepath=false`：否则非 ASCII 路径会被转义成 "\346..."，既无法匹配
++    // 分组前缀，也会被误判成「无法界定影响面」。
++    const child = spawn('git', ['-c', 'core.quotepath=false', ...args], {
++      cwd: REPO_ROOT,
++      shell: false,
++      windowsHide: true,
++    });
++    let stdout = '';
++    let stderr = '';
++    child.stdout.on('data', (chunk) => {
++      stdout += chunk;
++    });
++    child.stderr.on('data', (chunk) => {
++      stderr += chunk;
++    });
++    child.on('error', reject);
++    child.on('close', (code) => {
++      const lines = stdout
++        .split('\n')
++        .map((line) => line.trim())
++        .filter(Boolean);
++      if (code === 0) {
++        resolve(lines);
++        return;
++      }
++      reject(new Error(`git ${args.join(' ')} failed: ${stderr.trim()}`));
++    });
++  });
++}
++
++/** 解析基准 ref 与 HEAD 的 merge-base；ref 缺失时抛错而不是回退全量。 */
++async function resolveMergeBase(baseRef) {
++  const existing = await gitLines([
++    'rev-parse',
++    '--verify',
++    '--quiet',
++    `${baseRef}^{commit}`,
++  ]);
++  if (existing.length === 0) {
++    throw new Error(
++      `基准 ref ${baseRef} 不存在。请先 fetch（git fetch origin develop）或显式传 --since <ref>。`,
++    );
++  }
++  const [mergeBase] = await gitLines(['merge-base', 'HEAD', baseRef]);
++  if (!mergeBase) {
++    throw new Error(`无法计算 HEAD 与 ${baseRef} 的 merge-base。`);
++  }
++  return mergeBase;
++}
++
++/** 收集基准 ref 以来的变更文件（含暂存、未暂存与未跟踪），返回仓库相对路径。 */
++async function collectChangedFiles(mergeBase) {
++  const tracked = await gitLines(['diff', '--name-only', mergeBase, '--']);
++  const untracked = await gitLines([
++    'ls-files',
++    '--others',
++    '--exclude-standard',
++    '--full-name',
++  ]);
++  return [...new Set([...tracked, ...untracked])].toSorted((a, b) =>
++    a.localeCompare(b),
++  );
++}
++
++/** 基准 ref 以来被删除的文件（仓库相对路径）。 */
++async function collectDeletedFiles(mergeBase) {
++  const deleted = await gitLines([
++    'diff',
++    '--name-only',
++    '--diff-filter=D',
++    mergeBase,
++    '--',
++  ]);
++  return deleted.toSorted((a, b) => a.localeCompare(b));
++}
++
++/** 把仓库相对或绝对路径转换到 frontend/ 下的相对路径；不在 frontend/ 内返回 null。 */
++function toFrontendRelative(file) {
++  const normalized = file.replaceAll('\\', '/');
++  const absolute = path.isAbsolute(normalized)
++    ? normalized
++    : path.resolve(REPO_ROOT, normalized).replaceAll('\\', '/');
++  const frontendRoot = FRONTEND_ROOT.replaceAll('\\', '/');
++  const comparable = (value) =>
++    process.platform === 'win32' ? value.toLowerCase() : value;
++  if (!comparable(absolute).startsWith(`${comparable(frontendRoot)}/`)) {
++    return null;
++  }
++  return absolute.slice(frontendRoot.length + 1);
++}
++
++/**
++ * 只保留前端源文件，并转换为相对 frontend/ 的路径。
++ * 输入可以是仓库相对路径，也可以是绝对路径（`--paths` 场景）。
++ */
++function toFrontendSources(files) {
++  const result = [];
++  for (const file of files) {
++    const relative = toFrontendRelative(file);
++    if (relative === null) continue;
++    if (relative.includes('node_modules/')) continue;
++    // e2e 目录属于 Playwright 旅程，不在 vitest 单测范围内（由 CI 的 e2e 作业覆盖）。
++    if (relative.includes('/e2e/') || relative.startsWith('e2e/')) continue;
++    if (relative.includes('playwright.')) continue;
++    const lastDot = relative.lastIndexOf('.');
++    if (lastDot === -1) continue;
++    if (!SOURCE_EXTENSIONS.has(relative.slice(lastDot).toLowerCase())) continue;
++    result.push(relative);
++  }
++  return [...new Set(result)].toSorted((a, b) => a.localeCompare(b));
++}
++
++/** 判断是否为单测文件（e2e 由 Playwright 覆盖，不计入 vitest 范围）。 */
++function isTestFile(file) {
++  return TEST_FILE_PATTERN.test(file) && !file.includes('/e2e/');
++}
++
++/** 源文件归属的分组：mock-server / prototype-contracts 走专用配置，其余走根配置。 */
++function groupOf(file) {
++  return MOCK_SCOPE_PREFIXES.some((prefix) => file.startsWith(prefix))
++    ? 'mock'
++    : 'web';
++}
++
++/**
++ * 影响面无法由 `vitest related` 界定时必须整体回退的原因。
++ *
++ * 每条原因带 group：`all` 表示两组都回退，`web`/`mock` 只回退对应分组。宁可多跑，
++ * 也不要因为选择器看不见依赖而放行。
++ */
++function escalationReasons({ changedFiles, deletedFiles, hasSources }) {
++  const reasons = [];
++  for (const file of changedFiles) {
++    if (VITEST_CONFIG_PATTERN.test(file)) {
++      const relative = toFrontendRelative(file);
++      const group = relative === MOCK_CONFIG_PATH ? 'mock'
++        : relative === 'vitest.config.ts' ? 'web' : 'all';
++      reasons.push({ group, text: `vitest 配置变更：${file}` });
++    } else if (LOCKFILE_PATTERN.test(file)) {
++      reasons.push({ group: 'all', text: `锁文件变更：${file}` });
++    }
++  }
++  for (const file of deletedFiles) {
++    const relative = toFrontendRelative(file);
++    if (relative === null || relative.includes('node_modules/')) continue;
++    if (isTestFile(relative)) continue; // Removing a test is not a reason to execute every remaining test.
++    // Resolve baseline consumers below; unknown deletion coverage is a gap,
++    // never an automatic all-tests trigger.
++  }
++  if (!hasSources && changedFiles.length > 0) {
++    reasons.push({ group: 'all', text: '变更集合不含可解析的前端源文件' });
++  }
++  const seen = new Set();
++  return reasons.filter((reason) => {
++    const key = `${reason.group}\u0000${reason.text}`;
++    if (seen.has(key)) return false;
++    seen.add(key);
++    return true;
++  });
++}
++
++function chunkByLength(items, maxChars) {
++  const chunks = [];
++  let current = [];
++  let length = 0;
++  for (const item of items) {
++    if (current.length > 0 && length + item.length + 1 > maxChars) {
++      chunks.push(current);
++      current = [];
++      length = 0;
++    }
++    current.push(item);
++    length += item.length + 1;
++  }
++  if (current.length > 0) chunks.push(current);
++  return chunks;
++}
++
++/** 取不含目录与扩展名的文件名。 */
++function baseName(file) {
++  const name = file.slice(file.lastIndexOf('/') + 1);
++  const dot = name.indexOf('.');
++  return dot === -1 ? name : name.slice(0, dot);
++}
++
++function stripModuleSuffix(file) {
++  const withoutQuery = file.split(/[?#]/u, 1)[0];
++  const withoutExtension = withoutQuery.replace(
++    /\.(?:c|m)?[jt]sx?$|\.vue$/u,
++    '',
++  );
++  return withoutExtension.endsWith('/index')
++    ? withoutExtension.slice(0, -'/index'.length)
++    : withoutExtension;
++}
++
++/** Expand an empty related selection to test files in the affected source domain only. */
++function affectedDomainTests(sources, tests, group) {
++  const domains = new Set(
++    sources.map((source) => {
++      const segments = source.split('/');
++      return segments.length >= 5 &&
++        segments[0] === 'apps' &&
++        segments[1] === 'web' &&
++        segments[2] === 'src'
++        ? `${segments.slice(0, 5).join('/')}/`
++        : `${path.posix.dirname(source)}/`;
++    }),
++  );
++  return tests.filter(
++    (file) =>
++      isTestFile(file) &&
++      groupOf(file) === group &&
++      [...domains].some((domain) => file.startsWith(domain)),
++  );
++}
++
++function extractModuleSpecifiers(source) {
++  const specifiers = new Set();
++  const patterns = [
++    /\b(?:export|import)\s+(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]/gu,
++    /\b(?:import|require)\s*\(\s*['"]([^'"]+)['"]\s*\)/gu,
++  ];
++  for (const pattern of patterns) {
++    for (const match of source.matchAll(pattern)) specifiers.add(match[1]);
++  }
++  return specifiers;
++}
++
++function resolveModuleSpecifier(testFile, specifier) {
++  if (specifier.startsWith('.')) {
++    return stripModuleSuffix(
++      path.posix.normalize(
++        path.posix.join(path.posix.dirname(testFile), specifier),
++      ),
++    );
++  }
++  if (specifier.startsWith('#/')) {
++    return stripModuleSuffix(`apps/web/src/${specifier.slice(2)}`);
++  }
++  if (specifier.startsWith('frontend/')) {
++    return stripModuleSuffix(toFrontendRelative(specifier) ?? specifier);
++  }
++  return stripModuleSuffix(specifier);
++}
++
++export function testImportsSource(testFile, testSource, sourceFile) {
++  const normalizedSource = stripModuleSuffix(sourceFile);
++  return [...extractModuleSpecifiers(testSource)].some(
++    (specifier) =>
++      resolveModuleSpecifier(testFile, specifier) === normalizedSource,
++  );
++}
++
++/** 列出 frontend/ 下所有跟踪与未跟踪文件（相对 frontend/ 的路径）。 */
++async function listFrontendFiles() {
++  const files = await gitLines([
++    'ls-files',
++    '--cached',
++    '--others',
++    '--exclude-standard',
++    '--full-name',
++    '--',
++    'frontend',
++  ]);
++  return files
++    .map((file) => toFrontendRelative(file))
++    .filter((file) => file !== null);
++}
++
++/**
++ * 静态估算（--dry-run 用）：同名用例 + 直接导入扫描。
++ * 只用于预览；真正执行时以 `vitest related` 的模块图为准，因此估算值只看下限。
++ */
++async function staticEstimate(sources) {
++  const selected = new Set(pageContractTests(sources));
++  const plainSources = [];
++  for (const file of sources) {
++    if (isTestFile(file)) selected.add(file);
++    else plainSources.push(file);
++  }
++  if (plainSources.length === 0) {
++    return [...selected].toSorted((a, b) => a.localeCompare(b));
++  }
++  const frontendFiles = await listFrontendFiles();
++  const tests = frontendFiles.filter((file) => isTestFile(file));
++  for (const source of plainSources) {
++    const name = baseName(source);
++    for (const test of tests) {
++      if (baseName(test) === name) selected.add(test);
++    }
++  }
++  for (const test of tests) {
++    const testSource = await readFile(path.join(FRONTEND_ROOT, test), 'utf8');
++    if (
++      plainSources.some((source) => testImportsSource(test, testSource, source))
++    ) {
++      selected.add(test);
++    }
++  }
++  return [...selected].toSorted((a, b) => a.localeCompare(b));
++}
++
++/** 执行一次 vitest，把 stdout/stderr 交给调用方判定。 */
++function runVitest(args) {
++  return new Promise((resolve, reject) => {
++    const startedAt = Date.now();
++    const child = spawn(
++      process.execPath,
++      [
++        path.join(FRONTEND_ROOT, 'node_modules', 'vitest', 'vitest.mjs'),
++        ...args,
++        '--cache=false',
++        '--configLoader=runner',
++      ],
++      {
++        cwd: FRONTEND_ROOT,
++        shell: false,
++        stdio: ['ignore', 'pipe', 'pipe'],
++        windowsHide: true,
++      },
++    );
++    let stdout = '';
++    let stderr = '';
++    child.stdout.on('data', (chunk) => {
++      stdout += chunk;
++    });
++    child.stderr.on('data', (chunk) => {
++      stderr += chunk;
++    });
++    child.on('error', reject);
++    child.on('close', (code) => {
++      resolve({
++        code: code ?? 1,
++        durationMs: Date.now() - startedAt,
++        stderr,
++        stdout,
++      });
++    });
++  });
++}
++
++/** 把子进程输出转发到终端，保持失败原因可见。 */
++function relay(result) {
++  if (result.stdout) process.stdout.write(result.stdout);
++  if (result.stderr) process.stderr.write(result.stderr);
++}
++
++function relatedArgs(group, sources, passthrough) {
++  const args = ['related', ...sources];
++  const { configPath } = GROUPS[group];
++  if (configPath === undefined) args.push('--dom');
++  else args.push('--config', configPath);
++  args.push(...passthrough);
++  return args;
++}
++
++function fullArgs(group, passthrough) {
++  const args = ['run'];
++  const { configPath } = GROUPS[group];
++  if (configPath === undefined) args.push('--dom');
++  else args.push('--config', configPath);
++  return [...args, ...passthrough];
++}
++
++/**
++ * 运行一个分组：默认用 `vitest related` 按模块图选用例。
++ * 选不出用例时按分组回退完整集合，并记录回退原因。
++ */
++async function runGroup(group, payload) {
++  const { escalateBecause, passthrough } = payload;
++  const sources = [...new Set([...payload.sources, ...pageContractTests(payload.sources)])];
++  const label = GROUPS[group].label;
++  if (escalateBecause || sources.length === 0) {
++    const reason = escalateBecause ?? '分组内没有可解析源文件';
++    console.warn(
++      `[test:changed] ${label}：无法界定影响面（${reason}），回退完整集合。`,
++    );
++    const result = await runVitest(fullArgs(group, passthrough));
++    relay(result);
++    return {
++      durationMs: result.durationMs,
++      exitCode: result.code,
++      mode: 'full',
++      reason,
++    };
++  }
++  // Windows 的单条命令行上限约 8k 字符；变更面较大时按长度分片，避免 related 调用
++  // 直接 E2BIG 失败。分片只影响调用次数，不改变「以模块图选集」的语义。
++  const chunks = chunkByLength(sources, MAX_ARG_CHARS);
++  const estimate = await staticEstimate(sources);
++  console.warn(
++    `[test:changed] ${label}：related 输入 ${sources.length} 个源文件，静态下限 ${estimate.length} 个测试文件；模块图为实际选择依据。`,
++  );
++  const relatedResults = [];
++  let emptySelection = false;
++  for (const chunk of chunks) {
++    const related = await runVitest(relatedArgs(group, chunk, passthrough));
++    relay(related);
++    relatedResults.push(related);
++    // `vitest related` 选不中用例时退出码是 0（“No test files found”），这正是
++    // 需要拦下的假通过：先看输出，再看退出码。
++    if (NO_TESTS_PATTERN.test(`${related.stdout}${related.stderr}`)) {
++      emptySelection = true;
++    }
++  }
++  const relatedMs = relatedResults.reduce(
++    (total, item) => total + item.durationMs,
++    0,
++  );
++  if (emptySelection) {
++    const affected = affectedDomainTests(
++      sources,
++      await listFrontendFiles(),
++      group,
++    );
++    if (affected.length === 0) {
++      console.error(
++        `[test:changed] ${label}：related 空选择且受影响域无测试；覆盖缺口，检查失败。`,
++      );
++      return {
++        durationMs: relatedMs,
++        exitCode: 1,
++        mode: 'coverage-gap',
++        reason: '相关测试及受影响域测试均为空',
++        selectedFiles: 0,
++      };
++    }
++    console.warn(
++      `[test:changed] ${label}：related 空选择（覆盖缺口），扩大到受影响域 ${affected.length} 个测试文件。`,
++    );
++    const fallback = await runVitest([
++      'run',
++      ...affected,
++      ...(GROUPS[group].configPath
++        ? ['--config', GROUPS[group].configPath]
++        : ['--dom']),
++      ...passthrough,
++    ]);
++    relay(fallback);
++    return {
++      durationMs: relatedMs + fallback.durationMs,
++      exitCode: fallback.code,
++      mode: 'domain',
++      reason: 'vitest related 未选中用例',
++      selectedFiles: affected.length,
++    };
++  }
++  const failed = relatedResults.find((item) => item.code !== 0);
++  return {
++    durationMs: relatedMs,
++    exitCode: failed ? failed.code : 0,
++    mode: 'related',
++    reason: null,
++    selectedFilesLowerBound: estimate.length,
++  };
++}
++
++async function missingExplicitPaths(sources) {
++  const missing = [];
++  for (const source of sources) {
++    try {
++      await stat(path.join(FRONTEND_ROOT, source));
++    } catch {
++      missing.push(source);
++    }
++  }
++  return missing;
++}
++
++function groupReasonsFor(reasons, group) {
++  return reasons
++    .filter((reason) => reason.group === 'all' || reason.group === group)
++    .map((reason) => reason.text);
++}
++
++async function main() {
++  const options = parseArgs(process.argv.slice(2));
++  let scopeLabel;
++  let changedFiles;
++  let deletedFiles;
++  if (options.paths.length > 0) {
++    scopeLabel = `显式路径（${options.paths.length} 个输入）`;
++    changedFiles = [...options.paths];
++    deletedFiles = [];
++  } else {
++    const mergeBase = await resolveMergeBase(options.baseRef);
++    scopeLabel = `${options.baseRef}（merge-base ${mergeBase.slice(0, 9)}）`;
++    changedFiles = await collectChangedFiles(mergeBase);
++    deletedFiles = await collectDeletedFiles(mergeBase);
++  }
++
++  let allSources = toFrontendSources(changedFiles);
++  /*
++   * `--paths` 是人工输入，路径打错属于调用错误，必须显式报错；
++   * 变更集里被删除的源文件同样解析不出文件，但那是正常的重构结果：
++   * 它已由 `escalationReasons` 按分组触发「回退完整集合」，不能在此直接中断
++   * （否则任何删除源文件的改动都无法运行本检查）。
++   */
++  if (options.paths.length > 0) {
++    const missing = await missingExplicitPaths(allSources);
++    if (missing.length > 0) {
++      const base = process.env.VIBE_HARNESS_VERIFY_BASE;
++      for (const file of missing) {
++        if (!base || !/^[a-f0-9]{40,64}$/u.test(base)
++          || (await gitLines(['ls-tree', '--name-only', base, '--', `frontend/${file}`])).length === 0) {
++          throw new Error(`Missing explicit input is not a proven baseline deletion: ${file}`);
++        }
++        if (pageContractTests([file]).length === 0) throw new Error(`Deleted input dependency coverage gap: ${file}`);
++      }
++      allSources = [...new Set([...allSources.filter((file) => !missing.includes(file)), ...pageContractTests(missing)])];
++    }
++  } else {
++    const removed = toFrontendSources(deletedFiles).filter((file) => !isTestFile(file));
++    if (removed.some((file) => !pageContractTests([file]).length)) throw new Error('Deleted input dependency coverage gap; map baseline consumers before running');
++    allSources = [...new Set([...allSources.filter((file) => !removed.includes(file)), ...pageContractTests(removed)])];
++  }
++  const frontendChanged = changedFiles.filter(
++    (file) => toFrontendRelative(file) !== null,
++  );
++  if (frontendChanged.length === 0) {
++    console.error(
++      `[test:changed] 范围：${scopeLabel}；无前端变更，空选择不构成通过。`,
++    );
++    process.exitCode = 1;
++    return;
++  }
++  const reasons = escalationReasons({
++    changedFiles: frontendChanged,
++    deletedFiles,
++    hasSources: allSources.length > 0,
++  });
++  const byGroup = { mock: [], web: [] };
++  for (const source of allSources) byGroup[groupOf(source)].push(source);
++
++  if (options.dryRun) {
++    const estimate = await staticEstimate(allSources);
++    console.warn(
++      `[test:changed] 范围：${scopeLabel}；${allSources.length} 个前端源文件。`,
++    );
++    console.warn(
++      `[test:changed] 计划：web ${byGroup.web.length} / mock+contracts ${byGroup.mock.length} 个源文件；实际选择由 vitest related 模块图决定。`,
++    );
++    for (const reason of reasons) {
++      console.warn(
++        `[test:changed] 回退完整集合（${reason.group}）：${reason.text}`,
++      );
++    }
++    console.warn(
++      `[test:changed] 静态估算（不含传递依赖，仅下限）：${estimate.length} 个测试文件`,
++    );
++    for (const file of estimate) console.warn(`  test ${file}`);
++    return;
++  }
++
++  const startedAt = Date.now();
++  const results = [];
++  for (const group of ['web', 'mock']) {
++    const groupSources = byGroup[group];
++    const groupReasons = groupReasonsFor(reasons, group);
++    if (groupSources.length === 0 && groupReasons.length === 0) continue;
++    const outcome = await runGroup(group, {
++      escalateBecause: groupReasons.length > 0 ? groupReasons.join('；') : null,
++      passthrough: options.passthrough,
++      sources: groupSources,
++    });
++    results.push({ group, ...outcome });
++    if (outcome.exitCode !== 0) process.exitCode = outcome.exitCode;
++  }
++  if (results.length === 0) {
++    console.error('[test:changed] 没有选中任何前端检查；覆盖缺口，检查失败。');
++    process.exitCode = 1;
++  }
++
++  console.warn(
++    `[validation:selection] ${JSON.stringify({
++      durationMs: Date.now() - startedAt,
++      groups: results,
++      mode: 'vitest-related',
++      reasons: reasons.map((reason) => reason.text),
++      scope: scopeLabel,
++      sources: allSources.length,
++    })}`,
++  );
++}
++
++if (
++  process.argv[1] &&
++  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
++) {
++  main().catch((error) => {
++    console.error(
++      `[test:changed] failed: ${error instanceof Error ? error.message : error}`,
++    );
++    process.exitCode = 1;
++  });
++}
++
++export {
++  affectedDomainTests,
++  chunkByLength,
++  collectChangedFiles,
++  escalationReasons,
++  groupOf,
++  isTestFile,
++  parseArgs,
++  pageContractTests,
++  staticEstimate,
++  toFrontendRelative,
++  toFrontendSources,
++};
+diff --git a/frontend/scripts/validation-operational.mjs b/frontend/scripts/validation-operational.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..f1ee7c36e33e463c9ee55b834f4e27953ff55459
+--- /dev/null
++++ b/frontend/scripts/validation-operational.mjs
+@@ -0,0 +1,17 @@
++import { readFileSync } from 'node:fs';
++import { spawnSync } from 'node:child_process';
++import path from 'node:path';
++import { fileURLToPath } from 'node:url';
++const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
++for (const file of process.argv.slice(2)) {
++  if (file === '.infisical.json') {
++    // Parse only; never print the content or credentials.
++    JSON.parse(readFileSync(path.join(root, file), 'utf8'));
++  } else if (file === 'scripts/simulator.ps1') {
++    if (process.platform !== 'win32') throw new Error('PowerShell syntax check requires a Windows runner; not backend/full evidence');
++    const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-File',
++      path.join(root, 'frontend/scripts/validation-powershell.ps1'), path.join(root, file)],
++    { windowsHide: true, stdio: 'inherit' });
++    if (result.status !== 0) process.exitCode = 1;
++  } else throw new Error('Unregistered operational input');
++}
+diff --git a/frontend/scripts/validation-powershell.ps1 b/frontend/scripts/validation-powershell.ps1
+new file mode 100644
+index 0000000000000000000000000000000000000000..798deebb004f841214ae52cad394f1d4d7047480
+--- /dev/null
++++ b/frontend/scripts/validation-powershell.ps1
+@@ -0,0 +1,8 @@
++param([string]$InputFile)
++$parseTokens = $null
++$parseErrors = $null
++[void][System.Management.Automation.Language.Parser]::ParseFile($InputFile, [ref]$parseTokens, [ref]$parseErrors)
++if ($parseErrors.Count -gt 0) {
++  Write-Error "PowerShell syntax check failed (source content withheld)"
++  exit 1
++}
+diff --git a/frontend/scripts/validation-git-environment.mjs b/frontend/scripts/validation-git-environment.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..3294a25a6d29e0661e7df7e00a551107888f6112
+--- /dev/null
++++ b/frontend/scripts/validation-git-environment.mjs
+@@ -0,0 +1,11 @@
++import path from 'node:path';
++
++/** Keep the hook's alternate index, but never let a frontend cwd redefine Git's root. */
++export function validationGitEnvironment(environment = process.env, hookRoot = process.cwd()) {
++  return {
++    ...environment,
++    GIT_WORK_TREE: hookRoot,
++    ...(environment.GIT_DIR ? { GIT_DIR: path.resolve(hookRoot, environment.GIT_DIR) } : {}),
++    ...(environment.GIT_INDEX_FILE ? { GIT_INDEX_FILE: path.resolve(hookRoot, environment.GIT_INDEX_FILE) } : {}),
++  };
++}
+diff --git a/frontend/scripts/validation-scope-regression.test.mjs b/frontend/scripts/validation-scope-regression.test.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..03a8af56256a6d442206fea41402be5c6bd67045
+--- /dev/null
++++ b/frontend/scripts/validation-scope-regression.test.mjs
+@@ -0,0 +1,60 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { spawnSync } from 'node:child_process';
++import { backendTestSelectors, classifyPaths, collectScope, frontendStages } from './validation-runner.mjs';
++import { escalationReasons, pageContractTests } from './vitest-changed.mjs';
++import { validationGitEnvironment } from './validation-git-environment.mjs';
++const page = 'frontend/apps/web/src/views/facility/sensor-management.vue';
++const pageTest = page.replace('.vue', '.test.ts');
++test('task paths do not absorb pre-existing operational changes', () => {
++  const scope = collectScope([page, pageTest], { exists: () => true });
++  const buckets = classifyPaths(scope.files);
++  assert.equal(buckets.frontend.length, 2);
++  assert.equal(buckets.backend.length, 0);
++  assert.equal(buckets.unknown.length, 0);
++  const stages = frontendStages(scope.files, { escalate: false });
++  assert.equal(stages.some((stage) => stage.maven), false);
++  assert.deepEqual(stages.map((stage) => stage.name), ['lint', 'typecheck', 'test']);
++});
++
++test('ordinary organization test changes select their own classes instead of all backend tests', () => {
++  assert.deepEqual(backendTestSelectors([
++    'backend/src/test/java/com/blcnas/organization/TrainingCommandSliceTests.java',
++    'backend/src/test/java/com/blcnas/organization/OrganizationEducationRecordSliceTests.java',
++  ]), ['com.blcnas.organization.OrganizationEducationRecordSliceTests', 'com.blcnas.organization.TrainingCommandSliceTests']);
++  assert.equal(backendTestSelectors(['backend/pom.xml']), null, 'shared build inputs retain broader coverage');
++});
++
++test('known test configurations expand only the consuming frontend group', () => {
++  const reasons = (file) => escalationReasons({ changedFiles: [file], deletedFiles: [], hasSources: true });
++  assert.equal(reasons('frontend/vitest.config.ts')[0].group, 'web');
++  assert.equal(reasons('frontend/apps/mock-server/vitest.config.ts')[0].group, 'mock');
++  assert.equal(reasons('frontend/bun.lock')[0].group, 'all');
++});
++
++test('hook Git root and alternate index remain rooted when a child changes directories', () => {
++  const root = process.cwd();
++  const scoped = validationGitEnvironment({ GIT_DIR: '.git', GIT_INDEX_FILE: 'alternate-index' }, root);
++  assert.equal(scoped.GIT_WORK_TREE, root);
++  assert.equal(scoped.GIT_DIR, `${root}${root.includes('\\') ? '\\' : '/'}.git`);
++  assert.ok(scoped.GIT_INDEX_FILE.endsWith('alternate-index'));
++});
++test('operational files are classified; unknown files remain a coverage gap', () => {
++  const buckets = classifyPaths([page, '.infisical.json', 'scripts/simulator.ps1', 'unclassified.bin']);
++  assert.equal(buckets.operational.length, 2);
++  assert.equal(buckets.backend.length, 0);
++  assert.deepEqual(buckets.unknown, ['unclassified.bin']);
++});
++test('file-reading page contracts have an explicit Vue dependency', () => {
++  assert.deepEqual(pageContractTests([page.slice('frontend/'.length)]), [pageTest.slice('frontend/'.length)]);
++});
++test('changed plan is read-only and does not add backend or contract stages', () => {
++  const result = spawnSync(process.execPath, [new URL('./validation-runner.mjs', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/u, '$1'),
++    'changed', '--plan', '--paths', page, pageTest], { encoding: 'utf8', windowsHide: true });
++  assert.equal(result.status, 0, result.stderr);
++  const line = result.stdout.split('\n').find((item) => item.startsWith('[validation:plan] '));
++  const plan = JSON.parse(line.slice('[validation:plan] '.length));
++  assert.equal(plan.mode, 'explicit-paths');
++  assert.deepEqual(plan.selectedChecks.map((stage) => stage.name), ['lint', 'typecheck', 'test']);
++  assert.deepEqual(plan.coverageGaps, []);
++});
+diff --git a/frontend/apps/web/src/views/facility/sensor-management.test.ts b/frontend/apps/web/src/views/facility/sensor-management.test.ts
+index 3ff94d0ad621518677d1866c74ca394c4a6bc2c5..a2e984e791c55c85ec7d368a2778cbfc6b8fbc92 100644
+--- a/frontend/apps/web/src/views/facility/sensor-management.test.ts
++++ b/frontend/apps/web/src/views/facility/sensor-management.test.ts
+@@ -1,197 +1,210 @@
+-import { readFileSync } from 'node:fs';
+-
+-import { describe, expect, it } from 'vitest';
+-
+-/**
+- * 传感器管理页的实时来源护栏（T5）。
+- *
+- * 页面行为依赖设施监控客户端与共享派生（运行期断言在
+- * `src/api/facility/telemetry.test.ts`）；本文件锁定页面自身必须保持的接线：
+- * 逐传感器来源只走 T1 的监控接口、控制动作按设施写权限门控、实时数据不落回
+- * 浏览器存储或本地 Mock，并且来源切换不写传感器台账。
+- */
+-const PAGE = 'apps/web/src/views/facility/sensor-management.vue';
+-const AREA_PAGE = 'apps/web/src/views/facility/area-management.vue';
+-const AREA_SAFETY_FIELDS =
+-  'apps/web/src/views/facility/_components/AreaSafetyReferencesFields.vue';
+-const CERTIFICATE_FIELD =
+-  'apps/web/src/views/facility/_components/SensorCalibrationCertificateField.vue';
+-const SWITCH_START = 'async function confirmSourceSwitch';
+-
+-function pageSource() {
+-  return readFileSync(PAGE, 'utf8');
+-}
+-
+-describe('传感器管理页实时来源（T5）', () => {
+-  it('shows sensor names instead of internal UUIDs in the list', () => {
+-    const source = pageSource();
+-
+-    expect(source).toContain(
+-      'function sensorListName(sensor: Sensor): string {',
+-    );
+-    expect(source).toContain('sensor.code?.trim() ||');
+-    expect(source).toContain('sensor.serialNumber.trim() ||');
+-    expect(source).toContain("'未命名传感器'");
+-    expect(source).toContain('{{ sensorListName(sensorRow(row)) }}');
+-    expect(source).not.toContain('{{ row.id }} · {{ row.name }}');
+-  });
+-
+-  it('shows activation for draft sensors while keeping close hidden', () => {
+-    const source = pageSource();
+-    const actionLabel = source.indexOf(
+-      "actionLabels[suggestedAction(sensorRow(row))] || '处理'",
+-    );
+-    const actionStart = source.lastIndexOf('<ElButton', actionLabel);
+-    const closeStart = source.indexOf('<ElButton', actionLabel);
+-    const actionButton = source.slice(actionStart, closeStart);
+-
+-    expect(actionLabel).toBeGreaterThan(-1);
+-    expect(actionButton).toContain(
+-      "suggestedAction(sensorRow(row)) !== 'bind_monitoring_point'",
+-    );
+-    expect(actionButton).not.toContain("row.status !== 'DRAFT'");
+-    expect(actionButton).toContain(
+-      'actionLabels[suggestedAction(sensorRow(row))]',
+-    );
+-
+-    const closeEnd = source.indexOf('</template>', closeStart);
+-    const closeButton = source.slice(closeStart, closeEnd);
+-    expect(closeButton).toContain('v-if="row.status !== \'DRAFT\'"');
+-    expect(closeButton).toContain("row.status === 'CLOSED' ? '重开' : '关闭'");
+-  });
+-
+-  it('does not show redundant certificate guidance above the form', () => {
+-    expect(pageSource()).not.toContain(
+-      '正式主档支持编码、名称、型号、序列号、所属区域、校准证书附件与到期日。启用前必须存在可用的设施域受控证书附件，且到期日不得早于当天。',
+-    );
+-    expect(readFileSync(CERTIFICATE_FIELD, 'utf8')).not.toContain(
+-      '证书作为受控附件保存；保存传感器时服务端会复核文件仍可用。',
+-    );
+-  });
+-
+-  it('uses a controlled certificate attachment for activation and editing', () => {
+-    const source = pageSource();
+-
+-    expect(source).toContain('SensorCalibrationCertificateField');
+-    expect(source).toContain(
+-      'if (!sensor.calibrationCertificateAttachment) return false;',
+-    );
+-    expect(source).toContain(
+-      'v-model:certificate="draftForm.calibrationCertificateAttachment"',
+-    );
+-    expect(source).not.toContain('v-model="draftForm.calibrationCertificate"');
+-    expect(source).not.toContain('校准证书和扩展属性尚未接入');
+-    expect(source).not.toContain('请上传受控的校准证书附件');
+-  });
+-
+-  it('offers communication methods from a select with a legacy-friendly value', () => {
+-    const source = pageSource();
+-    const areaSource = readFileSync(AREA_PAGE, 'utf8');
+-    expect(source).toContain('SENSOR_COMMUNICATION_OPTIONS');
+-    expect(source).toContain('<ElSelect');
+-    expect(source).toContain('allow-create');
+-    expect(source).not.toContain('placeholder="例如：LoRaWAN、MQTT"');
+-    expect(areaSource).toContain('SENSOR_COMMUNICATION_OPTIONS');
+-    expect(areaSource).toContain('v-model="assetForm.communication"');
+-  });
+-
+-  it('removes the obsolete new-area floor-plan hint', () => {
+-    const source = readFileSync(AREA_SAFETY_FIELDS, 'utf8');
+-    expect(source).not.toContain('新建区域提交成功后可回到编辑页');
+-  });
+-
+-  it('reads and switches the per-sensor source through the T1 monitoring client', () => {
+-    const source = pageSource();
+-
+-    expect(source).toContain('listFacilityMonitoringAssetsApi');
+-    expect(source).toContain('setFacilityMonitoringSourceApi');
+-    expect(source).toContain('resolveFacilityPointTelemetryCell');
+-    expect(source).toContain('facilityMonitoringAssetId');
+-    expect(source).toContain('indexFacilityMonitoringAssets');
+-  });
+-
+-  it('gates every source switch behind the facility write permission', () => {
+-    const source = pageSource();
+-
+-    expect(source).toContain("hasAccessByCodes(['Facility:Edit'])");
+-    expect(source).toContain('canOperateFacilityMonitoring');
+-    expect(source).toContain('v-if="canControlTelemetry"');
+-  });
+-
+-  it('keeps source switching out of the sensor ledger commands', () => {
+-    const source = pageSource();
+-    const start = source.indexOf(SWITCH_START);
+-    expect(start).toBeGreaterThan(-1);
+-    const rest = source.slice(start);
+-    const end = rest.indexOf('\n}\n');
+-    const switchBody = rest.slice(0, end === -1 ? rest.length : end);
+-
+-    expect(switchBody).toContain('setFacilityMonitoringSourceApi');
+-    // 采样来源切换绝不改动传感器档案：版本、校准、断联与生命周期不受影响。
+-    expect(switchBody).not.toContain('commandSensorApi');
+-  });
+-
+-  it('never falls back to browser storage for real-time source truth', () => {
+-    expect(pageSource()).not.toMatch(/localStorage|sessionStorage/u);
+-  });
+-
+-  it('shows source, run state, reading and heartbeat per sensor', () => {
+-    const source = pageSource();
+-
+-    expect(source).toContain('data-testid="sensor-telemetry-column"');
+-    expect(source).toContain('sourceLabel');
+-    expect(source).toContain('stateLabel');
+-    expect(source).toContain('heartbeatAt');
+-    expect(source).toContain('telemetryValueText');
+-  });
+-
+-  it('shows the effective published binding as a read-only sensor source', () => {
+-    const source = pageSource();
+-
+-    expect(source).toContain('effectiveSensorBinding(selected)');
+-    expect(source).toContain('effectiveSensorBindings(sensor)');
+-    expect(source).toContain('if (formalMode) delete payload.externalCode;');
+-    expect(source).toContain('由采集通道发布的点位映射维护');
+-    expect(source).toContain('sensorExternalCodeText(sensorRow(row))');
+-    expect(source).toContain('sensorExternalCodeText(selected)');
+-    expect(source).toContain(
+-      'bindingRoleLabel(effectiveSensorBinding(selected)!.sourceRole)',
+-    );
+-    expect(source).toContain(
+-      '<ElFormItem v-if="!formalMode" label="外部点位编码"',
+-    );
+-    expect(source).not.toContain('credentialRef');
+-    expect(source).not.toMatch(/mqtts?:\/\//u);
+-    expect(source).not.toMatch(/https:\/\//u);
+-    expect(source).not.toContain('effectiveSensorBinding(sensor: Sensor)');
+-  });
+-
+-  it('clears the real-time column when the monitoring read fails', () => {
+-    const source = pageSource();
+-
+-    expect(source).toContain('telemetryError');
+-    expect(source).toContain('telemetryViews.value = new Map()');
+-  });
+-
+-  it('registers calibration against the selected channel and controlled certificate', () => {
+-    const source = pageSource();
+-
+-    expect(source).toContain('listSensorChannelCalibrationsApi');
+-    expect(source).toContain('createSensorChannelCalibrationApi');
+-    expect(source).toContain('calibrationDraft.certificate?.storageId');
+-    expect(source).toContain(
+-      'v-model:certificate="calibrationDraft.certificate"',
+-    );
+-    expect(source).toContain('绑定不代表校准有效');
+-  });
+-
+-  it('requires a reviewed dry-run before executing legacy backfill', () => {
+-    const source = pageSource();
+-
+-    expect(source).toContain('previewMonitoringBackfillApi');
+-    expect(source).toContain('executeMonitoringBackfillApi');
+-    expect(source).toContain('fingerprint: preview.fingerprint');
+-    expect(source).toContain('backfillConfirmed');
+-    expect(source).toContain('旧关系迁移');
+-  });
+-});
++import { readFileSync } from 'node:fs';
++import { parse as parseSfc } from '@vue/compiler-sfc';
++import { parse as parseTemplate } from '@vue/compiler-dom';
++
++import { describe, expect, it } from 'vitest';
++
++/**
++ * 传感器管理页的实时来源护栏（T5）。
++ *
++ * 页面行为依赖设施监控客户端与共享派生（运行期断言在
++ * `src/api/facility/telemetry.test.ts`）；本文件锁定页面自身必须保持的接线：
++ * 逐传感器来源只走 T1 的监控接口、控制动作按设施写权限门控、实时数据不落回
++ * 浏览器存储或本地 Mock，并且来源切换不写传感器台账。
++ */
++const PAGE = 'apps/web/src/views/facility/sensor-management.vue';
++const AREA_PAGE = 'apps/web/src/views/facility/area-management.vue';
++const AREA_SAFETY_FIELDS =
++  'apps/web/src/views/facility/_components/AreaSafetyReferencesFields.vue';
++const CERTIFICATE_FIELD =
++  'apps/web/src/views/facility/_components/SensorCalibrationCertificateField.vue';
++const SWITCH_START = 'async function confirmSourceSwitch';
++
++function pageSource() {
++  return readFileSync(PAGE, 'utf8');
++}
++
++function pageButtons() {
++  const template = parseSfc(pageSource()).descriptor.template?.content;
++  if (!template) throw new Error('sensor page has no template');
++  const buttons: any[] = [];
++  const visit = (node: any) => {
++    if (node.type === 1 && node.tag === 'ElButton') buttons.push(node);
++    for (const child of node.children ?? []) visit(child);
++  };
++  visit(parseTemplate(template));
++  return buttons;
++}
++
++function interpolationText(node: any): string {
++  if (node?.type === 5) return node.content.content.replace(/\s+/gu, '');
++  return (node?.children ?? []).map(interpolationText).join('');
++}
++
++function ifExpression(node: any): string {
++  return node?.props.find((prop: any) => prop.type === 7 && prop.name === 'if')?.exp?.content ?? '';
++}
++
++describe('传感器管理页实时来源（T5）', () => {
++  it('shows sensor names instead of internal UUIDs in the list', () => {
++    const source = pageSource();
++
++    expect(source).toContain(
++      'function sensorListName(sensor: Sensor): string {',
++    );
++    expect(source).toContain('sensor.code?.trim() ||');
++    expect(source).toContain('sensor.serialNumber.trim() ||');
++    expect(source).toContain("'未命名传感器'");
++    expect(source).toContain('{{ sensorListName(sensorRow(row)) }}');
++    expect(source).not.toContain('{{ row.id }} · {{ row.name }}');
++  });
++
++  it('shows activation for draft sensors while keeping close hidden', () => {
++    const buttons = pageButtons();
++    const actionButton = buttons.find((node) =>
++      interpolationText(node).includes('actionLabels[suggestedAction(sensorRow(row))]'));
++    expect(actionButton).toBeDefined();
++    expect(ifExpression(actionButton).replace(/\s+/gu, '')).toMatch(
++      /suggestedAction\(sensorRow\(row\)\)!==['"]bind_monitoring_point['"]/u,
++    );
++    expect(ifExpression(actionButton).replace(/\s+/gu, '')).not.toMatch(/row\.status!==['"]DRAFT['"]/u);
++    const closeButton = buttons.find((node) => /['"]重开['"]/u.test(interpolationText(node)));
++    expect(ifExpression(closeButton).replace(/\s+/gu, '')).toMatch(/row\.status!==['"]DRAFT['"]/u);
++    expect(interpolationText(closeButton)).toMatch(/row\.status===['"]CLOSED['"]\?['"]重开['"]:['"]关闭['"]/u);
++  });
++
++  it('does not show redundant certificate guidance above the form', () => {
++    expect(pageSource()).not.toContain(
++      '正式主档支持编码、名称、型号、序列号、所属区域、校准证书附件与到期日。启用前必须存在可用的设施域受控证书附件，且到期日不得早于当天。',
++    );
++    expect(readFileSync(CERTIFICATE_FIELD, 'utf8')).not.toContain(
++      '证书作为受控附件保存；保存传感器时服务端会复核文件仍可用。',
++    );
++  });
++
++  it('uses a controlled certificate attachment for activation and editing', () => {
++    const source = pageSource();
++
++    expect(source).toContain('SensorCalibrationCertificateField');
++    expect(source).toContain(
++      'if (!sensor.calibrationCertificateAttachment) return false;',
++    );
++    expect(source).toContain(
++      'v-model:certificate="draftForm.calibrationCertificateAttachment"',
++    );
++    expect(source).not.toContain('v-model="draftForm.calibrationCertificate"');
++    expect(source).not.toContain('校准证书和扩展属性尚未接入');
++    expect(source).not.toContain('请上传受控的校准证书附件');
++  });
++
++  it('offers communication methods from a select with a legacy-friendly value', () => {
++    const source = pageSource();
++    const areaSource = readFileSync(AREA_PAGE, 'utf8');
++    expect(source).toContain('SENSOR_COMMUNICATION_OPTIONS');
++    expect(source).toContain('<ElSelect');
++    expect(source).toContain('allow-create');
++    expect(source).not.toContain('placeholder="例如：LoRaWAN、MQTT"');
++    expect(areaSource).toContain('SENSOR_COMMUNICATION_OPTIONS');
++    expect(areaSource).toContain('v-model="assetForm.communication"');
++  });
++
++  it('removes the obsolete new-area floor-plan hint', () => {
++    const source = readFileSync(AREA_SAFETY_FIELDS, 'utf8');
++    expect(source).not.toContain('新建区域提交成功后可回到编辑页');
++  });
++
++  it('reads and switches the per-sensor source through the T1 monitoring client', () => {
++    const source = pageSource();
++
++    expect(source).toContain('listFacilityMonitoringAssetsApi');
++    expect(source).toContain('setFacilityMonitoringSourceApi');
++    expect(source).toContain('resolveFacilityPointTelemetryCell');
++    expect(source).toContain('facilityMonitoringAssetId');
++    expect(source).toContain('indexFacilityMonitoringAssets');
++  });
++
++  it('gates every source switch behind the facility write permission', () => {
++    const source = pageSource();
++
++    expect(source).toContain("hasAccessByCodes(['Facility:Edit'])");
++    expect(source).toContain('canOperateFacilityMonitoring');
++    expect(source).toContain('v-if="canControlTelemetry"');
++  });
++
++  it('keeps source switching out of the sensor ledger commands', () => {
++    const source = pageSource();
++    const start = source.indexOf(SWITCH_START);
++    expect(start).toBeGreaterThan(-1);
++    const rest = source.slice(start);
++    const end = rest.indexOf('\n}\n');
++    const switchBody = rest.slice(0, end === -1 ? rest.length : end);
++
++    expect(switchBody).toContain('setFacilityMonitoringSourceApi');
++    // 采样来源切换绝不改动传感器档案：版本、校准、断联与生命周期不受影响。
++    expect(switchBody).not.toContain('commandSensorApi');
++  });
++
++  it('never falls back to browser storage for real-time source truth', () => {
++    expect(pageSource()).not.toMatch(/localStorage|sessionStorage/u);
++  });
++
++  it('shows source, run state, reading and heartbeat per sensor', () => {
++    const source = pageSource();
++
++    expect(source).toContain('data-testid="sensor-telemetry-column"');
++    expect(source).toContain('sourceLabel');
++    expect(source).toContain('stateLabel');
++    expect(source).toContain('heartbeatAt');
++    expect(source).toContain('telemetryValueText');
++  });
++
++  it('shows the effective published binding as a read-only sensor source', () => {
++    const source = pageSource();
++
++    expect(source).toContain('effectiveSensorBinding(selected)');
++    expect(source).toContain('effectiveSensorBindings(sensor)');
++    expect(source).toContain('if (formalMode) delete payload.externalCode;');
++    expect(source).toContain('由采集通道发布的点位映射维护');
++    expect(source).toContain('sensorExternalCodeText(sensorRow(row))');
++    expect(source).toContain('sensorExternalCodeText(selected)');
++    expect(source).toContain(
++      'bindingRoleLabel(effectiveSensorBinding(selected)!.sourceRole)',
++    );
++    expect(source).toContain(
++      '<ElFormItem v-if="!formalMode" label="外部点位编码"',
++    );
++    expect(source).not.toContain('credentialRef');
++    expect(source).not.toMatch(/mqtts?:\/\//u);
++    expect(source).not.toMatch(/https:\/\//u);
++    expect(source).not.toContain('effectiveSensorBinding(sensor: Sensor)');
++  });
++
++  it('clears the real-time column when the monitoring read fails', () => {
++    const source = pageSource();
++
++    expect(source).toContain('telemetryError');
++    expect(source).toContain('telemetryViews.value = new Map()');
++  });
++
++  it('registers calibration against the selected channel and controlled certificate', () => {
++    const source = pageSource();
++
++    expect(source).toContain('listSensorChannelCalibrationsApi');
++    expect(source).toContain('createSensorChannelCalibrationApi');
++    expect(source).toContain('calibrationDraft.certificate?.storageId');
++    expect(source).toContain(
++      'v-model:certificate="calibrationDraft.certificate"',
++    );
++    expect(source).toContain('绑定不代表校准有效');
++  });
++
++  it('requires a reviewed dry-run before executing legacy backfill', () => {
++    const source = pageSource();
++
++    expect(source).toContain('previewMonitoringBackfillApi');
++    expect(source).toContain('executeMonitoringBackfillApi');
++    expect(source).toContain('fingerprint: preview.fingerprint');
++    expect(source).toContain('backfillConfirmed');
++    expect(source).toContain('旧关系迁移');
++  });
++});
+diff --git a/vibe-harness.config.json b/vibe-harness.config.json
+index f98cc2de4caeaa403ce6d283f291700cbd44d2de..38a2a61ac753d3e9dabd6494854382ab69d10e1b 100644
+--- a/vibe-harness.config.json
++++ b/vibe-harness.config.json
+@@ -1,194 +1,258 @@
+-{
+-  "projectName": "BL-CNAS",
+-  "language": "zh-CN",
+-  "packageManager": "bun",
+-  "profile": "full",
+-  "validationCommands": {
+-    "lint": "bun run --cwd frontend verify:changed",
+-    "typecheck": null,
+-    "test": null,
+-    "eval": null,
+-    "tiers": {
+-      "quick": [
+-        "bun run --cwd frontend verify:changed"
+-      ],
+-      "standard": [
+-        "bun run --cwd frontend verify:standard-slice"
+-      ],
+-      "deep": [
+-        "bun run --cwd frontend lint",
+-        "bun run --cwd frontend check:type",
+-        "bun run --cwd frontend test:unit",
+-        "bun run --cwd frontend verify:backend:verify"
+-      ]
+-    },
+-    "checks": [
+-      {
+-        "id": "changed-scope",
+-        "command": "bun run --cwd frontend verify:changed",
+-        "deterministic": false,
+-        "timeoutMs": 3000000,
+-        "resources": ["backend-build", "frontend-validation"]
+-      },
+-      {
+-        "id": "standard-slice",
+-        "command": "bun run --cwd frontend verify:standard-slice",
+-        "deterministic": false,
+-        "timeoutMs": 1200000,
+-        "resources": ["backend-build", "frontend-validation"]
+-      },
+-      {
+-        "id": "frontend-lint",
+-        "command": "bun run --cwd frontend lint",
+-        "deterministic": true,
+-        "cacheScope": "tree",
+-        "timeoutMs": 600000,
+-        "subsumes": [],
+-        "resources": ["frontend-validation"]
+-      },
+-      {
+-        "id": "frontend-typecheck",
+-        "command": "bun run --cwd frontend check:type",
+-        "deterministic": true,
+-        "cacheScope": "tree",
+-        "timeoutMs": 900000,
+-        "subsumes": [],
+-        "resources": ["frontend-validation"]
+-      },
+-      {
+-        "id": "frontend-test-unit",
+-        "command": "bun run --cwd frontend test:unit",
+-        "deterministic": true,
+-        "cacheScope": "tree",
+-        "timeoutMs": 1200000,
+-        "subsumes": [],
+-        "resources": ["frontend-validation"]
+-      },
+-      {
+-        "id": "backend-verify",
+-        "command": "bun run --cwd frontend verify:backend:verify",
+-        "deterministic": false,
+-        "cacheScope": "tree",
+-        "timeoutMs": 2400000,
+-        "subsumes": [],
+-        "resources": ["backend-build"]
+-      }
+-    ]
+-  },
+-  "verification": {
+-    "timeoutMs": 3600000,
+-    "reuse": {
+-      "mode": "tree-content",
+-      "envAllowlist": [
+-        "CI",
+-        "NODE_ENV",
+-        "JAVA_HOME",
+-        "MAVEN_OPTS",
+-        "TZ",
+-        "DM8_JDBC_URL",
+-        "DM8_APP_USERNAME",
+-        "DM8_APP_PASSWORD",
+-        "DM8_MIGRATOR_USERNAME",
+-        "DM8_MIGRATOR_PASSWORD"
+-      ]
+-    }
+-  },
+-  "evaluations": {
+-    "enabled": false,
+-    "suites": [],
+-    "reference": "evals/references/project.json",
+-    "thresholds": {
+-      "criticalPassRate": 1,
+-      "overallScore": 0.9,
+-      "maxCapabilityRegression": 0.05
+-    },
+-    "onlineRunner": null,
+-    "repetitions": 3
+-  },
+-  "hooks": {
+-    "mode": "observe",
+-    "profile": "minimal",
+-    "enforcement": "advisory",
+-    "allowedEgressHosts": [],
+-    "redZonePaths": [
+-      ".env",
+-      "auth/",
+-      "ci/cd/",
+-      ".github/workflows/",
+-      ".codex/hooks.json"
+-    ]
+-  },
+-  "delivery": {
+-    "default": "local-land",
+-    "profiles": {
+-      "local-land": {
+-        "merge": "no-ff",
+-        "cleanup": "ancestor",
+-        "requireReceipt": true,
+-        "reviewPolicy": "none"
+-      }
+-    }
+-  },
+-  "riskZones": {
+-    "red": [
+-      "auth",
+-      "secrets",
+-      "ci-cd",
+-      "env"
+-    ],
+-    "yellow": [
+-      "shared-libs",
+-      "state",
+-      "routing",
+-      "io-clients"
+-    ]
+-  },
+-  "crossRepo": {
+-    "enabled": false,
+-    "backendRepo": ""
+-  },
+-  "projectRules": {
+-    "mode": "auto",
+-    "overrides": {
+-      "stackSummary": "Vue 3（前端 `frontend/apps/web`）、Bun（脚本与包管理运行时）、Java 21 + Maven Wrapper（后端服务）、Spring",
+-      "packageManager": "bun",
+-      "directoryGuidance": "复用现有目录职责：前端 `frontend/apps/web`、契约 `frontend/packages/prototype-contracts`、mock 与 SQLite 存储在 `frontend/apps/mock-server`、后端按 Maven 模块就近修改，不在仓库根新增散落文件。检索与索引纪律：`.codegraph`、`.serena`、`.vibe-harness/artifacts`、`.tmp-lint`、`.codex-*`、`tmp`、`build`、`output_user_manual` 视为不可搜索目录。",
+-      "reviewGuidance": "按改动范围选验证：先跑 `bun run --cwd frontend verify:changed`（fail-fast 三条按范围命令），需要更宽证据时显式升级 `--tier standard`，不要用全仓矩阵替代范围验证。检索只允许有边界的命令（`rg`、`git ls-files`、`git grep`），单条扫描必须在 120 秒内结束；单文件文本、配置与日志直接用 rg 与文件阅读。语义图查询用宿主 codebase-memory MCP；本地 codebase-memory 包装与 post-merge refresh 钩子已退役（`run.mjs codebase-memory refresh` 现报 Unknown command），索引由宿主 MCP 自行刷新，不再需要手动重建；图未就绪或 stale 时用 `rg` 交叉核验并在回执中标注。",
+-      "verificationSummary": "验证单一真值源是 validationCommands.tiers：quick 运行 verify:changed，按前后端受影响域依次执行前端 lint/typecheck/相关单测、契约只读检查及后端映射域测试；空选集或未知范围不能假通过，未知范围安全扩大并报告原因。standard 在 quick 之上只追加受影响的 OpenAPI/迁移契约切片，不因收据或 review 自动升级到全仓。deep 显式执行全仓 lint、typecheck、前端单测和后端完整校验；CI/发布边界另按实际要求运行。verify:changed 的长阶段约 30 秒心跳并记录范围、耗时、失败与回退理由；--async 仅为已排队且无保证的本地消费者，不是完成证据。选中检查在稳定最终候选树通过仅证明本层，deferred 不能宣称为已完成。需 DM8 真实数据库证据时单独运行 verify:backend:dm-it，H2 单测不代表 DM8。普通任务不强制 Execution Envelope、持久验证收据或独立审查收据；跨宿主、外部写入和凭据仍须可信宿主授权。"
+-    }
+-  },
+-  "clarification": {
+-    "posture": "balanced"
+-  },
+-  "memory": {
+-    "enabled": true,
+-    "path": ".agents/memory"
+-  },
+-  "worktree": {
+-    "root": "../BL-CNAS-worktrees",
+-    "baseRef": "origin/develop",
+-    "dependencyMode": "shared-immutable",
+-    "dependencyRoots": [
+-      "frontend"
+-    ],
+-    "mirrors": [
+-      ".agents",
+-      ".codex",
+-      ".zcode",
+-      ".opencode",
+-      "opencode.json",
+-      "frontend/internal/*/dist",
+-      "frontend/internal/lint-configs/*/dist",
+-      "frontend/packages/@core/*/dist",
+-      "frontend/packages/@core/base/*/dist",
+-      "frontend/packages/@core/ui-kit/*/dist",
+-      "frontend/scripts/*/dist"
+-    ]
+-  },
+-  "targets": [
+-    "codex",
+-    "zcode",
+-    "opencode"
+-  ],
+-  "preset": "everything"
+-}
++{
++  "projectName": "BL-CNAS",
++  "language": "zh-CN",
++  "packageManager": "bun",
++  "profile": "full",
++  "validationCommands": {
++    "lint": null,
++    "typecheck": null,
++    "test": null,
++    "eval": null,
++    "tiers": {
++      "quick": [
++        "node frontend/scripts/validation-runner.mjs changed-atom lint",
++        "node frontend/scripts/validation-runner.mjs changed-atom typecheck",
++        "node frontend/scripts/validation-runner.mjs changed-atom test",
++        "node frontend/scripts/validation-runner.mjs changed-atom contract-parity",
++        "node frontend/scripts/validation-runner.mjs changed-atom backend-test",
++        "node frontend/scripts/validation-runner.mjs changed-atom operational-static",
++        "node frontend/scripts/validation-runner.mjs changed-atom docs-static"
++      ],
++      "standard": [
++        "bun run --cwd frontend verify:standard-slice"
++      ],
++      "deep": [
++        "bun run --cwd frontend lint",
++        "bun run --cwd frontend check:type",
++        "bun run --cwd frontend test:unit",
++        "bun run --cwd frontend verify:backend:verify"
++      ]
++    },
++    "checks": [
++      {
++        "id": "changed-lint",
++        "command": "node frontend/scripts/validation-runner.mjs changed-atom lint",
++        "deterministic": true,
++        "cacheScope": "selection",
++        "timeoutMs": 600000,
++        "resources": []
++      },
++      {
++        "id": "changed-typecheck",
++        "command": "node frontend/scripts/validation-runner.mjs changed-atom typecheck",
++        "deterministic": true,
++        "cacheScope": "selection",
++        "timeoutMs": 900000,
++        "resources": []
++      },
++      {
++        "id": "changed-test",
++        "command": "node frontend/scripts/validation-runner.mjs changed-atom test",
++        "deterministic": true,
++        "cacheScope": "selection",
++        "timeoutMs": 1200000,
++        "resources": []
++      },
++      {
++        "id": "changed-contract-parity",
++        "command": "node frontend/scripts/validation-runner.mjs changed-atom contract-parity",
++        "deterministic": true,
++        "cacheScope": "selection",
++        "timeoutMs": 600000,
++        "resources": []
++      },
++      {
++        "id": "changed-backend-test",
++        "command": "node frontend/scripts/validation-runner.mjs changed-atom backend-test",
++        "deterministic": false,
++        "cacheScope": "selection",
++        "timeoutMs": 3000000,
++        "resources": [],
++        "evidenceScope": "transaction"
++      },
++      {
++        "id": "changed-operational-static",
++        "command": "node frontend/scripts/validation-runner.mjs changed-atom operational-static",
++        "deterministic": true,
++        "cacheScope": "selection",
++        "timeoutMs": 600000,
++        "resources": []
++      },
++      {
++        "id": "changed-docs-static",
++        "command": "node frontend/scripts/validation-runner.mjs changed-atom docs-static",
++        "deterministic": true,
++        "cacheScope": "selection",
++        "timeoutMs": 600000,
++        "resources": []
++      },
++      {
++        "id": "standard-slice",
++        "command": "bun run --cwd frontend verify:standard-slice",
++        "deterministic": false,
++        "timeoutMs": 1200000,
++        "resources": []
++      },
++      {
++        "id": "frontend-lint",
++        "command": "bun run --cwd frontend lint",
++        "deterministic": true,
++        "cacheScope": "tree",
++        "timeoutMs": 600000,
++        "subsumes": [],
++        "resources": [
++          "frontend-validation"
++        ]
++      },
++      {
++        "id": "frontend-typecheck",
++        "command": "bun run --cwd frontend check:type",
++        "deterministic": true,
++        "cacheScope": "tree",
++        "timeoutMs": 900000,
++        "subsumes": [],
++        "resources": [
++          "frontend-validation"
++        ]
++      },
++      {
++        "id": "frontend-test-unit",
++        "command": "bun run --cwd frontend test:unit",
++        "deterministic": true,
++        "cacheScope": "tree",
++        "timeoutMs": 1200000,
++        "subsumes": [],
++        "resources": [
++          "frontend-validation"
++        ]
++      },
++      {
++        "id": "backend-verify",
++        "command": "bun run --cwd frontend verify:backend:verify",
++        "deterministic": false,
++        "cacheScope": "tree",
++        "timeoutMs": 2400000,
++        "subsumes": [],
++        "resources": [
++          "backend-build"
++        ]
++      }
++    ]
++  },
++  "verification": {
++    "timeoutMs": 3600000,
++    "reuse": {
++      "mode": "tree-content",
++      "envAllowlist": [
++        "CI",
++        "NODE_ENV",
++        "JAVA_HOME",
++        "MAVEN_OPTS",
++        "TZ",
++        "DM8_JDBC_URL",
++        "DM8_APP_USERNAME",
++        "DM8_APP_PASSWORD",
++        "DM8_MIGRATOR_USERNAME",
++        "DM8_MIGRATOR_PASSWORD"
++      ]
++    }
++  },
++  "evaluations": {
++    "enabled": false,
++    "suites": [],
++    "reference": "evals/references/project.json",
++    "thresholds": {
++      "criticalPassRate": 1,
++      "overallScore": 0.9,
++      "maxCapabilityRegression": 0.05
++    },
++    "onlineRunner": null,
++    "repetitions": 3
++  },
++  "hooks": {
++    "mode": "observe",
++    "profile": "minimal",
++    "enforcement": "advisory",
++    "allowedEgressHosts": [],
++    "redZonePaths": [
++      ".env",
++      "auth/",
++      "ci/cd/",
++      ".github/workflows/",
++      ".codex/hooks.json"
++    ]
++  },
++  "delivery": {
++    "default": "local-land",
++    "profiles": {
++      "local-land": {
++        "merge": "no-ff",
++        "cleanup": "ancestor",
++        "requireReceipt": true,
++        "reviewPolicy": "none"
++      }
++    }
++  },
++  "riskZones": {
++    "red": [
++      "auth",
++      "secrets",
++      "ci-cd",
++      "env"
++    ],
++    "yellow": [
++      "shared-libs",
++      "state",
++      "routing",
++      "io-clients"
++    ]
++  },
++  "crossRepo": {
++    "enabled": false,
++    "backendRepo": ""
++  },
++  "projectRules": {
++    "mode": "auto",
++    "overrides": {
++      "stackSummary": "Vue 3（前端 `frontend/apps/web`）、Bun（脚本与包管理运行时）、Java 21 + Maven Wrapper（后端服务）、Spring",
++      "packageManager": "bun",
++      "directoryGuidance": "复用现有目录职责：前端 `frontend/apps/web`、契约 `frontend/packages/prototype-contracts`、mock 与 SQLite 存储在 `frontend/apps/mock-server`、后端按 Maven 模块就近修改，不在仓库根新增散落文件。检索与索引纪律：`.codegraph`、`.serena`、`.vibe-harness/artifacts`、`.tmp-lint`、`.codex-*`、`tmp`、`build`、`output_user_manual` 视为不可搜索目录。",
++      "reviewGuidance": "按改动范围选验证：先跑 `bun run --cwd frontend verify:changed`（fail-fast 三条按范围命令），需要更宽证据时显式升级 `--tier standard`，不要用全仓矩阵替代范围验证。检索只允许有边界的命令（`rg`、`git ls-files`、`git grep`），单条扫描必须在 120 秒内结束；单文件文本、配置与日志直接用 rg 与文件阅读。语义图查询用宿主 codebase-memory MCP；本地 codebase-memory 包装与 post-merge refresh 钩子已退役（`run.mjs codebase-memory refresh` 现报 Unknown command），索引由宿主 MCP 自行刷新，不再需要手动重建；图未就绪或 stale 时用 `rg` 交叉核验并在回执中标注。",
++      "verificationSummary": "验证单一真值源是 validationCommands.tiers：quick 运行 verify:changed，按前后端受影响域依次执行前端 lint/typecheck/相关单测、契约只读检查及后端映射域测试；空选集或未知范围不能假通过，未知范围安全扩大并报告原因。standard 在 quick 之上只追加受影响的 OpenAPI/迁移契约切片，不因收据或 review 自动升级到全仓。deep 显式执行全仓 lint、typecheck、前端单测和后端完整校验；CI/发布边界另按实际要求运行。verify:changed 的长阶段约 30 秒心跳并记录范围、耗时、失败与回退理由；--async 仅为已排队且无保证的本地消费者，不是完成证据。选中检查在稳定最终候选树通过仅证明本层，deferred 不能宣称为已完成。需 DM8 真实数据库证据时单独运行 verify:backend:dm-it，H2 单测不代表 DM8。普通任务不强制 Execution Envelope、持久验证收据或独立审查收据；跨宿主、外部写入和凭据仍须可信宿主授权。"
++    }
++  },
++  "clarification": {
++    "posture": "balanced"
++  },
++  "memory": {
++    "enabled": true,
++    "path": ".agents/memory"
++  },
++  "worktree": {
++    "root": "../BL-CNAS-worktrees",
++    "baseRef": "origin/develop",
++    "dependencyMode": "shared-immutable",
++    "dependencyRoots": [
++      "frontend"
++    ],
++    "mirrors": [
++      ".agents",
++      ".codex",
++      ".zcode",
++      ".opencode",
++      "opencode.json",
++      "frontend/internal/*/dist",
++      "frontend/internal/lint-configs/*/dist",
++      "frontend/packages/@core/*/dist",
++      "frontend/packages/@core/base/*/dist",
++      "frontend/packages/@core/ui-kit/*/dist",
++      "frontend/scripts/*/dist"
++    ]
++  },
++  "targets": [
++    "codex",
++    "zcode",
++    "opencode"
++  ],
++  "preset": "everything"
++}
+diff --git a/frontend/package.json b/frontend/package.json
+index 0a74930fab82b9661451caf24bc8638fa646528c..fc686ce1cce6d7270c77e4fe5b9bc9973547dcc0 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -1,336 +1,336 @@
+-{
+-  "name": "bl-cnas-frontend",
+-  "version": "0.1.0",
+-  "description": "BL-CNAS frontend workspace",
+-  "private": true,
+-  "keywords": [
+-    "monorepo",
+-    "turbo",
+-    "vben",
+-    "bl-cnas",
+-    "vue",
+-    "laboratory",
+-    "vue3"
+-  ],
+-  "license": "MIT",
+-  "type": "module",
+-  "scripts": {
+-    "bootstrap": "bun install",
+-    "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 turbo build",
+-    "build:analyze": "turbo build:analyze",
+-    "build:docker": "./scripts/deploy/build-local-docker-image.sh",
+-    "build:web": "turbo run build --filter=@bl-cnas/web",
+-    "changeset": "changeset",
+-    "check": "bun run check:circular && bun run check:dep && bun run check:type && bun run check:cspell",
+-    "check:circular": "vsh check-circular",
+-    "check:cspell": "cspell lint \"**/*.ts\" \"**/README.md\" \".changeset/*.md\" --no-progress",
+-    "check:dep": "vsh check-dep",
+-    "check:docs-consistency": "bun ./apps/web/scripts/check-docs-consistency.ts",
+-    "check:openapi": "bun run --cwd apps/web check:openapi",
+-    "check:route-permissions": "bun run --cwd apps/web check:route-permissions",
+-    "check:type": "node ./scripts/validation-runner.mjs direct typecheck -- bun ./scripts/validation-runner.mjs typecheck-packages",
+-    "check:type:affected": "node ./scripts/validation-runner.mjs direct typecheck -- bun ./scripts/validation-runner.mjs typecheck-packages --affected",
+-    "clean": "bun ./scripts/clean.mjs",
+-    "commit": "czg",
+-    "dev": "turbo-run dev",
+-    "dev:web": "turbo run dev --filter=@bl-cnas/web",
+-    "format": "vsh lint --format",
+-    "generate:openapi": "bun run --cwd apps/web generate:openapi",
+-    "lint": "node ./scripts/validation-runner.mjs direct lint -- bun x vsh lint",
+-    "lint:changed": "vsh lint --since origin/develop",
+-    "lint:staged": "vsh lint --staged",
+-    "metrics:sessions": "node ./scripts/codex-session-metrics.mjs",
+-    "metrics:sessions:test": "vitest run ./scripts/codex-session-metrics.test.mjs ./scripts/validation-runner.test.mjs",
+-    "mock:check:bridge-parity": "bun run --cwd apps/mock-server check:bridge-parity",
+-    "mock:check:state-ownership": "bun run --cwd apps/mock-server check:state-ownership",
+-    "mock:check:persistence-coverage": "bun run --cwd apps/mock-server check:persistence-coverage",
+-    "mock:db:adopt": "bun run --cwd apps/mock-server db:adopt",
+-    "mock:db:export": "bun run --cwd apps/mock-server db:export",
+-    "mock:db:prune": "bun run --cwd apps/mock-server db:prune",
+-    "mock:db:reset": "bun run --cwd apps/mock-server db:reset",
+-    "mock:db:status": "bun run --cwd apps/mock-server db:status",
+-    "mock:db:vacuum": "bun run --cwd apps/mock-server db:vacuum",
+-    "mock:db:verify": "bun run --cwd apps/mock-server db:verify",
+-    "mock:seed:facility-spatial-demo": "bun run --cwd apps/mock-server seed:facility-spatial-demo",
+-    "postinstall": "bun run --filter '*' --if-present stub",
+-    "prepare": "is-ci || lefthook install",
+-    "preview": "turbo-run preview",
+-    "publint": "vsh publint",
+-    "reinstall": "bun run clean -- --del-lock && bun install",
+-    "start": "bun run --cwd apps/web start",
+-    "simulator:start": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/simulator.ps1 start",
+-    "simulator:start:fg": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/simulator.ps1 start -Foreground",
+-    "simulator:stop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/simulator.ps1 stop",
+-    "simulator:restart": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/simulator.ps1 restart",
+-    "simulator:status": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/simulator.ps1 status",
+-    "simulator:logs": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/simulator.ps1 logs",
+-    "simulator:once": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/simulator.ps1 once",
+-    "test:benchmark": "vitest bench --run",
+-    "test:changed": "node ./scripts/vitest-changed.mjs",
+-    "test:cnas-prototype": "bun test packages/prototype-contracts/src/contracts.test.ts && node ./node_modules/vitest/vitest.mjs run --root . --config apps/mock-server/vitest.config.ts packages/prototype-contracts/src/*.test.ts apps/mock-server/scenarios/*.test.ts apps/mock-server/mock-data/*.test.ts apps/mock-server/utils/cnas-*.test.ts apps/mock-server/utils/critical-value-transition.test.ts apps/mock-server/utils/iqc-transition.test.ts apps/mock-server/utils/report-publish-transition.test.ts apps/mock-server/utils/system-lifecycle.test.ts apps/mock-server/utils/system-auth-middleware.test.ts apps/mock-server/utils/mock-state-store.test.ts apps/mock-server/utils/inspection-improvement-persistence.test.ts --exclude '**/contracts.test.ts' --exclude '**/mock-data/*persistence.test.ts' --exclude '**/cnas-organization-state.test.ts' --exclude '**/cnas-personnel-command-store.test.ts'",
+-    "test:mock-server": "vitest run --config apps/mock-server/vitest.config.ts",
+-    "test:persistence": "bun run --cwd apps/mock-server test:persistence",
+-    "test:sqlite": "bun run --cwd apps/mock-server test:sqlite",
+-    "test:unit": "node ./scripts/validation-runner.mjs direct test -- bun x vitest run --dom",
+-    "test:signing-security": "bun run --cwd apps/signing-service test:security",
+-    "test:e2e": "turbo run test:e2e",
+-    "update:deps": "bunx taze -r -w",
+-    "verify:changed": "node ./scripts/validation-runner.mjs changed",
+-    "verify:standard-slice": "node ./scripts/validation-runner.mjs standard-slice",
+-    "verify:backend:unit": "node ./scripts/validation-runner.mjs backend-unit",
+-    "verify:backend:verify": "node ./scripts/validation-runner.mjs backend-verify",
+-    "verify:backend:dm-it": "node ./scripts/validation-runner.mjs backend-dm-it",
+-    "verify:standard": "node ./scripts/validation-runner.mjs standard",
+-    "version": "changeset version && bun install",
+-    "start:mock": "bun run --cwd apps/mock-server start",
+-    "start:web": "bun run --cwd apps/web start"
+-  },
+-  "workspaces": {
+-    "packages": [
+-      "internal/*",
+-      "internal/lint-configs/*",
+-      "packages/*",
+-      "packages/@core/base/*",
+-      "packages/@core/ui-kit/*",
+-      "packages/@core/forward/*",
+-      "packages/@core/*",
+-      "packages/effects/*",
+-      "packages/business/*",
+-      "apps/*",
+-      "scripts/*"
+-    ],
+-    "catalog": {
+-      "@ast-grep/napi": "^0.44.1",
+-      "@changesets/changelog-github": "^0.7.0",
+-      "@changesets/cli": "^2.31.1",
+-      "@changesets/git": "^3.0.4",
+-      "@clack/prompts": "^1.7.0",
+-      "@commitlint/cli": "^21.2.1",
+-      "@commitlint/config-conventional": "^21.2.0",
+-      "@commitlint/types": "^21.2.0",
+-      "@ctrl/tinycolor": "^4.2.0",
+-      "@eslint-community/eslint-plugin-eslint-comments": "^4.7.2",
+-      "@eslint/js": "^10.0.1",
+-      "@faker-js/faker": "^10.5.0",
+-      "@iconify/json": "^2.2.504",
+-      "@iconify/tailwind4": "^1.2.3",
+-      "@iconify/vue": "^5.0.1",
+-      "@intlify/core-base": "^11.4.7",
+-      "@intlify/unplugin-vue-i18n": "^11.2.4",
+-      "@jspm/generator": "^2.16.3",
+-      "@lucide/vue": "^1.26.0",
+-      "@manypkg/get-packages": "^3.1.0",
+-      "@playwright/test": "^1.61.1",
+-      "@stylistic/stylelint-plugin": "^5.2.1",
+-      "@tailwindcss/typography": "^0.5.20",
+-      "@tailwindcss/vite": "^4.3.3",
+-      "@tanstack/store": "^0.11.0",
+-      "@tanstack/vue-form": "^1.33.2",
+-      "@tanstack/vue-query": "^5.101.4",
+-      "@tanstack/vue-store": "^0.11.0",
+-      "@tiptap/core": "^3.28.0",
+-      "@tiptap/extension-document": "^3.28.0",
+-      "@tiptap/extension-highlight": "^3.28.0",
+-      "@tiptap/extension-image": "^3.28.0",
+-      "@tiptap/extension-link": "^3.28.0",
+-      "@tiptap/extension-placeholder": "^3.28.0",
+-      "@tiptap/extension-text-align": "^3.28.0",
+-      "@tiptap/extension-text-style": "^3.28.0",
+-      "@tiptap/extension-underline": "^3.28.0",
+-      "@tiptap/pm": "^3.28.0",
+-      "@tiptap/starter-kit": "^3.28.0",
+-      "@tiptap/vue-3": "^3.28.0",
+-      "@tsdown/css": "^0.22.13",
+-      "@types/archiver": "^8.0.0",
+-      "@types/better-sqlite3": "7.6.13",
+-      "@types/html-minifier-terser": "^7.0.2",
+-      "@types/json-bigint": "^1.0.4",
+-      "@types/jsonwebtoken": "^9.0.10",
+-      "@types/lodash.clonedeep": "^4.5.9",
+-      "@types/node": "^25.9.5",
+-      "@types/nprogress": "^0.2.3",
+-      "@types/qrcode": "^1.5.6",
+-      "@types/qs": "^6.15.1",
+-      "@types/sortablejs": "^1.15.9",
+-      "@typescript-eslint/parser": "^8.65.0",
+-      "@vitejs/plugin-vue": "^6.0.8",
+-      "@vitejs/plugin-vue-jsx": "^5.1.6",
+-      "@vue/shared": "^3.5.40",
+-      "@vue/test-utils": "^2.4.11",
+-      "@vueuse/core": "^14.3.0",
+-      "@vueuse/integrations": "^14.3.0",
+-      "@vueuse/motion": "^3.0.3",
+-      "archiver": "^8.0.0",
+-      "axios": "^1.18.1",
+-      "axios-mock-adapter": "^2.1.0",
+-      "better-sqlite3": "12.4.1",
+-      "cac": "^7.0.0",
+-      "chalk": "^5.6.2",
+-      "cheerio": "^1.2.0",
+-      "circular-dependency-scanner": "^3.0.1",
+-      "class-variance-authority": "^0.7.1",
+-      "clsx": "^2.1.1",
+-      "commitlint-plugin-function-rules": "^5.0.1",
+-      "consola": "^3.4.2",
+-      "cross-env": "^10.1.0",
+-      "cspell": "^10.0.1",
+-      "cz-git": "^1.13.1",
+-      "czg": "^1.13.1",
+-      "dayjs": "^1.11.21",
+-      "defu": "^6.1.7",
+-      "dotenv": "^17.4.2",
+-      "echarts": "^6.1.0",
+-      "element-plus": "^2.14.3",
+-      "es-toolkit": "^1.49.0",
+-      "eslint": "^10.7.0",
+-      "eslint-plugin-better-tailwindcss": "^4.7.0",
+-      "eslint-plugin-command": "^3.5.3",
+-      "eslint-plugin-jsonc": "^3.3.0",
+-      "eslint-plugin-n": "^18.2.2",
+-      "eslint-plugin-perfectionist": "^5.10.0",
+-      "eslint-plugin-unused-imports": "^4.4.1",
+-      "eslint-plugin-vue": "^10.10.0",
+-      "eslint-plugin-yml": "^3.6.0",
+-      "execa": "^10.0.0",
+-      "find-up": "^8.0.0",
+-      "get-port": "^7.2.0",
+-      "globals": "^17.7.0",
+-      "h3": "^1.15.11",
+-      "happy-dom": "^20.11.1",
+-      "html-minifier-terser": "^7.2.0",
+-      "is-ci": "^4.1.0",
+-      "json-bigint": "^1.0.0",
+-      "jsonwebtoken": "^9.0.3",
+-      "knip": "^6.29.0",
+-      "lefthook": "^2.2.2",
+-      "lodash.clonedeep": "^4.5.0",
+-      "nitropack": "^2.13.4",
+-      "nprogress": "^0.2.0",
+-      "ora": "^9.4.1",
+-      "oxfmt": "^0.60.0",
+-      "oxlint": "^1.75.0",
+-      "oxlint-tsgolint": "^0.25.0",
+-      "pinia": "^4.0.2",
+-      "pinia-plugin-persistedstate": "^4.7.1",
+-      "pkg-types": "^2.3.1",
+-      "playwright": "^1.61.1",
+-      "postcss": "^8.5.22",
+-      "postcss-html": "^1.8.1",
+-      "postcss-scss": "^4.0.9",
+-      "publint": "^0.3.22",
+-      "qrcode": "^1.5.4",
+-      "qs": "^6.15.3",
+-      "reka-ui": "^2.10.1",
+-      "resolve.exports": "^2.0.3",
+-      "rimraf": "^6.1.3",
+-      "rollup-plugin-visualizer": "^7.0.1",
+-      "sass": "^1.101.6",
+-      "sass-embedded": "^1.100.0",
+-      "secure-ls": "^2.0.0",
+-      "sortablejs": "^1.15.7",
+-      "stylelint": "^17.14.1",
+-      "stylelint-config-recess-order": "^7.7.0",
+-      "stylelint-config-recommended": "^18.0.0",
+-      "stylelint-config-recommended-scss": "^17.0.1",
+-      "stylelint-config-recommended-vue": "^1.6.1",
+-      "stylelint-config-standard": "^40.0.0",
+-      "stylelint-order": "^8.1.1",
+-      "stylelint-scss": "^7.2.0",
+-      "tailwind-merge": "^3.6.0",
+-      "tailwindcss": "^4.3.3",
+-      "theme-colors": "^0.1.0",
+-      "tippy.js": "^6.3.7",
+-      "tsdown": "^0.22.13",
+-      "turbo": "^2.10.6",
+-      "tw-animate-css": "^1.4.0",
+-      "typescript": "^6.0.3",
+-      "unplugin-dts": "^1.0.3",
+-      "unplugin-element-plus": "^0.11.2",
+-      "unplugin-vue": "^7.2.0",
+-      "vite": "^8.1.5",
+-      "vite-plugin-compression": "^0.5.1",
+-      "vite-plugin-lazy-import": "^1.0.7",
+-      "vite-plugin-pwa": "^1.3.0",
+-      "vite-plugin-vue-devtools": "^8.1.5",
+-      "vitest": "^4.1.10",
+-      "vue": "^3.5.40",
+-      "vue-eslint-parser": "^10.4.1",
+-      "vue-i18n": "^11.4.7",
+-      "vue-json-pretty": "^2.6.0",
+-      "vue-router": "^5.2.0",
+-      "vue-tippy": "^6.7.1",
+-      "vue-tsc": "^3.3.8",
+-      "vxe-pc-ui": "^4.16.19",
+-      "vxe-table": "^4.20.6",
+-      "watermark-js-plus": "^1.6.6",
+-      "yaml-eslint-parser": "^2.1.0",
+-      "zod": "^4.4.3",
+-      "zod-defaults": "^0.2.3"
+-    }
+-  },
+-  "dependencies": {
+-    "sortablejs": "catalog:"
+-  },
+-  "devDependencies": {
+-    "@changesets/changelog-github": "catalog:",
+-    "@changesets/cli": "catalog:",
+-    "@commitlint/cli": "catalog:",
+-    "@commitlint/config-conventional": "catalog:",
+-    "@eslint-community/eslint-plugin-eslint-comments": "catalog:",
+-    "@tsdown/css": "catalog:",
+-    "@types/node": "catalog:",
+-    "@vben/commitlint-config": "workspace:*",
+-    "@vben/eslint-config": "workspace:*",
+-    "@vben/oxfmt-config": "workspace:*",
+-    "@vben/oxlint-config": "workspace:*",
+-    "@vben/stylelint-config": "workspace:*",
+-    "@vben/tailwind-config": "workspace:*",
+-    "@vben/tsconfig": "workspace:*",
+-    "@vben/turbo-run": "workspace:*",
+-    "@vben/vite-config": "workspace:*",
+-    "@vben/vsh": "workspace:*",
+-    "@vitejs/plugin-vue": "catalog:",
+-    "@vitejs/plugin-vue-jsx": "catalog:",
+-    "cross-env": "catalog:",
+-    "cspell": "catalog:",
+-    "eslint": "catalog:",
+-    "eslint-plugin-better-tailwindcss": "catalog:",
+-    "eslint-plugin-command": "catalog:",
+-    "happy-dom": "catalog:",
+-    "is-ci": "catalog:",
+-    "lefthook": "catalog:",
+-    "oxfmt": "catalog:",
+-    "oxlint": "catalog:",
+-    "oxlint-tsgolint": "catalog:",
+-    "playwright": "catalog:",
+-    "rimraf": "catalog:",
+-    "stylelint": "catalog:",
+-    "tailwindcss": "catalog:",
+-    "tsdown": "catalog:",
+-    "turbo": "catalog:",
+-    "typescript": "catalog:",
+-    "vite": "catalog:",
+-    "vitest": "catalog:",
+-    "vue": "catalog:",
+-    "vue-tsc": "catalog:"
+-  },
+-  "engines": {
+-    "bun": ">=1.3.14"
+-  },
+-  "trustedDependencies": [
+-    "@parcel/watcher",
+-    "better-sqlite3",
+-    "core-js",
+-    "esbuild",
+-    "lefthook",
+-    "vue-demi"
+-  ],
+-  "packageManager": "bun@1.3.14",
+-  "overrides": {
+-    "@ast-grep/napi": "^0.44.1",
+-    "@ctrl/tinycolor": "^4.2.0",
+-    "clsx": "^2.1.1",
+-    "pinia": "^4.0.2",
+-    "vue": "^3.5.40"
+-  }
+-}
++{
++  "name": "bl-cnas-frontend",
++  "version": "0.1.0",
++  "description": "BL-CNAS frontend workspace",
++  "private": true,
++  "keywords": [
++    "monorepo",
++    "turbo",
++    "vben",
++    "bl-cnas",
++    "vue",
++    "laboratory",
++    "vue3"
++  ],
++  "license": "MIT",
++  "type": "module",
++  "scripts": {
++    "bootstrap": "bun install",
++    "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 turbo build",
++    "build:analyze": "turbo build:analyze",
++    "build:docker": "./scripts/deploy/build-local-docker-image.sh",
++    "build:web": "turbo run build --filter=@bl-cnas/web",
++    "changeset": "changeset",
++    "check": "bun run check:circular && bun run check:dep && bun run check:type && bun run check:cspell",
++    "check:circular": "vsh check-circular",
++    "check:cspell": "cspell lint \"**/*.ts\" \"**/README.md\" \".changeset/*.md\" --no-progress",
++    "check:dep": "vsh check-dep",
++    "check:docs-consistency": "bun ./apps/web/scripts/check-docs-consistency.ts",
++    "check:openapi": "bun run --cwd apps/web check:openapi",
++    "check:route-permissions": "bun run --cwd apps/web check:route-permissions",
++    "check:type": "node ./scripts/validation-runner.mjs direct typecheck -- bun ./scripts/validation-runner.mjs typecheck-packages",
++    "check:type:affected": "node ./scripts/validation-runner.mjs direct typecheck -- bun ./scripts/validation-runner.mjs typecheck-packages --affected",
++    "clean": "bun ./scripts/clean.mjs",
++    "commit": "czg",
++    "dev": "turbo-run dev",
++    "dev:web": "turbo run dev --filter=@bl-cnas/web",
++    "format": "vsh lint --format",
++    "generate:openapi": "bun run --cwd apps/web generate:openapi",
++    "lint": "node ./scripts/validation-runner.mjs direct lint -- bun x vsh lint",
++    "lint:changed": "vsh lint --since origin/develop",
++    "lint:staged": "vsh lint --staged",
++    "metrics:sessions": "node ./scripts/codex-session-metrics.mjs",
++    "metrics:sessions:test": "vitest run ./scripts/codex-session-metrics.test.mjs ./scripts/validation-runner.test.mjs",
++    "mock:check:bridge-parity": "bun run --cwd apps/mock-server check:bridge-parity",
++    "mock:check:state-ownership": "bun run --cwd apps/mock-server check:state-ownership",
++    "mock:check:persistence-coverage": "bun run --cwd apps/mock-server check:persistence-coverage",
++    "mock:db:adopt": "bun run --cwd apps/mock-server db:adopt",
++    "mock:db:export": "bun run --cwd apps/mock-server db:export",
++    "mock:db:prune": "bun run --cwd apps/mock-server db:prune",
++    "mock:db:reset": "bun run --cwd apps/mock-server db:reset",
++    "mock:db:status": "bun run --cwd apps/mock-server db:status",
++    "mock:db:vacuum": "bun run --cwd apps/mock-server db:vacuum",
++    "mock:db:verify": "bun run --cwd apps/mock-server db:verify",
++    "mock:seed:facility-spatial-demo": "bun run --cwd apps/mock-server seed:facility-spatial-demo",
++    "postinstall": "bun run --filter '*' --if-present stub",
++    "prepare": "is-ci || lefthook install",
++    "preview": "turbo-run preview",
++    "publint": "vsh publint",
++    "reinstall": "bun run clean -- --del-lock && bun install",
++    "start": "bun run --cwd apps/web start",
++    "simulator:start": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/simulator.ps1 start",
++    "simulator:start:fg": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/simulator.ps1 start -Foreground",
++    "simulator:stop": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/simulator.ps1 stop",
++    "simulator:restart": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/simulator.ps1 restart",
++    "simulator:status": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/simulator.ps1 status",
++    "simulator:logs": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/simulator.ps1 logs",
++    "simulator:once": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/simulator.ps1 once",
++    "test:benchmark": "vitest bench --run",
++    "test:changed": "node ./scripts/vitest-changed.mjs",
++    "test:cnas-prototype": "bun test packages/prototype-contracts/src/contracts.test.ts && node ./node_modules/vitest/vitest.mjs run --configLoader=runner --cache=false --root . --config apps/mock-server/vitest.config.ts packages/prototype-contracts/src/*.test.ts apps/mock-server/scenarios/*.test.ts apps/mock-server/mock-data/*.test.ts apps/mock-server/utils/cnas-*.test.ts apps/mock-server/utils/critical-value-transition.test.ts apps/mock-server/utils/iqc-transition.test.ts apps/mock-server/utils/report-publish-transition.test.ts apps/mock-server/utils/system-lifecycle.test.ts apps/mock-server/utils/system-auth-middleware.test.ts apps/mock-server/utils/mock-state-store.test.ts apps/mock-server/utils/inspection-improvement-persistence.test.ts --exclude '**/contracts.test.ts' --exclude '**/mock-data/*persistence.test.ts' --exclude '**/cnas-organization-state.test.ts' --exclude '**/cnas-personnel-command-store.test.ts'",
++    "test:mock-server": "vitest run --configLoader=runner --cache=false --config apps/mock-server/vitest.config.ts",
++    "test:persistence": "bun run --cwd apps/mock-server test:persistence",
++    "test:sqlite": "bun run --cwd apps/mock-server test:sqlite",
++    "test:unit": "node ./scripts/validation-runner.mjs direct test -- bun x vitest run --configLoader=runner --cache=false --dom",
++    "test:signing-security": "bun run --cwd apps/signing-service test:security",
++    "test:e2e": "turbo run test:e2e",
++    "update:deps": "bunx taze -r -w",
++    "verify:changed": "node ./scripts/validation-runner.mjs changed",
++    "verify:standard-slice": "node ./scripts/validation-runner.mjs standard-slice",
++    "verify:backend:unit": "node ./scripts/validation-runner.mjs backend-unit",
++    "verify:backend:verify": "node ./scripts/validation-runner.mjs backend-verify",
++    "verify:backend:dm-it": "node ./scripts/validation-runner.mjs backend-dm-it",
++    "verify:standard": "node ./scripts/validation-runner.mjs standard",
++    "version": "changeset version && bun install",
++    "start:mock": "bun run --cwd apps/mock-server start",
++    "start:web": "bun run --cwd apps/web start"
++  },
++  "workspaces": {
++    "packages": [
++      "internal/*",
++      "internal/lint-configs/*",
++      "packages/*",
++      "packages/@core/base/*",
++      "packages/@core/ui-kit/*",
++      "packages/@core/forward/*",
++      "packages/@core/*",
++      "packages/effects/*",
++      "packages/business/*",
++      "apps/*",
++      "scripts/*"
++    ],
++    "catalog": {
++      "@ast-grep/napi": "^0.44.1",
++      "@changesets/changelog-github": "^0.7.0",
++      "@changesets/cli": "^2.31.1",
++      "@changesets/git": "^3.0.4",
++      "@clack/prompts": "^1.7.0",
++      "@commitlint/cli": "^21.2.1",
++      "@commitlint/config-conventional": "^21.2.0",
++      "@commitlint/types": "^21.2.0",
++      "@ctrl/tinycolor": "^4.2.0",
++      "@eslint-community/eslint-plugin-eslint-comments": "^4.7.2",
++      "@eslint/js": "^10.0.1",
++      "@faker-js/faker": "^10.5.0",
++      "@iconify/json": "^2.2.504",
++      "@iconify/tailwind4": "^1.2.3",
++      "@iconify/vue": "^5.0.1",
++      "@intlify/core-base": "^11.4.7",
++      "@intlify/unplugin-vue-i18n": "^11.2.4",
++      "@jspm/generator": "^2.16.3",
++      "@lucide/vue": "^1.26.0",
++      "@manypkg/get-packages": "^3.1.0",
++      "@playwright/test": "^1.61.1",
++      "@stylistic/stylelint-plugin": "^5.2.1",
++      "@tailwindcss/typography": "^0.5.20",
++      "@tailwindcss/vite": "^4.3.3",
++      "@tanstack/store": "^0.11.0",
++      "@tanstack/vue-form": "^1.33.2",
++      "@tanstack/vue-query": "^5.101.4",
++      "@tanstack/vue-store": "^0.11.0",
++      "@tiptap/core": "^3.28.0",
++      "@tiptap/extension-document": "^3.28.0",
++      "@tiptap/extension-highlight": "^3.28.0",
++      "@tiptap/extension-image": "^3.28.0",
++      "@tiptap/extension-link": "^3.28.0",
++      "@tiptap/extension-placeholder": "^3.28.0",
++      "@tiptap/extension-text-align": "^3.28.0",
++      "@tiptap/extension-text-style": "^3.28.0",
++      "@tiptap/extension-underline": "^3.28.0",
++      "@tiptap/pm": "^3.28.0",
++      "@tiptap/starter-kit": "^3.28.0",
++      "@tiptap/vue-3": "^3.28.0",
++      "@tsdown/css": "^0.22.13",
++      "@types/archiver": "^8.0.0",
++      "@types/better-sqlite3": "7.6.13",
++      "@types/html-minifier-terser": "^7.0.2",
++      "@types/json-bigint": "^1.0.4",
++      "@types/jsonwebtoken": "^9.0.10",
++      "@types/lodash.clonedeep": "^4.5.9",
++      "@types/node": "^25.9.5",
++      "@types/nprogress": "^0.2.3",
++      "@types/qrcode": "^1.5.6",
++      "@types/qs": "^6.15.1",
++      "@types/sortablejs": "^1.15.9",
++      "@typescript-eslint/parser": "^8.65.0",
++      "@vitejs/plugin-vue": "^6.0.8",
++      "@vitejs/plugin-vue-jsx": "^5.1.6",
++      "@vue/shared": "^3.5.40",
++      "@vue/test-utils": "^2.4.11",
++      "@vueuse/core": "^14.3.0",
++      "@vueuse/integrations": "^14.3.0",
++      "@vueuse/motion": "^3.0.3",
++      "archiver": "^8.0.0",
++      "axios": "^1.18.1",
++      "axios-mock-adapter": "^2.1.0",
++      "better-sqlite3": "12.4.1",
++      "cac": "^7.0.0",
++      "chalk": "^5.6.2",
++      "cheerio": "^1.2.0",
++      "circular-dependency-scanner": "^3.0.1",
++      "class-variance-authority": "^0.7.1",
++      "clsx": "^2.1.1",
++      "commitlint-plugin-function-rules": "^5.0.1",
++      "consola": "^3.4.2",
++      "cross-env": "^10.1.0",
++      "cspell": "^10.0.1",
++      "cz-git": "^1.13.1",
++      "czg": "^1.13.1",
++      "dayjs": "^1.11.21",
++      "defu": "^6.1.7",
++      "dotenv": "^17.4.2",
++      "echarts": "^6.1.0",
++      "element-plus": "^2.14.3",
++      "es-toolkit": "^1.49.0",
++      "eslint": "^10.7.0",
++      "eslint-plugin-better-tailwindcss": "^4.7.0",
++      "eslint-plugin-command": "^3.5.3",
++      "eslint-plugin-jsonc": "^3.3.0",
++      "eslint-plugin-n": "^18.2.2",
++      "eslint-plugin-perfectionist": "^5.10.0",
++      "eslint-plugin-unused-imports": "^4.4.1",
++      "eslint-plugin-vue": "^10.10.0",
++      "eslint-plugin-yml": "^3.6.0",
++      "execa": "^10.0.0",
++      "find-up": "^8.0.0",
++      "get-port": "^7.2.0",
++      "globals": "^17.7.0",
++      "h3": "^1.15.11",
++      "happy-dom": "^20.11.1",
++      "html-minifier-terser": "^7.2.0",
++      "is-ci": "^4.1.0",
++      "json-bigint": "^1.0.0",
++      "jsonwebtoken": "^9.0.3",
++      "knip": "^6.29.0",
++      "lefthook": "^2.2.2",
++      "lodash.clonedeep": "^4.5.0",
++      "nitropack": "^2.13.4",
++      "nprogress": "^0.2.0",
++      "ora": "^9.4.1",
++      "oxfmt": "^0.60.0",
++      "oxlint": "^1.75.0",
++      "oxlint-tsgolint": "^0.25.0",
++      "pinia": "^4.0.2",
++      "pinia-plugin-persistedstate": "^4.7.1",
++      "pkg-types": "^2.3.1",
++      "playwright": "^1.61.1",
++      "postcss": "^8.5.22",
++      "postcss-html": "^1.8.1",
++      "postcss-scss": "^4.0.9",
++      "publint": "^0.3.22",
++      "qrcode": "^1.5.4",
++      "qs": "^6.15.3",
++      "reka-ui": "^2.10.1",
++      "resolve.exports": "^2.0.3",
++      "rimraf": "^6.1.3",
++      "rollup-plugin-visualizer": "^7.0.1",
++      "sass": "^1.101.6",
++      "sass-embedded": "^1.100.0",
++      "secure-ls": "^2.0.0",
++      "sortablejs": "^1.15.7",
++      "stylelint": "^17.14.1",
++      "stylelint-config-recess-order": "^7.7.0",
++      "stylelint-config-recommended": "^18.0.0",
++      "stylelint-config-recommended-scss": "^17.0.1",
++      "stylelint-config-recommended-vue": "^1.6.1",
++      "stylelint-config-standard": "^40.0.0",
++      "stylelint-order": "^8.1.1",
++      "stylelint-scss": "^7.2.0",
++      "tailwind-merge": "^3.6.0",
++      "tailwindcss": "^4.3.3",
++      "theme-colors": "^0.1.0",
++      "tippy.js": "^6.3.7",
++      "tsdown": "^0.22.13",
++      "turbo": "^2.10.6",
++      "tw-animate-css": "^1.4.0",
++      "typescript": "^6.0.3",
++      "unplugin-dts": "^1.0.3",
++      "unplugin-element-plus": "^0.11.2",
++      "unplugin-vue": "^7.2.0",
++      "vite": "^8.1.5",
++      "vite-plugin-compression": "^0.5.1",
++      "vite-plugin-lazy-import": "^1.0.7",
++      "vite-plugin-pwa": "^1.3.0",
++      "vite-plugin-vue-devtools": "^8.1.5",
++      "vitest": "^4.1.10",
++      "vue": "^3.5.40",
++      "vue-eslint-parser": "^10.4.1",
++      "vue-i18n": "^11.4.7",
++      "vue-json-pretty": "^2.6.0",
++      "vue-router": "^5.2.0",
++      "vue-tippy": "^6.7.1",
++      "vue-tsc": "^3.3.8",
++      "vxe-pc-ui": "^4.16.19",
++      "vxe-table": "^4.20.6",
++      "watermark-js-plus": "^1.6.6",
++      "yaml-eslint-parser": "^2.1.0",
++      "zod": "^4.4.3",
++      "zod-defaults": "^0.2.3"
++    }
++  },
++  "dependencies": {
++    "sortablejs": "catalog:"
++  },
++  "devDependencies": {
++    "@changesets/changelog-github": "catalog:",
++    "@changesets/cli": "catalog:",
++    "@commitlint/cli": "catalog:",
++    "@commitlint/config-conventional": "catalog:",
++    "@eslint-community/eslint-plugin-eslint-comments": "catalog:",
++    "@tsdown/css": "catalog:",
++    "@types/node": "catalog:",
++    "@vben/commitlint-config": "workspace:*",
++    "@vben/eslint-config": "workspace:*",
++    "@vben/oxfmt-config": "workspace:*",
++    "@vben/oxlint-config": "workspace:*",
++    "@vben/stylelint-config": "workspace:*",
++    "@vben/tailwind-config": "workspace:*",
++    "@vben/tsconfig": "workspace:*",
++    "@vben/turbo-run": "workspace:*",
++    "@vben/vite-config": "workspace:*",
++    "@vben/vsh": "workspace:*",
++    "@vitejs/plugin-vue": "catalog:",
++    "@vitejs/plugin-vue-jsx": "catalog:",
++    "cross-env": "catalog:",
++    "cspell": "catalog:",
++    "eslint": "catalog:",
++    "eslint-plugin-better-tailwindcss": "catalog:",
++    "eslint-plugin-command": "catalog:",
++    "happy-dom": "catalog:",
++    "is-ci": "catalog:",
++    "lefthook": "catalog:",
++    "oxfmt": "catalog:",
++    "oxlint": "catalog:",
++    "oxlint-tsgolint": "catalog:",
++    "playwright": "catalog:",
++    "rimraf": "catalog:",
++    "stylelint": "catalog:",
++    "tailwindcss": "catalog:",
++    "tsdown": "catalog:",
++    "turbo": "catalog:",
++    "typescript": "catalog:",
++    "vite": "catalog:",
++    "vitest": "catalog:",
++    "vue": "catalog:",
++    "vue-tsc": "catalog:"
++  },
++  "engines": {
++    "bun": ">=1.3.14"
++  },
++  "trustedDependencies": [
++    "@parcel/watcher",
++    "better-sqlite3",
++    "core-js",
++    "esbuild",
++    "lefthook",
++    "vue-demi"
++  ],
++  "packageManager": "bun@1.3.14",
++  "overrides": {
++    "@ast-grep/napi": "^0.44.1",
++    "@ctrl/tinycolor": "^4.2.0",
++    "clsx": "^2.1.1",
++    "pinia": "^4.0.2",
++    "vue": "^3.5.40"
++  }
++}
