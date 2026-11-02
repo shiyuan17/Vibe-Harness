@@ -11,8 +11,8 @@ import { dependencyFingerprint, resourceFingerprintInput } from './verification-
 
 const execute = promisify(execFile);
 const RECEIPTS = '.vibe-harness/verification/receipts';
-export const VERIFICATION_RECEIPT_SCHEMA_VERSION = 7;
-const CHECK_CACHE_RELATIVE = 'vibe-harness/verification-cache/v7';
+export const VERIFICATION_RECEIPT_SCHEMA_VERSION = 9;
+const CHECK_CACHE_RELATIVE = 'vibe-harness/verification-cache/v9';
 // The record store lives inside the project it describes, so the caller that
 // supplies a handcrafted completion receipt can also write a matching record by
 // hand. Each record is therefore authenticated with a per-user key kept outside
@@ -114,7 +114,7 @@ async function readRecord(file) {
 }
 
 export async function authenticatePushRecord(record) {
-  if (!['push-verification', 'push-attempt', 'push-baseline'].includes(record?.kind) || record.schemaVersion !== 1) return null;
+  if (!['push-verification', 'push-attempt', 'push-baseline', 'push-readiness'].includes(record?.kind) || record.schemaVersion !== 1) return null;
   const key = await authenticationKey();
   return key ? { ...record, mac: authenticate(record, key) } : null;
 }
@@ -264,6 +264,7 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
     command: check.command,
     cwd: check.cwd ?? '.',
     deterministic: check.deterministic === true,
+    ...(check.evidenceScope ? { evidenceScope: check.evidenceScope } : {}),
     cacheScope: check.cacheScope === 'tree' ? 'tree' : 'selection',
   }));
   const inputFiles = [...new Set(['.', ...commands.map((check) => check.cwd)].flatMap((cwd) => INPUTS.map((file) => path.join(cwd, file))))];
@@ -329,11 +330,10 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
     executionFingerprint: digest(executionInputs),
     environmentFingerprint: digest({ ...executionInputs, environment }),
   };
-  const deterministic = commands.length > 0 && commands.every((check) => check.deterministic);
+  const deterministic = commands.length > 0 && commands.every((check) => check.deterministic && check.evidenceScope !== 'fresh');
   const anyDeterministic = commands.some((check) => check.deterministic);
   const warm = config.verification?.environment?.mode === 'warm';
   const enabled = config.verification?.reuse?.enabled !== false;
-  const sharedDependencies = resourceContext?.dependencyMode === 'shared-immutable';
   const toolsAvailable = Object.values(tools).every((value) => value !== null) && dependencies.available;
   // The write evidence is part of the schema-v4 contract: a run that cannot
   // produce it must not be stored or reused, or a receipt would be replayed
@@ -347,7 +347,9 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
   const recordable = state.fingerprint !== null && writeEvidenceAvailable;
   // Even same-workspace reuse requires explicit determinism: matching local
   // inputs cannot establish the state of a mutable external dependency.
-  const available = enabled && recordable && deterministic && !warm && (reuseMode !== 'tree-content' || !sharedDependencies)
+  // Shared roots are content-sampled, not trusted because of their mode name.
+  // A hit is independently re-sampled before use and again after execution.
+  const available = enabled && recordable && deterministic && !warm
     && toolsAvailable && !inputs.some(([, value]) => value === 'unreadable')
     && (reuseMode !== 'tree-content' || treeContentFingerprint !== null);
   // The cache key deliberately leaves the write evidence out. The checks a run
@@ -368,13 +370,18 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
   const commonReuse = {
     mode: reuseMode,
     treeContentFingerprint,
+    // Workspace mode cannot key a check on a null tree. Bind its full
+    // workspace content AND identity, retaining independent final write proof.
+    ...(reuseMode === 'workspace' ? {
+      worktreeIdentity: fingerprints.worktreeIdentity,
+      fingerprint: state.fingerprint,
+    } : {}),
     environmentFingerprint: fingerprints.environmentFingerprint,
     platform: process.platform,
     arch: process.arch,
   };
   const perCheck = commands.map((check) => {
-    const checkAvailable = enabled && recordable && check.deterministic && !warm && toolsAvailable
-      && (reuseMode !== 'tree-content' || !sharedDependencies)
+    const checkAvailable = enabled && recordable && check.deterministic && check.evidenceScope !== 'fresh' && !warm && toolsAvailable
       && !inputs.some(([, value]) => value === 'unreadable')
       && (reuseMode !== 'tree-content' || treeContentFingerprint !== null);
     const identity = {
@@ -386,12 +393,13 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
     return {
       ...check,
       ...identity,
+      writeFingerprint: state.writeFingerprint ?? null,
       key: digest(identity),
       available: checkAvailable,
       reason: !enabled ? 'reuse-disabled'
+        : check.evidenceScope === 'fresh' ? 'fresh-evidence-required'
         : !check.deterministic ? 'check-not-explicitly-deterministic'
         : warm ? 'warm-environment-not-attested'
-        : reuseMode === 'tree-content' && sharedDependencies ? 'shared-dependencies-not-attested'
         : !recordable ? 'workspace-evidence-unavailable'
           : reuseMode === 'tree-content' && treeContentFingerprint === null ? 'tree-content-unavailable'
             : !dependencies.available ? 'dependency-inputs-unavailable'
@@ -407,7 +415,6 @@ export async function verificationCacheContext(projectDir, plan, snapshot = unde
       memoHits: dependencies.memoHits, durationMs: dependencies.durationMs, available: dependencies.available },
     treeContentFingerprint, perCheck, selectionFingerprint,
     reason: !enabled ? 'reuse-disabled'
-      : reuseMode === 'tree-content' && sharedDependencies ? 'shared-dependencies-not-attested'
       : !deterministic
       ? anyDeterministic ? 'some-checks-not-explicitly-deterministic' : 'checks-not-explicitly-deterministic'
       : warm ? 'warm-environment-not-attested'
@@ -458,6 +465,11 @@ export async function findVerificationCheckReceipt(projectDir, checkContext, { t
       && record.status === 'passed'
       && record.key === checkContext.key
       && record.treeContentFingerprint === checkContext.treeContentFingerprint
+      && record.mode === checkContext.mode
+      && (checkContext.mode !== 'workspace'
+        || record.fingerprint === checkContext.fingerprint
+          && record.worktreeIdentity === checkContext.worktreeIdentity
+          && record.writeFingerprint === checkContext.writeFingerprint)
       && record.environmentFingerprint === checkContext.environmentFingerprint
       && record.platform === checkContext.platform
       && record.arch === checkContext.arch
@@ -469,13 +481,22 @@ export async function findVerificationCheckReceipt(projectDir, checkContext, { t
       await rm(file, { force: true }).catch(() => {});
       return { status: 'miss', reason: 'check-receipt-expired', receipt: null };
     }
-    return { status: 'hit', reason: 'tree-content-and-inputs-match', receipt: record };
+    return { status: 'hit', reason: `${checkContext.mode}-and-inputs-match`, receipt: record };
   } catch {
     return { status: 'miss', reason: 'no-matching-check-receipt', receipt: null };
   }
 }
 
-export async function storeVerificationCheckReceipt(projectDir, checkContext, { finishedAt = new Date().toISOString() } = {}) {
+/** An actual failure on this identity supersedes its earlier passing result. */
+export async function invalidateVerificationCheckReceipt(projectDir, checkContext) {
+  if (!checkContext || !/^[0-9a-f]{64}$/u.test(checkContext.key ?? '')) return;
+  const directory = await checkCacheDirectory(projectDir);
+  if (directory) await rm(path.join(directory, `${checkContext.key}.json`), { force: true });
+}
+
+export async function storeVerificationCheckReceipt(projectDir, checkContext, {
+  finishedAt = new Date().toISOString(), writeFingerprint = checkContext?.writeFingerprint,
+} = {}) {
   if (!checkContext?.available) return false;
   const directory = await checkCacheDirectory(projectDir, true);
   if (!directory) return false;
@@ -487,6 +508,10 @@ export async function storeVerificationCheckReceipt(projectDir, checkContext, { 
     cacheable: true,
     status: 'passed',
     check: checkContext.check,
+    mode: checkContext.mode,
+    fingerprint: checkContext.fingerprint ?? null,
+    worktreeIdentity: checkContext.worktreeIdentity ?? null,
+    writeFingerprint: writeFingerprint ?? null,
     treeContentFingerprint: checkContext.treeContentFingerprint,
     environmentFingerprint: checkContext.environmentFingerprint,
     platform: checkContext.platform,

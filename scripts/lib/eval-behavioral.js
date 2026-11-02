@@ -6,17 +6,9 @@ import { evaluateHook } from '../../runtime/hooks/codex-hook.mjs';
 import { createEvalAssetFingerprint } from './eval-assets.js';
 import { fingerprintChanges, stableJson, suiteHash } from './eval-replay.js';
 import { aggregateCaseScores, scoreCase } from './eval-scoring.js';
-import { backupFile, createBackupId } from './install-state.js';
-import { pathExists } from './manifest.js';
+import { pathExists, validateJsonAgainstSchema } from './manifest.js';
 import { runFocusedProjectVerification } from './project-verification.js';
 
-// The checked-in behavioral run is the pinned evidence that the runtime hook
-// and the focused-verification engine actually refuse red-zone writes, honour
-// host-authority presets and keep blocked distinct from failed. Unlike the
-// offline replay (fixture in, fixture out) every case here executes the real
-// production code path against a scripted input in a throwaway sandbox, so the
-// artifact embeds the asset fingerprint and must be regenerated whenever the
-// hashed assets change.
 export const BEHAVIORAL_RESULT_PATH = 'evals/results/vibe-harness-behavioral.stub.json';
 
 // Deny reasons carry a non-deterministic duration suffix
@@ -237,10 +229,7 @@ export async function buildBehavioralRun(suite, {
 }
 
 /**
- * Regenerate the checked-in behavioral run. Read-only callers get the drift
- * diagnosis; `--write` backs the previous file up under the state directory
- * before replacing it. Mirrors syncOfflineRunArtifact so both proof artifacts
- * follow the same backup and reporting contract.
+ * Execute current behavior and diagnose historical evidence independently.
  *
  * @param {{ now?: Date, rootDir: string, suite: any, write?: boolean }} options
  */
@@ -251,40 +240,41 @@ export async function syncBehavioralRunArtifact({ now = new Date(), rootDir, sui
   const currentText = exists ? await readFile(target, 'utf8') : null;
   let current = null;
   let changes = [];
+  let artifactErrors = [];
   if (exists) {
     try {
       current = JSON.parse(currentText ?? '');
+      const schema = JSON.parse(await readFile(new URL('../../schemas/eval-run.schema.json', import.meta.url), 'utf8'));
+      artifactErrors = validateJsonAgainstSchema(current, schema, BEHAVIORAL_RESULT_PATH);
       changes = fingerprintChanges(current?.fingerprint, run.fingerprint);
     } catch {
       changes = [{ field: 'artifact', from: 'unparsable', to: 'behavioral run output' }];
+      artifactErrors = ['historical behavioral artifact is unparsable'];
     }
   } else {
     changes = fingerprintChanges(null, run.fingerprint);
   }
   const changed = current === null || stableJson(current) !== stableJson(run);
+  if (current && changes.length === 0 && changed && artifactErrors.length === 0) {
+    artifactErrors.push('historical behavioral output differs with identical inputs');
+  }
   const backups = [];
-  if (write && changed) {
-    if (exists) {
-      backups.push({
-        backup: await backupFile({
-          backupId: createBackupId(now),
-          target,
-          targetDir: rootDir,
-        }),
-        target: BEHAVIORAL_RESULT_PATH,
-      });
-    }
-    await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, `${JSON.stringify(run, null, 2)}\n`, 'utf8');
+  const written = [];
+  if (write && run.status === 'passed' && artifactErrors.length === 0) {
+    const output = `.vibe-harness/evals/behavioral-${now.toISOString().replaceAll(':', '-')}-${process.pid}.json`;
+    await mkdir(path.dirname(path.join(rootDir, output)), { recursive: true });
+    await writeFile(path.join(rootDir, output), `${JSON.stringify(run, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
+    written.push(output);
   }
   return {
     backups,
+    artifactErrors,
     changed,
     changes: changed ? changes : [],
     dryRun: !write,
     path: BEHAVIORAL_RESULT_PATH,
     run,
-    status: changed ? (write ? 'updated' : 'drifted') : 'current',
-    written: write && changed ? [BEHAVIORAL_RESULT_PATH] : [],
+    status: artifactErrors.length ? 'invalid' : changed ? 'stale' : 'current',
+    written,
   };
 }

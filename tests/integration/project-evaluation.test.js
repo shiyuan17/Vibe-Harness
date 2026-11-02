@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { cp, mkdtemp, readFile, rm, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -72,7 +73,7 @@ test('checkProjectEvaluations rejects a suite path that escapes the project', as
   }
 });
 
-test('runProjectEvaluations degrades when a copied reference has source-project asset hashes', async () => {
+test('runProjectEvaluations evaluates current assets while preserving stale historical evidence', async () => {
   const target = await createEvalProject();
   try {
     const result = await runProjectEvaluations({
@@ -83,11 +84,30 @@ test('runProjectEvaluations degrades when a copied reference has source-project 
       suiteId: 'vibe-harness-core',
       write: false,
     });
-    assert.equal(result.status, 'degraded');
+    assert.equal(result.status, 'ready');
     assert.equal(result.dryRun, true);
     assert.equal(result.run.status, 'passed');
     assert.equal(result.run.reference.status, 'mismatched');
     assert.equal(result.warnings.some((item) => item.includes('assets.')), true);
+    const git = (args) => execFileSync('git', args, { cwd: target, windowsHide: true, stdio: 'pipe' });
+    git(['init', '--quiet']);
+    git(['add', '.']);
+    git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '--quiet', '-m', 'fixture']);
+    const referencePath = path.join(target, baseConfig().evaluations.reference);
+    const originalReference = await readFile(referencePath, 'utf8');
+    const suitePath = path.join(target, baseConfig().evaluations.suites[0]);
+    const suite = JSON.parse(await readFile(suitePath, 'utf8'));
+    suite.cases[0].input.scenario += '\nnew input';
+    await writeFile(suitePath, JSON.stringify(suite));
+    const rerun = () => runProjectEvaluations({ config: baseConfig(), mode: 'offline', rootDir,
+      targetDir: target, suiteId: suite.id, write: false });
+    assert.equal((await rerun()).status, 'ready');
+    suite.cases[0].weights.correctness += 1;
+    await writeFile(suitePath, JSON.stringify(suite));
+    const rejected = await rerun();
+    assert.equal(rejected.status, 'degraded');
+    assert.ok(rejected.warnings.some((item) => item.includes('protected-criteria-change')));
+    assert.equal(await readFile(referencePath, 'utf8'), originalReference);
     assert.equal(result.written.length, 0);
   } finally {
     await rm(target, { force: true, recursive: true });

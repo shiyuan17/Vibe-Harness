@@ -7,7 +7,9 @@
 // Extracted verbatim from `runtime/commands/run.mjs` so that file keeps only
 // argument parsing, dispatch and output selection. Behaviour, field names and
 // exit codes are unchanged; only the module boundary moved.
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { signalTree, treeGone } from './services.mjs';
+import { verificationGitEnvironment } from './git-fingerprint.mjs';
 
 import { resolveVerificationTiers, selectVerificationChecks } from './verification-plan.mjs';
 import { isReviewRequired } from './delivery.mjs';
@@ -171,7 +173,7 @@ export function manualCommand(command) {
 export function displayCommand(command, targetDir) {
   return boundedOutput(command, targetDir);
 }
-export async function executeCommand(command, targetDir, timeoutMs, redactionRoot = targetDir, environment = {}) {
+export async function executeCommand(command, targetDir, timeoutMs, redactionRoot = targetDir, environment = {}, lifecycle = {}) {
   const tokens = assertSafeCommand(command);
   let [program, ...args] = tokens;
   if (process.platform === 'win32' && ['npm', 'pnpm', 'yarn'].includes(program)) {
@@ -187,25 +189,111 @@ export async function executeCommand(command, targetDir, timeoutMs, redactionRoo
   return new Promise((resolve) => {
     const child = spawn(program, args, {
       cwd: targetDir,
-      env: { ...process.env, ...environment },
+      env: verificationGitEnvironment(environment),
       shell: false,
+      detached: process.platform !== 'win32',
       windowsHide: true,
     });
+    let startIdentity = '';
+    // Do not block the event loop probing Windows while another selected check
+    // is starting. Accept the answer only while this exact ChildProcess is
+    // alive: after exit the numeric PID might belong to somebody else.
+    const identityProbe = process.platform === 'win32' && child.pid
+      ? execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+        `try { (Get-Process -Id ${child.pid} -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o') } catch { 'missing' }`],
+      { encoding: 'utf8', timeout: 4000, windowsHide: true }, (error, output) => {
+        if (!error && child.exitCode === null && child.signalCode === null) startIdentity = output.trim();
+      }) : null;
+    let treeObserved = process.platform !== 'win32';
+    let windowsTreeKillStarted = false;
+    const reportProcess = () => {
+      try {
+        lifecycle.onProcess?.({ pid: child.pid, startIdentity, tracked: [], observed: treeObserved });
+      } catch { treeObserved = false; }
+    };
+    /**
+     * Verify the captured root identity and kill its Windows subtree without
+     * blocking the event loop. The helper is unref'd because the caller has an
+     * independent hard deadline; a helper that outlives it must not keep the
+     * verification command pending.
+     */
+    const terminateWindowsTree = () => {
+      if (windowsTreeKillStarted || !startIdentity || ['missing', 'unreadable'].includes(startIdentity)) return false;
+      windowsTreeKillStarted = true;
+      const request = Buffer.from(JSON.stringify({ pid: child.pid, startIdentity }), 'utf8').toString('base64');
+      const script = [
+        "$request = ConvertFrom-Json ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('<REQUEST>')))",
+        "$process = Get-Process -Id ([int]$request.pid) -ErrorAction SilentlyContinue",
+        'if (-not $process) { exit 0 }',
+        "try { $actual = $process.StartTime.ToUniversalTime().ToString('o') } catch { exit 0 }",
+        'if ($actual -ne [string]$request.startIdentity) { exit 0 }',
+        "& taskkill.exe /pid ([string]$request.pid) /t /f | Out-Null",
+      ].join('\n').replace('<REQUEST>', request);
+      try {
+        const killer = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+          stdio: 'ignore', windowsHide: true,
+        });
+        killer.unref();
+        return true;
+      } catch {
+        windowsTreeKillStarted = false;
+        return false;
+      }
+    };
+    if (child.pid && process.platform !== 'win32') reportProcess();
     let stdout = '';
     let stderr = '';
     let bytes = 0;
     let settled = false;
     let timedOut = false;
+    let terminating = false;
+    let escalation = null;
     const finish = (result) => {
       if (settled) return;
       settled = true;
+      identityProbe?.kill();
+      identityProbe?.stdout?.destroy();
+      identityProbe?.stderr?.destroy();
+      identityProbe?.unref?.();
       clearTimeout(timer);
-      resolve({ ...result, stdout: boundedOutput(stdout, redactionRoot), stderr: boundedOutput(stderr, redactionRoot) });
+      if (escalation) clearTimeout(escalation);
+      // A timed-out Windows command is conservatively treated as retaining its
+      // resource lock unless a later recovery proves the whole tree stopped.
+      // The bounded result cannot wait on another synchronous PowerShell walk.
+      const processTreeStopped = terminating && process.platform !== 'win32' && treeObserved
+        && treeGone(child.pid, { tracked: [] });
+      resolve({ ...result, ...(terminating ? { processTreeStopped } : {}),
+        stdout: boundedOutput(stdout, redactionRoot), stderr: boundedOutput(stderr, redactionRoot) });
     };
     const terminate = () => {
-      try { child.kill('SIGTERM'); } catch { /* process may already be gone */ }
-      setTimeout(() => {
-        try { child.kill('SIGKILL'); } catch { /* process may already be gone */ }
+      if (terminating) return;
+      terminating = true;
+      reportProcess();
+      // Signal only the owned group/tree. An unobservable Windows identity is
+      // not a licence to taskkill a possibly recycled PID; its resource lock is
+      // retained for explicit recovery.
+      const identified = process.platform !== 'win32'
+        || startIdentity && !['missing', 'unreadable'].includes(startIdentity);
+      if (process.platform !== 'win32') signalTree(child.pid, 'SIGTERM', { startIdentity, tracked: [] });
+      if (process.platform === 'win32' && identified) terminateWindowsTree();
+      else if (process.platform === 'win32') {
+        try { child.kill('SIGTERM'); } catch { /* process may already be gone */ }
+      }
+      escalation = setTimeout(() => {
+        if (process.platform === 'win32') {
+          // ChildProcess.kill() uses this process handle rather than resolving a
+          // recycled numeric PID. It is the bounded fallback when the asynchronous
+          // tree killer has not finished by the hard deadline.
+          try { child.kill('SIGKILL'); } catch { /* process may already be gone */ }
+        } else {
+          if (identified) signalTree(child.pid, 'SIGKILL', { startIdentity, tracked: [] });
+        }
+        // Surviving/unobservable descendants can keep inherited pipes open.
+        // Report blocked without waiting forever; callers retain ownership.
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        child.unref();
+        finish({ status: 'blocked', code: timedOut ? 'TIMEOUT' : 'OUTPUT_LIMIT', exitCode: null });
       }, 250).unref();
     };
     const timer = setTimeout(() => {
@@ -214,6 +302,7 @@ export async function executeCommand(command, targetDir, timeoutMs, redactionRoo
     }, timeoutMs);
     const append = (stream, chunk) => {
       bytes += chunk.length;
+      lifecycle.onOutput?.({ bytes, observedAt: Date.now() });
       if (stream === 'stdout') stdout = (stdout + chunk.toString()).slice(-MAX_OUTPUT_CHARS);
       else stderr = (stderr + chunk.toString()).slice(-MAX_OUTPUT_CHARS);
       if (bytes > MAX_OUTPUT_BYTES) terminate();

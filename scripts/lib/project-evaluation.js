@@ -6,7 +6,7 @@ import { validateEvalSuiteSemantics } from './eval-contract.js';
 import { combineEvalConfigHash } from './eval-runtime-config.js';
 import { summarizeTrials } from './eval-trials.js';
 import { createEvalAssetFingerprint } from './eval-assets.js';
-import { buildOfflineRun, suiteHash } from './eval-replay.js';
+import { assessEvalCriteria, buildOfflineRun, historicalApprovedSuite, suiteHash } from './eval-replay.js';
 import { aggregateCaseScores, compareFingerprints } from './eval-scoring.js';
 import { runEvaluationCase } from './eval-runner.js';
 import { createJudge } from './eval-judge.js';
@@ -193,13 +193,19 @@ async function selectSuites({ config, rootDir, suiteId, targetDir }) {
   return { schemas, suites: selected };
 }
 
-function thresholdFailures(run, reference, thresholds) {
+function thresholdFailures(run, reference, thresholds, criteria) {
   const failures = [];
   if (run.criticalPassRate < thresholds.criticalPassRate) failures.push('critical pass rate is below threshold');
   if (run.overallScore < thresholds.overallScore) failures.push('overall score is below threshold');
   if (!reference) return { degraded: ['evaluation reference is missing'], failures };
   const fingerprint = compareFingerprints(run.fingerprint, reference.fingerprint);
-  if (!fingerprint.match) return { degraded: fingerprint.mismatches.map((item) => `fingerprint mismatch: ${item.field}`), failures };
+  // Assets and input-only suite changes are the experimental variable, not
+  // permission to change the oracle. Runner/model/execution changes still need
+  // a comparable baseline, and unavailable historical criteria fail closed.
+  const blocking = fingerprint.mismatches.filter((item) =>
+    !item.field.startsWith('assets.') && !(item.field === 'suiteHash' && criteria?.status === 'unchanged'));
+  if (criteria?.status === 'blocked') blocking.push({ field: criteria.reason, actual: null, expected: null });
+  if (blocking.length) return { degraded: blocking.map((item) => `fingerprint mismatch: ${item.field}`), failures };
   const referenceCapabilities = new Map(reference.capabilities.map((item) => [item.id, item.score]));
   for (const capability of run.capabilities) {
     const previous = referenceCapabilities.get(capability.id);
@@ -484,16 +490,22 @@ export async function runProjectEvaluations({ campaignId = `campaign-${Date.now(
     const referenceErrors = validateJsonAgainstSchema(reference, selected.schemas.reference, referenceRelative);
     if (referenceErrors.length > 0) throw evalError('EVAL_CONTRACT_INVALID', referenceErrors.join('\n'));
   }
-  const comparison = thresholdFailures(run, reference, config.evaluations.thresholds);
+  const criteria = reference ? assessEvalCriteria(suite, reference,
+    suiteHash(suite) === reference.fingerprint?.suiteHash ? null
+      : historicalApprovedSuite(targetDir, reference, { suitePath, referencePath: referenceRelative })) : null;
+  const comparison = thresholdFailures(run, reference, config.evaluations.thresholds, criteria);
+  const historicalDrift = reference
+    ? compareFingerprints(run.fingerprint, reference.fingerprint).mismatches.map((item) => `historical evidence stale: ${item.field}`)
+    : [];
   const thresholdRejected = comparison.failures.length > 0 || run.status === 'failed';
   const persistedRun = {
     ...run,
     status: thresholdRejected ? 'failed' : run.status,
     reference: {
       path: referenceRelative,
-      status: !reference ? 'missing' : (comparison.degraded.length > 0 ? 'mismatched' : 'matched'),
+      status: !reference ? 'missing' : (historicalDrift.length || comparison.degraded.length ? 'mismatched' : 'matched'),
     },
-    diagnostics: [...run.diagnostics, ...comparison.failures, ...comparison.degraded],
+    diagnostics: [...run.diagnostics, ...comparison.failures, ...comparison.degraded, ...historicalDrift],
   };
   const status = thresholdRejected ? 'invalid' : (comparison.degraded.length > 0 ? 'degraded' : 'ready');
   const written = [];
@@ -508,7 +520,7 @@ export async function runProjectEvaluations({ campaignId = `campaign-${Date.now(
     ok: status === 'ready',
     run: persistedRun,
     status,
-    warnings: comparison.degraded,
+    warnings: [...comparison.degraded, ...historicalDrift],
     written,
   };
 }

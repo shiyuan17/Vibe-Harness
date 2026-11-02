@@ -52,6 +52,9 @@ export function normalizeValidationChecks(value) {
       throw new Error(`validationCommands.checks[${index}].deterministic must be boolean`);
     }
     const cacheScope = item.cacheScope ?? 'selection';
+    if (item.evidenceScope !== undefined && !['fresh', 'transaction'].includes(item.evidenceScope)) {
+      throw new Error(`validationCommands.checks[${index}].evidenceScope must be fresh or transaction`);
+    }
     if (!['selection', 'tree'].includes(cacheScope)) {
       throw new Error(`validationCommands.checks[${index}].cacheScope must be selection or tree`);
     }
@@ -73,6 +76,7 @@ export function normalizeValidationChecks(value) {
       ...(item.parallel !== undefined ? { parallel: item.parallel } : {}),
       writesDependencies: item.writesDependencies === true,
       cacheScope,
+      ...(item.evidenceScope ? { evidenceScope: item.evidenceScope } : {}),
       subsumes: [...new Set(subsumes.map((value) => value.trim()))],
       cwd: item.cwd ?? '.',
       ...(Number.isInteger(item.estimatedDurationMs) ? { estimatedDurationMs: item.estimatedDurationMs } : {}),

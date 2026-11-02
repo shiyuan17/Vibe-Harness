@@ -1,8 +1,10 @@
 import '../helpers/offline-tools.js';
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -12,6 +14,42 @@ import { applyInstallPlan, createInstallPlan, createMultiTargetInstallPlan } fro
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '../..');
+
+test('安装 no-op 保留文件时间与红区边界，计划后漂移拒绝执行', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-no-op-'));
+  try {
+    const options = { dryRun: false, profile: 'full', rootDir, targetDir: target };
+    const first = await createInstallPlan(options);
+    first.redZoneConfirmed = true;
+    await applyInstallPlan(first);
+    const file = path.join(target, '.agents/runtime/hooks/git-hook.mjs');
+    const before = await stat(file);
+    const state = path.join(target, '.vibe-harness/install-state.json');
+    const beforeState = await readFile(state, 'utf8');
+    const beforeStateStat = await stat(state);
+    const next = await createInstallPlan({ ...options, upgrade: true });
+    assert.equal(next.actions.find((action) => action.target === file).kind, 'unchanged');
+    assert.equal(next.actions.some((action) => action.redZone && action.kind === 'write'), false);
+    const result = await applyInstallPlan(next);
+    assert.equal(result.written.length, 0);
+    assert.equal(result.unchanged, true);
+    assert.equal((await stat(file)).mtimeMs, before.mtimeMs);
+    assert.equal(await readFile(state, 'utf8'), beforeState);
+    assert.equal((await stat(state)).mtimeMs, beforeStateStat.mtimeMs);
+    const staleMetadata = JSON.parse(beforeState);
+    staleMetadata.files.find((entry) => entry.target === '.agents/runtime/hooks/git-hook.mjs').sourceHash = '0'.repeat(64);
+    await writeFile(state, JSON.stringify(staleMetadata));
+    const metadataRefresh = await applyInstallPlan(await createInstallPlan({ ...options, upgrade: true }));
+    assert.equal(metadataRefresh.written.length, 0);
+    assert.equal((await stat(file)).mtimeMs, before.mtimeMs);
+    assert.notEqual(JSON.parse(await readFile(state, 'utf8')).files
+      .find((entry) => entry.target === '.agents/runtime/hooks/git-hook.mjs').sourceHash, '0'.repeat(64));
+    const frozen = await createInstallPlan({ ...options, upgrade: true });
+    await writeFile(file, '// concurrent edit\n');
+    await assert.rejects(applyInstallPlan(frozen), /changed after planning/u);
+    assert.equal(await readFile(file, 'utf8'), '// concurrent edit\n');
+  } finally { await rm(target, { recursive: true, force: true }); }
+});
 
 test('dry-run install plans full files without writing them', async () => {
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-dry-run-'));
@@ -369,4 +407,93 @@ test('install --upgrade 不改动已完整声明的分层配置', async () => {
   } finally {
     await rm(target, { force: true, recursive: true });
   }
+});
+
+test('Envelope upgrade retires unchanged assets and preserves user-modified copies', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-envelope-retirement-'));
+  try {
+    const options = { dryRun: false, profile: 'full', rootDir, targetDir: target };
+    const initial = await createInstallPlan(options);
+    initial.redZoneConfirmed = true;
+    await applyInstallPlan(initial);
+    const statePath = path.join(target, '.vibe-harness/install-state.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    const paths = [
+      '.agents/runtime/hooks/lib/execution-envelope.mjs',
+      '.agents/runtime/hooks/lib/legacy-envelope-compat.mjs',
+      'docs/schemas/execution-envelope.schema.json',
+    ];
+    const original = 'retired managed fixture\n';
+    for (const relative of paths) {
+      await mkdir(path.dirname(path.join(target, relative)), { recursive: true });
+      await writeFile(path.join(target, relative), original);
+      state.files.push({
+        target: relative, source: relative, group: relative.startsWith('docs') ? 'schemas' : 'hooks',
+        created: true, redZone: relative.startsWith('.agents'),
+        sourceHash: createHash('sha256').update(original).digest('hex'),
+        targetHash: createHash('sha256').update(original).digest('hex'),
+      });
+    }
+    await writeFile(statePath, JSON.stringify(state));
+    await writeFile(path.join(target, paths[1]), 'user-owned edit\n');
+    const preview = await createInstallPlan({ ...options, upgrade: true, dryRun: true });
+    assert.equal(preview.actions.find((action) => action.relativeTarget === paths[0]).kind, 'retire');
+    assert.equal(preview.actions.find((action) => action.relativeTarget === paths[1]).kind, 'retire-modified');
+    await applyInstallPlan(preview);
+    assert.equal(await readFile(path.join(target, paths[0]), 'utf8'), original);
+    const upgrade = await createInstallPlan({ ...options, upgrade: true });
+    upgrade.redZoneConfirmed = true;
+    const result = await applyInstallPlan(upgrade);
+    assert.ok(result.skipped.some((entry) => entry.target === paths[1]));
+    await assert.rejects(readFile(path.join(target, paths[0])), /ENOENT/u);
+    await assert.rejects(readFile(path.join(target, paths[2])), /ENOENT/u);
+    assert.equal(await readFile(path.join(target, paths[1]), 'utf8'), 'user-owned edit\n');
+    const entry = await import(pathToFileURL(path.join(target, '.agents/runtime/hooks/codex-hook.mjs')).href);
+    assert.deepEqual(await entry.evaluateCodexHook({
+      cwd: target, hook_event_name: 'PreToolUse', session_id: 'fixture',
+      tool_name: 'mcp__linear__create_issue', tool_input: { title: 'fixture', team: 'NEW' },
+      execution_envelope: { forbiddenEffects: ['linearWrite'] },
+    }), {});
+  } finally { await rm(target, { recursive: true, force: true }); }
+});
+
+test('local worktree upgrade retires the old queue by managed hash and keeps user edits', async () => {
+  const target = await mkdtemp(path.join(tmpdir(), 'vibe-local-worktree-upgrade-'));
+  try {
+    const options = { dryRun: false, profile: 'full', rootDir, targetDir: target };
+    const initial = await createInstallPlan(options);
+    initial.redZoneConfirmed = true;
+    await applyInstallPlan(initial);
+    const relative = '.agents/runtime/lib/worktree-delivery-queue.mjs';
+    const statePath = path.join(target, '.vibe-harness/install-state.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8'));
+    const original = 'old managed queue\n';
+    const hash = createHash('sha256').update(original).digest('hex');
+    state.files.push({ target: relative, source: relative, group: 'runtime-project-scripts',
+      created: true, redZone: true, sourceHash: hash, targetHash: hash });
+    await writeFile(statePath, JSON.stringify(state));
+    await writeFile(path.join(target, relative), original);
+    const preview = await createInstallPlan({ ...options, upgrade: true, dryRun: true });
+    assert.equal(preview.actions.find((action) => action.relativeTarget === relative).kind, 'retire');
+    await applyInstallPlan(preview);
+    assert.equal(await readFile(path.join(target, relative), 'utf8'), original);
+    await writeFile(path.join(target, relative), 'user edit\n');
+    const conflict = await createInstallPlan({ ...options, upgrade: true });
+    conflict.redZoneConfirmed = true;
+    assert.equal(conflict.actions.find((action) => action.relativeTarget === relative).kind, 'retire-modified');
+    const retained = await applyInstallPlan(conflict);
+    assert.ok(retained.skipped.some((entry) => entry.target === relative));
+    assert.equal(await readFile(path.join(target, relative), 'utf8'), 'user edit\n');
+    await writeFile(path.join(target, relative), original);
+    const upgrade = await createInstallPlan({ ...options, upgrade: true });
+    upgrade.redZoneConfirmed = true;
+    await applyInstallPlan(upgrade);
+    await assert.rejects(readFile(path.join(target, relative)), /ENOENT/u);
+    const installed = await import(pathToFileURL(path.join(target, '.agents/runtime/commands/run.mjs')).href);
+    const result = await installed.runCommand(['help', '--json'], { cwd: target });
+    assert.match(result.report.worktree, /local_integrated/u);
+    assert.match(result.report.worktree, /never fetches or pushes/u);
+    assert.doesNotMatch(await readFile(path.join(target, '.agents/runtime/lib/worktree-command.mjs'), 'utf8'),
+      /worktree-delivery-queue/u);
+  } finally { await rm(target, { recursive: true, force: true }); }
 });

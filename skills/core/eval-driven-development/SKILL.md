@@ -16,7 +16,7 @@ description: Use for nondeterministic Agent rules, Skills, prompts, Hooks, or ro
 3. 修改前冻结 fixture、suite、模型与版本、runner、预算、重复次数、评分标准、rubric 文本、judge 与旧规则/提示指纹的参考结果。
 4. 实施最小改动；确定性部分同时运行普通测试。
 5. 保持其他实验条件一致，用新规则/提示指纹重跑；被修改资产是实验变量。比较成功率、Token、墙钟、交互、工具调用和错误完成声明，并确认差异超过抖动边界：单轮或只报告成功样本的差异不算改善。
-6. critical 必须全部通过且不越过项目配置阈值；reference 更新必须单独审查并显式确认。
+6. critical 必须全部通过且不越过项目阈值；新输入以旧 oracle／阈值产生新运行，保留历史证据，源码指纹漂移不要求改 reference。reference 更新必须单独审查并显式确认；预期、oracle、评分、阈值及豁免变更同样受保护；资产过期、受阻与行为失败分开报告。
 7. 确认的真实失败在同一变更内沉淀为 case；长期满分的 case 转入 regression 或替换，不再用作改善信号。
 
 online run 按 `repetitions` 独立运行多轮，输出 `trialSummaries`（`passAt1`/`passAtK`/`passCaretK`/逐轮明细）作为可靠性报告；`passAtK` 是至少一轮通过，`passCaretK` 是全部轮次通过，重复次数少时不构成可靠性结论。稳定性只统计多轮 case 并同时报告覆盖率，当前不新增阈值门禁。offline 为确定性 replay，不输出多轮摘要。

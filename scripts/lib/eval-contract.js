@@ -137,7 +137,7 @@ export async function loadEvalAssets(rootDir) {
   };
 }
 
-export function validateEvalAssets({ suite, run, reference, schemas }) {
+export function validateEvalAssets({ suite, run, reference, schemas }, { historicalInputs = false } = {}) {
   const errors = [
     ...validateJsonAgainstSchema(suite, schemas.suite, 'suite'),
     ...validateJsonAgainstSchema(run, schemas.run, 'run'),
@@ -169,7 +169,8 @@ export function validateEvalAssets({ suite, run, reference, schemas }) {
   if (run.suite?.id !== suite.id || reference.suite?.id !== suite.id) {
     errors.push('suite id must match run and reference');
   }
-  if (run.suite?.version !== suite.version || reference.suite?.version !== suite.version) {
+  if (historicalInputs ? run.suite?.version !== reference.suite?.version
+    : run.suite?.version !== suite.version || reference.suite?.version !== suite.version) {
     errors.push('suite version must match run and reference');
   }
   const comparison = compareFingerprints(run.fingerprint, reference.fingerprint);

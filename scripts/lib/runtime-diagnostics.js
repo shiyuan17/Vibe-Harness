@@ -190,7 +190,7 @@ async function inspectInstalledHookWiring(adapter, targetDir) {
   const installedHooksDir = path.join(targetDir, ...entryDir.split('/'));
   const packHooksDir = path.join(path.resolve(import.meta.dirname, '..', '..'), 'runtime', 'hooks');
   // The handler is not a single module: `codex-hook.mjs` statically imports the
-  // policy, context and envelope modules beside it, so a self-check that hashes
+  // policy, context and safety modules beside it, so a self-check that hashes
   // only the entry would pass while a tampered or missing dependency changes
   // behavior. The whole installed Hook directory is compared to the pack.
   const modules = await listFiles(packHooksDir).catch(() => null);
@@ -556,29 +556,15 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
     status = 'configured-unverified';
   }
   const authority = adapter.executionAuthority || {
-    envelopeVersions: [],
     goalLifecycle: 'unsupported',
-    highRiskEnforcement: 'unsupported',
     projectConfigMayAuthorize: false,
-    trustedSource: 'none',
   };
-  // A host with no declared execution envelope cannot enforce the runtime Hook
-  // policy no matter what is installed, so the report states that explicitly
-  // instead of leaving it implicit in executionAuthority.
-  const envelopeDegraded = authority.envelopeVersions.length === 0
-    || authority.highRiskEnforcement === 'unsupported';
   const activated = supported && hostEvidence.activated === true ? true : (supported ? null : false);
-  const hostContextVerified = ['sandbox', 'approval', 'process', 'network']
-    .every((field) => hostEvidence[field] === true);
-  const envelopeRequired = hostEvidence.envelopeRequired === true;
   const selfCheckResult = selfCheck
     ? await inspectRuntimeHookSelfCheck(adapter, targetDir, { configured })
     : null;
   const enforced = configured
     && activated === true
-    && envelopeRequired
-    && hostContextVerified
-    && authority.highRiskEnforcement === 'host-required'
     && selfCheckResult?.status === 'pass';
   const enforcementReasonCode = !supported
     ? 'HOST_HOOK_UNSUPPORTED'
@@ -586,15 +572,9 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
       ? 'HOOK_NOT_CONFIGURED'
       : activated !== true
         ? 'HOST_HOOK_NOT_ACTIVATED'
-        : !envelopeRequired
-          ? 'EXECUTION_ENVELOPE_UNPROVEN'
-          : !hostContextVerified
-            ? 'HOST_CAPABILITIES_UNPROVEN'
-            : authority.highRiskEnforcement !== 'host-required'
-              ? 'ADAPTER_ENFORCEMENT_NOT_HOST_REQUIRED'
-              : selfCheckResult?.status !== 'pass'
-                ? (selfCheckResult?.code ?? 'HOOK_SELF_CHECK_UNVERIFIED')
-                : 'ENFORCED';
+        : selfCheckResult?.status !== 'pass'
+          ? (selfCheckResult?.code ?? 'HOOK_SELF_CHECK_UNVERIFIED')
+          : 'ENFORCED';
   const diagnosticStatus = enforced
     ? 'enforced'
     : !supported
@@ -609,7 +589,6 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
   const checkedAt = new Date().toISOString();
   const hostEvidenceSummary = {
     activated: hostEvidence.activated === true,
-    envelopeRequired,
     sandbox: hostEvidence.sandbox === true,
     approval: hostEvidence.approval === true,
     process: hostEvidence.process === true,
@@ -625,16 +604,7 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
     coverageLimitations: [...HOOK_COVERAGE_LIMITATIONS],
     declaredEvents: { ...adapter.hookEvents },
     enforced,
-    envelopeSupport: {
-      degraded: envelopeDegraded,
-      highRiskEnforcement: authority.highRiskEnforcement,
-      versions: [...authority.envelopeVersions],
-    },
-    executionAuthority: {
-      ...authority,
-      envelopeRequired,
-      hostContextVerified,
-    },
+    executionAuthority: { ...authority },
     filesInstalled,
     // The host's declared fresh-context capability travels with the runtime
     // diagnostics entry because an independent review needs a context the host
@@ -676,12 +646,6 @@ export async function inspectRuntimeHooks(adapter, targetDir, { hostEvidence = {
  */
 export function runtimeHookWarnings(runtimeHooks, { definitionChanged = false, enforcementPolicy = 'advisory' } = {}) {
   const warnings = [];
-  if (runtimeHooks.envelopeSupport?.degraded) {
-    warnings.push({
-      code: 'ENVELOPE_UNSUPPORTED',
-      message: 'This host declares no high-risk execution envelope (envelopeVersions is empty and highRiskEnforcement is unsupported), so runtime red-zone, egress, and credential policies cannot be enforced here; high-risk operations rely on host-native approval and human review only.',
-    });
-  }
   if (runtimeHooks.supported === false && runtimeHooks.filesInstalled) {
     // The hooks group can be on disk for a host that can never load it (a
     // preview install, or a multi-target project where another host owns the
@@ -708,6 +672,7 @@ export function runtimeHookWarnings(runtimeHooks, { definitionChanged = false, e
     warnings.push({
       code: 'HOOK_DISABLED',
       message: runtimeHooks.activation.verification,
+      ...(enforcementPolicy === 'strict' ? { blocking: true } : {}),
     });
   } else if (runtimeHooks.configured && !['unsupported', 'verified'].includes(runtimeHooks.activation.status)) {
     warnings.push({
@@ -716,19 +681,16 @@ export function runtimeHookWarnings(runtimeHooks, { definitionChanged = false, e
     });
   }
   if (runtimeHooks.configured && !runtimeHooks.enforced) {
-    const strict = enforcementPolicy === 'strict';
     warnings.push({
       code: 'HOOK_ENFORCEMENT_UNVERIFIED',
-      message: strict
-        ? 'hooks.enforcement is "strict" and Hook enforcement is not proven for this project, so this command reports a degraded status; verify the host sandbox, approval policy, process isolation, and network proxy (or re-run with --allow-degraded) before relying on the Hook policy.'
-        : 'Hook policy is defense in depth only; verify the host sandbox, approval policy, process isolation, and network proxy before treating it as enforced.',
-      ...(strict ? { blocking: true } : {}),
+      message: 'Host Hook activation has not been observed. Local checks and installation results are reported independently; this warning does not establish enforcement or require additional confirmation.',
     });
   }
   if (runtimeHooks.selfCheck?.status === 'degraded') {
     warnings.push({
       code: 'HOOK_SELF_CHECK_DEGRADED',
       message: 'The project Hook self-check did not produce the expected fail-closed decision.',
+      ...(enforcementPolicy === 'strict' ? { blocking: true } : {}),
     });
   }
   return warnings;
@@ -736,8 +698,8 @@ export function runtimeHookWarnings(runtimeHooks, { definitionChanged = false, e
 
 /**
  * First blocking Hook warning, or null when every warning is advisory. Under
- * hooks.enforcement "strict" a blocking warning must downgrade the command's
- * success status even when every other check passed.
+ * hooks.enforcement "strict" a known disabled or broken Hook remains blocking;
+ * missing host observations alone are advisory.
  *
  * @param {any[]} [warnings]
  */

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, rmdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -565,18 +565,14 @@ export async function createInstallPlan({
     endpoint: linearEndpoint,
   } : null;
 
-  // hooks.enforcement "strict" refuses red-zone writes onto hosts that declare
-  // no high-risk execution envelope. The per-plan value only says "this adapter
-  // is unsupported and projects red-zone writes"; createMultiTargetInstallPlan
-  // refines it with owner-union semantics across the selected targets.
-  const highRiskEnforcement = adapter.executionAuthority?.highRiskEnforcement ?? 'unsupported';
+  const hookSupported = adapter.hookActivation !== 'unsupported';
   const strictEnforcementRefusals = enforcementPolicy === 'strict'
-    && highRiskEnforcement !== 'host-required'
+    && !hookSupported
     && actions.some((action) => action.redZone && action.kind === 'write')
     ? [adapter.id]
     : [];
 
-  return {
+  const plan = {
     adapter: adapter.id,
     adapterCapabilities: adapter.capabilities,
     baselinePlan,
@@ -610,31 +606,51 @@ export async function createInstallPlan({
     targetDir: path.resolve(targetDir),
     upgrade,
     version: currentPackageVersion,
-    highRiskEnforcement,
+    hookSupported,
     strictEnforcementRefusals,
     actions: ownedActions,
   };
+  await classifyActualInstallChanges(plan);
+  plan.strictEnforcementRefusals = enforcementPolicy === 'strict'
+    && !hookSupported
+    && plan.actions.some((action) => action.redZone && isMutatingInstallAction(action)) ? [adapter.id] : [];
+  return plan;
+}
+
+export function isMutatingInstallAction(action) {
+  return action.kind === 'write' || ['retire', 'retire-managed-ignore', 'retire-managed-json',
+    'retire-managed-mcp', 'retire-generated-directory', 'retire-runtime-state'].includes(action.kind);
+}
+
+async function classifyActualInstallChanges(plan) {
+  for (const action of plan.actions) {
+    if (action.kind !== 'write' && action.kind !== 'unchanged') continue;
+    const exists = await pathExists(action.target);
+    const existing = exists ? await readFile(action.target, 'utf8') : '';
+    const merged = isManagedToml(action.contentStrategy)
+      ? mergeManagedMcpBlock(existing, action.mcpServers, { force: plan.force }) : null;
+    const content = merged?.content ?? await renderActionContent(action, actionRenderData(action, plan.renderData), existing);
+    action.expectedTargetHash = exists ? createHash('sha256').update(existing).digest('hex') : null;
+    action.expectedSourceHash = await hashFile(action.source);
+    action.plannedContentHash = createHash('sha256').update(content).digest('hex');
+    const modeMatches = !action.executable || process.platform === 'win32'
+      || exists && ((await stat(action.target)).mode & 0o777) === 0o755;
+    action.kind = exists && existing === content && modeMatches && !merged?.conflicts.length ? 'unchanged' : 'write';
+  }
 }
 
 function mergeOwners(left = [], right = []) {
   return [...new Set([...left, ...right])].sort();
 }
 
-/**
- * Owner-union semantics for hooks.enforcement "strict": a red-zone target is
- * denied only when every adapter that projects it declares no high-risk
- * execution envelope. The hooks module is project-wide, so shared targets (for
- * example .agents/runtime/hooks/*) written identically by codex and gemini stay
- * allowed, because codex's envelope enforces them. Per-plan refusals cannot
- * express this after the action merge, which keeps only the first plan's
- * adapterId, so the union is computed from the unmerged per-adapter plans.
- */
-function strictRefusedAdapters(plans) {
+function strictRefusedAdapters(plans, actualActions = null) {
+  const actual = actualActions ? new Map(actualActions.map((action) => [action.relativeTarget, action])) : null;
+  const mutates = (action) => isMutatingInstallAction(actual ? actual.get(action.relativeTarget) ?? {} : action);
   const redZoneOwners = new Map();
   for (const plan of plans) {
-    const unsupported = plan.highRiskEnforcement !== 'host-required';
+    const unsupported = !plan.hookSupported;
     for (const action of plan.actions) {
-      if (!action.redZone || action.kind !== 'write') continue;
+      if (!action.redZone || !mutates(action)) continue;
       const owners = redZoneOwners.get(action.relativeTarget) ?? { enforcing: false, unsupported: false };
       owners.enforcing = owners.enforcing || !unsupported;
       owners.unsupported = owners.unsupported || unsupported;
@@ -647,8 +663,8 @@ function strictRefusedAdapters(plans) {
   if (deniedTargets.length === 0) return [];
   const denied = new Set(deniedTargets);
   return [...new Set(plans
-    .filter((plan) => plan.highRiskEnforcement !== 'host-required'
-      && plan.actions.some((action) => action.redZone && action.kind === 'write' && denied.has(action.relativeTarget)))
+    .filter((plan) => !plan.hookSupported
+      && plan.actions.some((action) => action.redZone && mutates(action) && denied.has(action.relativeTarget)))
     .map((plan) => plan.adapter))];
 }
 
@@ -757,7 +773,7 @@ export async function createMultiTargetInstallPlan({ selectedTargets, targets, .
   });
   const generatedDirectories = [...new Map(plans.flatMap((plan) => plan.generatedDirectories)
     .map((item) => [item.target, item])).values()];
-  return {
+  const plan = {
     ...plans[0],
     actions,
     adapter: activeTargets[0],
@@ -785,6 +801,9 @@ export async function createMultiTargetInstallPlan({ selectedTargets, targets, .
     selectedTargets: activeTargets,
     targets: lifecycleTargets,
   };
+  await classifyActualInstallChanges(plan);
+  plan.strictEnforcementRefusals = options.enforcementPolicy === 'strict' ? strictRefusedAdapters(plans, plan.actions) : [];
+  return plan;
 }
 
 async function planEntryActions(ctx) {
@@ -1536,6 +1555,11 @@ export async function applyInstallPlan(plan, hooks = {}) {
 
   validatePlanGuards(plan);
   await assertActionPaths(plan);
+  // A true no-op must not rotate install-state, create a transaction or prune
+  // backups. Metadata-only upgrades still take the normal transaction path.
+  if (await installPlanIsNoOp(plan)) {
+    return { mcpConflicts: [], retired: [], retained: [], skipped: [], written: [], unchanged: true };
+  }
 
   const transactionId = createTransactionId();
   const transaction = await prepareTransaction(plan, transactionId);
@@ -1574,6 +1598,44 @@ export async function applyInstallPlan(plan, hooks = {}) {
   }
 }
 
+function stableInstallValue(value) {
+  if (Array.isArray(value)) return value.map(stableInstallValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stableInstallValue(value[key])]));
+}
+
+async function installPlanIsNoOp(plan) {
+  if (plan.configUpdate || !plan.baselinePlan.baseline || !plan.actions.length
+    || plan.actions.some((action) => action.kind !== 'unchanged')) return false;
+  const previous = await readInstallState(plan.targetDir);
+  if (!previous) return false;
+  const same = (left, right) => JSON.stringify(stableInstallValue(left)) === JSON.stringify(stableInstallValue(right));
+  for (const key of ['version', 'profile', 'requestedModules', 'requestedPlugins', 'resolvedModules', 'previewCapabilities']) {
+    if (!same(previous[key], plan[key])) return false;
+  }
+  if (!same(previous.targets, plan.targets ?? [plan.adapter])
+    || !same(previous.generatedDirectories, plan.generatedDirectories)) return false;
+  for (const file of previous.generatedFiles ?? []) {
+    assertPortableRelativePath(file.target, 'install-state generated file');
+    const target = path.join(plan.targetDir, file.target);
+    await assertSafePathInside(plan.targetDir, target, 'install-state generated file');
+    if (!await pathExists(target) || await hashFile(target) !== file.targetHash) return false;
+  }
+  for (const action of plan.actions) {
+    if (await hashFile(action.target) !== action.expectedTargetHash) throw new Error(`Install target changed after planning: ${action.relativeTarget}`);
+    if (await hashFile(action.source) !== action.expectedSourceHash) throw new Error(`Install input changed after planning: ${action.relativeSource}`);
+    if (action.executable && process.platform !== 'win32' && ((await stat(action.target)).mode & 0o777) !== 0o755) {
+      throw new Error(`Install target permissions changed after planning: ${action.relativeTarget}`);
+    }
+    const recorded = previous.files.find((file) => file.target === action.relativeTarget);
+    if (!recorded || recorded.source !== action.relativeSource
+      || recorded.sourceHash !== await hashFile(action.source)
+      || !same(recorded.owners, action.owners) || Boolean(recorded.redZone) !== Boolean(action.redZone)
+      || recorded.contentStrategy !== action.contentStrategy) return false;
+  }
+  return true;
+}
+
 function retirementTargets(actions = []) {
   return [...new Set(actions
     .filter((action) => action.kind?.startsWith('retire'))
@@ -1609,11 +1671,11 @@ function validatePlanGuards(plan) {
     throw new Error(
       'Refusing red-zone writes for '
       + plan.strictEnforcementRefusals.join(', ')
-      + ': hooks.enforcement is "strict" and these targets declare no high-risk execution envelope. Drop the unsupported targets or the hooks-facing modules, or set hooks.enforcement to "advisory".',
+      + ': hooks.enforcement is "strict" and these targets do not support runtime Hooks. Drop the unsupported targets or the hooks-facing modules, or set hooks.enforcement to "advisory".',
     );
   }
 
-  if (!plan.dryRun && !plan.redZoneConfirmed && plan.actions.some((action) => action.redZone)) {
+  if (!plan.dryRun && !plan.redZoneConfirmed && plan.actions.some((action) => action.redZone && isMutatingInstallAction(action))) {
     throw new Error('Refusing to write red-zone files without explicit red-zone confirmation.');
   }
 }
@@ -1621,7 +1683,7 @@ function validatePlanGuards(plan) {
 const TRACKED_ACTION_KINDS = ['write', 'retire', 'retire-managed-ignore', 'retire-managed-json', 'retire-managed-mcp', 'retire-generated-directory'];
 
 async function assertActionPaths(plan) {
-  for (const action of plan.actions.filter((item) => TRACKED_ACTION_KINDS.includes(item.kind))) {
+  for (const action of plan.actions.filter((item) => item.kind === 'unchanged' || TRACKED_ACTION_KINDS.includes(item.kind))) {
     assertPortableRelativePath(action.relativeTarget, 'install target');
     assertInsideDir(plan.targetDir, action.target, 'install target outside target directory');
     await assertSafePathInside(plan.targetDir, action.target, 'install target');
@@ -1682,6 +1744,29 @@ async function executeWriteActions(plan, ctx, hooks) {
   const mcpConflicts = [];
   const { backupId } = ctx;
   for (const action of plan.actions) {
+    if (action.kind === 'unchanged') {
+      if (await hashFile(action.target) !== action.expectedTargetHash) throw new Error(`Install target changed after planning: ${action.relativeTarget}`);
+      if (await hashFile(action.source) !== action.expectedSourceHash) throw new Error(`Install input changed after planning: ${action.relativeSource}`);
+      if (action.executable && process.platform !== 'win32' && ((await stat(action.target)).mode & 0o777) !== 0o755) {
+        throw new Error(`Install target permissions changed after planning: ${action.relativeTarget}`);
+      }
+      const previous = ctx.previousState?.files?.find((file) => file.target === action.relativeTarget);
+      const targetContent = await readFile(action.target, 'utf8');
+      const managedBlock = isManagedInstruction(action.contentStrategy)
+        ? extractManagedInstructionBlock(targetContent) : isManagedJson(action.contentStrategy)
+          ? managedJsonPayload(targetContent, action.managedJson) : isManagedToml(action.contentStrategy)
+            ? extractManagedMcpBlock(targetContent) : isManagedIgnore(action.contentStrategy)
+              ? extractManagedCbmIgnoreBlock(targetContent) : undefined;
+      files.push({ backup: null, created: false, previousHash: action.expectedTargetHash,
+        originalBackup: null, originalCreated: false, owner: 'vibe-harness', transactionId: ctx.transactionId,
+        ...previous, owners: action.owners ?? previous?.owners, group: action.group,
+        contentStrategy: action.contentStrategy, redZone: Boolean(action.redZone),
+        ...(managedBlock === undefined ? {} : { managedBlockHash: hashManagedBlock(managedBlock) }),
+        ...(isManagedJson(action.contentStrategy) ? { managedJson: action.managedJson } : {}),
+        source: action.relativeSource, sourceHash: action.expectedSourceHash,
+        target: action.relativeTarget, targetHash: action.expectedTargetHash });
+      continue;
+    }
     if (action.kind !== 'write') {
       continue;
     }
@@ -1693,6 +1778,10 @@ async function executeWriteActions(plan, ctx, hooks) {
     let backup = null;
     let previousHash = null;
     const existingContent = existed ? await readFile(action.target, 'utf8') : '';
+    if (action.expectedTargetHash !== undefined
+      && (existed ? createHash('sha256').update(existingContent).digest('hex') : null) !== action.expectedTargetHash) {
+      throw new Error(`Install target changed after planning: ${action.relativeTarget}`);
+    }
     if (existed
       && !isManagedInstruction(action.contentStrategy)
       && !isManagedJson(action.contentStrategy)
@@ -1708,6 +1797,9 @@ async function executeWriteActions(plan, ctx, hooks) {
       : null;
     if (mergedMcp) mcpConflicts.push(...mergedMcp.conflicts);
     const targetContent = mergedMcp?.content ?? await renderActionContent(action, actionRenderData(action, plan.renderData), existingContent);
+    if (action.plannedContentHash && createHash('sha256').update(targetContent).digest('hex') !== action.plannedContentHash) {
+      throw new Error(`Install input changed after planning: ${action.relativeSource}`);
+    }
     await writeFile(action.target, targetContent, 'utf8');
     await hooks.afterFileWrite?.({ action, writtenCount: written.length + 1 });
     if (action.executable) await chmod(action.target, 0o755);

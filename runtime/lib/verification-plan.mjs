@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import { gitTimeoutMs } from './git-timeouts.mjs';
 import { normalizeCheckResources } from './check-resources.mjs';
+import { verificationGitEnvironment } from './git-fingerprint.mjs';
 
 export const VERIFICATION_TIERS = ['quick', 'standard', 'deep'];
 const TIER_RANK = Object.freeze(Object.fromEntries(VERIFICATION_TIERS.map((tier, index) => [tier, index])));
@@ -37,8 +38,24 @@ export function verificationPaths(projectDir, values) {
 export function verificationChanges(projectDir, { paths = undefined, base = undefined } = {}) {
   const git = (args) => execFileSync('git', args, {
     cwd: projectDir, encoding: 'utf8', windowsHide: true, timeout: gitTimeoutMs(),
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }, stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...verificationGitEnvironment(), GIT_OPTIONAL_LOCKS: '0' }, stdio: ['ignore', 'pipe', 'pipe'],
   });
+  // An inherited frozen context is authoritative, not a hint. Never silently
+  // replace an invalid context with the caller's whole dirty workspace.
+  let inherited = false;
+  if (paths === undefined && ['VIBE_HARNESS_VERIFY_PATHS', 'VIBE_HARNESS_VERIFY_BASE', 'VIBE_HARNESS_VERIFY_SCOPE']
+    .some((name) => Object.hasOwn(process.env, name))) {
+    try {
+      paths = JSON.parse(process.env.VIBE_HARNESS_VERIFY_PATHS);
+      verificationPaths(projectDir, paths);
+      if (!process.env.VIBE_HARNESS_VERIFY_BASE) throw new Error('missing frozen base');
+      if (!['affected', 'layer', 'full'].includes(process.env.VIBE_HARNESS_VERIFY_SCOPE)) throw new Error('invalid frozen scope');
+      base ??= process.env.VIBE_HARNESS_VERIFY_BASE;
+      inherited = true;
+    } catch {
+      throw new Error('Invalid inherited verification context; supply explicit --paths and --base or restore the frozen context.');
+    }
+  }
   let baseSha;
   try {
     baseSha = git(['rev-parse', '--verify', `${base ?? 'HEAD'}^{commit}`]).trim();
@@ -47,7 +64,8 @@ export function verificationChanges(projectDir, { paths = undefined, base = unde
     if (paths !== undefined) return { changedPaths: verificationPaths(projectDir, paths), baseSha: null, selectionMode: 'explicit-paths' };
     return { changedPaths: [], baseSha: null, selectionMode: 'unavailable' };
   }
-  if (paths !== undefined) return { changedPaths: verificationPaths(projectDir, paths), baseSha, selectionMode: 'explicit-paths' };
+  if (paths !== undefined) return { changedPaths: verificationPaths(projectDir, paths), baseSha,
+    selectionMode: inherited ? 'frozen-context' : 'explicit-paths' };
   const changed = git(['diff', '--name-only', '-z', '--no-renames', baseSha, '--']).split('\0').filter(Boolean);
   const untracked = git(['ls-files', '--others', '--exclude-standard', '-z']).split('\0').filter(Boolean);
   return { changedPaths: verificationPaths(projectDir, [...changed, ...untracked]), baseSha, selectionMode: 'changed' };
@@ -283,6 +301,9 @@ export function selectVerificationChecks({
     if (typeof command !== 'string' || !command.trim()) throw new Error(`Cannot resolve command for check: ${item.id}`);
     const cwd = projectDir ? verificationCwd(projectDir, item.cwd).relative : item.cwd ?? '.';
     const resources = normalizeCheckResources(item.resources);
+    if (item.evidenceScope !== undefined && !['fresh', 'transaction'].includes(item.evidenceScope)) {
+      throw new Error('Check evidenceScope must be fresh or transaction.');
+    }
     if (item.parallel !== undefined && typeof item.parallel !== 'boolean') throw new Error('Check parallel must be boolean.');
     if (item.parallel === true && !resources.length) throw new Error('Parallel checks require named resources.');
     return { ...item, command: command.trim(), cwd, resources };
@@ -303,6 +324,12 @@ export function selectVerificationChecks({
           existing.deterministic = existing.deterministic === true && declaration.deterministic === true;
           existing.resources = normalizeCheckResources([...(existing.resources ?? []), ...(declaration.resources ?? [])]);
           existing.writesDependencies = existing.writesDependencies === true || declaration.writesDependencies === true;
+          // A command repeated across tiers is still the same declaration.
+          // Unspecified evidence must not silently become explicit fresh-only.
+          // Conflicting aliases keep the stricter policy; transaction requires
+          // agreement from every alias.
+          if (existing.evidenceScope === 'fresh' || declaration.evidenceScope === 'fresh') existing.evidenceScope = 'fresh';
+          else if (existing.evidenceScope !== 'transaction' || declaration.evidenceScope !== 'transaction') delete existing.evidenceScope;
           continue;
         }
         seen.add(identity);

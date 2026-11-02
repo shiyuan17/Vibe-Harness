@@ -278,7 +278,8 @@ test('upgrade --preserve-user-modified keeps local files while upgrading other a
       applied.retainedUserModified.map((item) => item.target).sort(),
       [...targets].sort(),
     );
-    assert.ok(applied.written.includes(path.join(fixture.targetDir, 'AGENTS.md')));
+    assert.equal(applied.written.includes(path.join(fixture.targetDir, 'AGENTS.md')), false);
+    assert.ok(applied.retired.includes('.cbmignore'));
     const stateAfter = JSON.parse(await readFile(fixture.statePath, 'utf8'));
     for (const target of targets) {
       assert.equal(await readFile(path.join(fixture.targetDir, target), 'utf8'), customizedContents.get(target));

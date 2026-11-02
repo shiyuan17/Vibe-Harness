@@ -2,33 +2,42 @@ import { createHash } from 'node:crypto';
 import { closeSync, existsSync, lstatSync, openSync, readFileSync, readSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
-/** Snapshot-local Merkle hashes: stream each real file once, never reuse across snapshots. */
+/** Snapshot-local graph hash. Hash physical nodes once, including every link edge. */
 export function dependencyFingerprint(projectDir, config = {}, checks = []) {
   const startedAt = Date.now();
   const roots = new Set(['.', ...(config.worktree?.dependencyRoots ?? []), ...checks.map((check) => check.cwd ?? '.')]);
-  const hash = createHash('sha256').update('dependency-merkle-v2\n');
-  const memo = new Map();
+  const nodes = new Map();
+  const visited = new Set();
+  const projectRoot = realpathSync(projectDir);
+  const normalize = (value) => {
+    const normalized = value.replaceAll('\\', '/').replace(/\/+$/u, '');
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+  };
+  const nodeId = (real) => {
+    const relative = path.relative(projectRoot, real);
+    return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+      ? `inside:${normalize(relative || '.')}` : `outside:${normalize(real)}`;
+  };
   const buffer = Buffer.allocUnsafe(64 * 1024);
   let count = 0;
   let files = 0;
   let bytes = 0;
   let memoHits = 0;
-  const walk = (file, ancestors = new Set()) => {
-    if (++count > 500000) throw new Error('dependency fingerprint exceeds file limit');
-    const info = lstatSync(file);
+  const walk = (file) => {
     const real = realpathSync(file);
-    if (ancestors.has(real)) return { digest: 'cycle', cyclic: true };
-    if (memo.has(real)) { memoHits += 1; return memo.get(real); }
-    const next = new Set(ancestors).add(real);
+    const id = nodeId(real);
+    if (visited.has(id)) { memoHits += 1; return; }
+    if (++count > 500000) throw new Error('dependency fingerprint exceeds unique node limit');
+    visited.add(id);
+    const info = lstatSync(file);
     const target = info.isSymbolicLink() ? lstatSync(real) : info;
     const content = createHash('sha256');
-    let cyclic = false;
     if (target.isDirectory()) {
       content.update('directory\n');
       for (const child of readdirSync(real).sort()) {
-        const result = walk(path.join(real, child), next);
-        content.update(JSON.stringify([child, result.digest]));
-        cyclic ||= result.cyclic;
+        const entry = path.join(real, child);
+        content.update(JSON.stringify([child, lstatSync(entry).isSymbolicLink(), nodeId(realpathSync(entry))]));
+        walk(entry);
       }
     } else if (target.isFile()) {
       files += 1;
@@ -42,29 +51,32 @@ export function dependencyFingerprint(projectDir, config = {}, checks = []) {
         }
       } finally { closeSync(descriptor); }
     } else throw new Error('unsupported dependency entry');
-    const result = { digest: content.digest('hex'), cyclic };
-    // A cyclic subtree depends on its ancestors; only context-free hashes are memoized.
-    if (!cyclic) memo.set(real, result);
-    return result;
+    nodes.set(id, content.digest('hex'));
   };
   const metrics = () => ({ entries: count, files, bytes, memoHits, durationMs: Date.now() - startedAt });
   try {
+    const rootsInput = [];
     for (const root of [...roots].sort()) {
       if (path.isAbsolute(root) || root.split(/[\\/]/u).includes('..')) throw new Error('invalid dependency root');
       const directory = path.join(projectDir, root, 'node_modules');
-      hash.update(`${root}:`);
-      if (existsSync(directory)) hash.update(walk(directory).digest);
-      else hash.update('missing');
+      if (existsSync(directory)) {
+        rootsInput.push([`${root}:node_modules`, nodeId(realpathSync(directory)), lstatSync(directory).isSymbolicLink()]);
+        walk(directory);
+      } else rootsInput.push([`${root}:node_modules`, 'missing']);
     }
     const envPaths = new Set(['.env', '.env.local', config.worktree?.ports?.envFile ?? '.vibe-harness/worktree.env',
       ...(config.worktree?.provision?.envFiles ?? [])]);
     for (const relative of [...envPaths].sort()) {
       if (path.isAbsolute(relative) || relative.split(/[\\/]/u).includes('..')) throw new Error('Invalid environment input');
-      hash.update(`${relative}:`);
       const file = path.join(projectDir, relative);
-      if (existsSync(file)) hash.update(walk(file).digest);
-      else hash.update('missing');
+      if (existsSync(file)) {
+        rootsInput.push([relative, nodeId(realpathSync(file)), lstatSync(file).isSymbolicLink()]);
+        walk(file);
+      } else rootsInput.push([relative, 'missing']);
     }
+    const hash = createHash('sha256').update('dependency-graph-v3\n');
+    hash.update(JSON.stringify(rootsInput));
+    for (const entry of [...nodes].sort(([left], [right]) => left.localeCompare(right))) hash.update(JSON.stringify(entry));
     return { available: true, fingerprint: hash.digest('hex'), ...metrics() };
   } catch (error) {
     return { available: false, fingerprint: null, ...metrics(), reason: error.message };

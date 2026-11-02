@@ -14,8 +14,6 @@ export const repositoryRoot = path.resolve(import.meta.dirname, '..', '..');
 // files it never created.
 export const GOVERNED_SCHEMAS = [
   'adr',
-  'execution-envelope',
-  'execution-envelope-v2',
   'harness-eval-fixture',
   'harness-eval-result',
   'harness-eval-scenario',

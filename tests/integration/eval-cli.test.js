@@ -188,7 +188,9 @@ test('eval check and offline run are read-only until write is explicit', async (
     assert.equal(preview.code, 0);
     assert.equal(preview.payload.dryRun, true);
     assert.equal(preview.payload.run.status, 'passed');
-    assert.equal(preview.payload.status, 'degraded');
+    assert.equal(preview.payload.status, 'ready');
+    assert.equal(preview.payload.run.reference.status, 'mismatched');
+    assert.ok(preview.payload.warnings.some((warning) => warning.startsWith('historical evidence stale:')));
     await assert.rejects(readFile(path.join(target, '.vibe-harness/evals/runs'), 'utf8'), /ENOENT|EISDIR/u);
 
     const written = await run(['eval', 'run', '--project', target, '--mode', 'offline', '--write', '--allow-degraded']);

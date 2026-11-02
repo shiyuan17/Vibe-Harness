@@ -429,10 +429,11 @@ export async function buildVerificationPlan({
       // directory the same check would run from the repository root as well,
       // and the focused entrypoint would execute it twice.
       cwd: configured.cwd ?? item.cwd ?? '.',
-      deterministic: configured.deterministic,
+      deterministic: tierSelection ? item.deterministic : configured.deterministic,
       resources: configured.resources,
       writesDependencies: configured.writesDependencies,
       cacheScope: configured.cacheScope,
+      ...(!tierSelection && configured.evidenceScope ? { evidenceScope: configured.evidenceScope } : {}),
       ...(configured.subsumes !== undefined ? { subsumes: configured.subsumes } : {}),
       ...(configured.estimatedDurationMs !== undefined ? { estimatedDurationMs: configured.estimatedDurationMs } : {}),
       ...(configured.timeoutMs !== undefined ? { timeoutMs: configured.timeoutMs } : {}),

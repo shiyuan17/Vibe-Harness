@@ -162,7 +162,7 @@ export const defaultProjectConfig = {
   },
   worktree: {
     root: '../ExampleProject-worktrees',
-    baseRef: 'origin/develop',
+    baseRef: 'develop',
   },
 };
 

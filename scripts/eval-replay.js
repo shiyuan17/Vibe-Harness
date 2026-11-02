@@ -1,114 +1,43 @@
 #!/usr/bin/env node
 import path from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-
-import { loadEvalAssets, validateEvalAssets, validateEvalSuiteSemantics } from './lib/eval-contract.js';
-import { syncOfflineRunArtifact } from './lib/eval-replay.js';
-import { compareFingerprints } from './lib/eval-scoring.js';
-import { validateJsonAgainstSchema } from './lib/manifest.js';
+import { loadEvalAssets, validateEvalAssets } from './lib/eval-contract.js';
+import { evaluateCurrentEvalInputs } from './lib/eval-replay.js';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-function usage() {
-  console.log('Usage: node scripts/eval-replay.js [--write] [--json]');
-  console.log();
-  console.log('Reproduces the checked-in offline run (evals/results/) from the suite and compares it.');
-  console.log('  --write  Regenerate the checked-in run; the previous file is backed up under .vibe-harness/backups/.');
-  console.log('  --json   Emit the complete report as JSON.');
-  console.log();
-  console.log('The run embeds the same asset fingerprint as the approved reference, so a rule, Hook,');
-  console.log('config or suite change requires regenerating the reference first and this artifact second.');
-}
-
-/** @param {any} payload */
-function fail(payload) {
-  console.error(JSON.stringify(payload, null, 2));
-  process.exitCode = 1;
-}
-
 async function main() {
-  let json = false;
-  let write = false;
-  for (const token of process.argv.slice(2)) {
-    if (token === '--write') write = true;
-    else if (token === '--json') json = true;
-    else if (token === '--help' || token === '-h') { usage(); return; }
-    else {
-      console.error(`eval-replay: unknown argument: ${token}`);
-      usage();
-      process.exitCode = 1;
-      return;
-    }
+  const args = process.argv.slice(2);
+  if (args.some((arg) => ['--help', '-h'].includes(arg))) {
+    console.log('Usage: node scripts/eval-replay.js [--write] [--json]\nEvaluate current inputs under approved criteria; --write saves a NEW run in .vibe-harness/evals/. Historical run/reference are never overwritten. Offline replay is not Agent behavior evidence.');
+    return;
   }
-
+  if (args.some((arg) => !['--write', '--json'].includes(arg))) {
+    console.error('eval-replay: unknown argument');
+    process.exitCode = 1;
+    return;
+  }
   const assets = await loadEvalAssets(rootDir);
-
-  if (write) {
-    // The checked-in asset pair is intentionally allowed to disagree here: the
-    // documented flow regenerates the reference first and this artifact second.
-    const suiteErrors = [
-      ...validateJsonAgainstSchema(assets.suite, assets.schemas.suite, 'evals/suites/vibe-harness-core.json'),
-      ...validateEvalSuiteSemantics(assets.suite),
-    ];
-    if (suiteErrors.length > 0) {
-      fail({ errors: suiteErrors, ok: false });
-      return;
-    }
-    const report = await syncOfflineRunArtifact({ rootDir, suite: assets.suite, write: true });
-    const mismatches = compareFingerprints(report.run.fingerprint, assets.reference.fingerprint).mismatches;
-    const referenceMatched = mismatches.length === 0;
-    if (json) {
-      console.log(JSON.stringify({
-        backups: report.backups,
-        changes: report.changes,
-        errors: referenceMatched ? [] : mismatches.map((item) => `reference fingerprint mismatch for ${item.field}`),
-        nextAction: referenceMatched
-          ? null
-          : 'Obtain protected approval, regenerate the reference (`VIBE_HARNESS_PROTECTED_APPROVAL=1 pnpm vibe-harness eval reference --project . --from <run> --write --confirm-reference-update --force`) and rerun `pnpm eval:replay`.',
-        ok: referenceMatched,
-        path: report.path,
-        reference: referenceMatched ? 'matched' : 'mismatched',
-        status: report.status,
-        written: report.written,
-      }, null, 2));
-    } else {
-      console.log(report.status === 'current'
-        ? 'Vibe-Harness offline replay artifact is current.'
-        : 'Vibe-Harness offline replay artifact updated.');
-      for (const change of report.changes) {
-        console.log(`changed: ${change.field} ${change.from ?? '-'} -> ${change.to ?? '-'}`);
-      }
-      for (const backup of report.backups) console.log(`backup: ${backup.backup}`);
-      if (!referenceMatched) {
-        console.error('reference fingerprint still differs from the regenerated run; update the reference and rerun pnpm eval:replay.');
-      }
-    }
-    if (!referenceMatched) process.exitCode = 1;
+  const errors = validateEvalAssets(assets, { historicalInputs: true });
+  if (errors.length) {
+    console.error(JSON.stringify({ status: 'failed', category: 'asset-contract', errors, ok: false }, null, 2));
+    process.exitCode = 1;
     return;
   }
-
-  const errors = validateEvalAssets(assets);
-  if (errors.length > 0) {
-    fail({ errors, ok: false });
-    return;
+  const result = await evaluateCurrentEvalInputs({ rootDir, suite: assets.suite, reference: assets.reference });
+  let artifact = null;
+  if (args.includes('--write') && result.run) {
+    artifact = path.join(rootDir, '.vibe-harness/evals', `core-${randomUUID()}.json`);
+    await mkdir(path.dirname(artifact), { recursive: true });
+    await writeFile(artifact, `${JSON.stringify(result.run, null, 2)}\n`, { flag: 'wx' });
   }
-  const report = await syncOfflineRunArtifact({ rootDir, suite: assets.suite, write: false });
-  if (report.changed) {
-    fail({
-      changes: report.changes,
-      errors: ['replay differs from the checked-in result'],
-      nextAction: 'Review the drifted groups, update the reference, then regenerate this artifact with `pnpm eval:replay --write`.',
-      ok: false,
-    });
-    return;
-  }
-  console.log('Vibe-Harness deterministic replay passed.');
-  console.log(JSON.stringify({
-    criticalPassRate: report.run.criticalPassRate,
-    overallScore: report.run.overallScore,
-    status: report.run.status,
-    suite: report.run.suite.id,
-  }, null, 2));
+  const report = { ok: result.status === 'passed', status: result.status, criteria: result.criteria,
+    proof: result.proof, fingerprint: result.run?.fingerprint ?? null, artifact,
+    overallScore: result.run?.overallScore ?? null, criticalPassRate: result.run?.criticalPassRate ?? null,
+    agentBehavior: 'unverified; requires a real Agent run', historicalArtifacts: 'preserved',
+    nextAction: result.status === 'blocked' ? 'Restore the approved suite for comparison or obtain protected approval for changed criteria; do not re-record the reference to remove a failure.' : null };
+  console.log(JSON.stringify(report, null, 2));
+  if (!report.ok) process.exitCode = 1;
 }
-
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

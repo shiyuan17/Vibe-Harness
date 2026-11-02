@@ -26,6 +26,7 @@ import {
   diffMultiTargetInstall,
   diffTargetInstall,
   inspectTargetInstall,
+  isMutatingInstallAction,
   previewInstallPlan,
   strictEnforcementWarnings,
 } from './lib/install-planner.js';
@@ -722,7 +723,8 @@ async function install(args) {
     runtimeHooks,
     requiresRedZoneConfirmation: plan.dryRun
       && !args['confirm-red-zone']
-      && plan.actions.some((action) => action.redZone && action.kind === 'write'),
+      && plan.actions.some((action) => action.redZone
+        && isMutatingInstallAction(action)),
     target: isMvpMode && selectedTargets.length === 1 ? adapterId : undefined,
     targets: selectedTargets,
     ...(args.verbose ? { targetDir: plan.targetDir } : {}),
@@ -897,9 +899,6 @@ async function verify(args) {
   const projectProfile = await detectProjectProfile({ config, targetDir });
   const validationCommands = validationCommandView(projectProfile, config);
   const commandStatus = await inspectValidationCommands({ commands: validationCommands, targetDir });
-  // The verification receipt also carries the Hook enforcement posture: under
-  // hooks.enforcement "strict" an unproven or denied posture must not read as
-  // a green verification run.
   const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
   const strictEnforcementRefusals = [];
   const hookPolicyWarnings = [

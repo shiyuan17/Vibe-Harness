@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import { buildEnvelopeDraft } from './envelope-records.js';
 import { assertInsideDir, assertPortableRelativePath } from './manifest.js';
 import { safeJsonParse } from './safe-json.js';
 import { assertSafeCommand } from './shell-command.js';
@@ -171,58 +170,16 @@ async function initializeFixtureRepository(workspace, { commitMessage = FIXTURE_
   return head.stdout.trim();
 }
 
-/**
- * Host injection for a case that declares host-controlled compaction: the
- * envelope carries the frozen workspace identity, the real fixture HEAD and a
- * deliberately stale checkpoint, so the resumed turn has to reconcile a stale
- * summary against live workspace and Git facts.
- *
- * @param {{allowedWritePaths: string[], compaction: Record<string, any>, definition: Record<string, any>, headSha: string, now: Date, repetition: number, workspace: string}} options
- */
-function hostCheckpointEnvelope({ allowedWritePaths, compaction, definition, headSha, now, repetition, workspace }) {
-  const caseId = String(definition.id ?? 'case').toLowerCase();
-  const identity = `eval-${caseId}-r${repetition}`;
-  const plan = buildEnvelopeDraft({
+function hostRecoveryCheckpoint({ compaction, headSha, now }) {
+  return {
     activeObjective: compaction.activeObjective ?? 'Finish the recorded plan steps exactly once.',
-    allowedEffects: ['workspaceWrite'],
-    allowedWriteRoots: allowedWritePaths.map((relative) => path.resolve(workspace, relative)),
-    baseRef: 'HEAD',
-    checkpoint: {
-      activeObjective: compaction.activeObjective ?? 'Finish the recorded plan steps exactly once.',
-      blockerCount: 0,
-      blockerFingerprint: 'none',
-      completedFacts: compaction.completedFacts ?? [],
-      continuationCount: 1,
-      dagStructureHash: 'none',
-      headSha,
-      liveStates: { 'BRIEF.md': 'read', 'progress.log': 'unverified-at-checkpoint-time' },
-      nextAction: compaction.nextAction ?? 'continue the remaining plan steps',
-      noRepeatSet: compaction.noRepeatSet ?? [],
-      observedAt: now.toISOString(),
-      targetIssueId: 'eval-fixture',
-    },
-    cwd: workspace,
-    expiresAt: new Date(now.getTime() + 30 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/u, 'Z'),
-    forbiddenEffects: ['linearWrite', 'hostWrite', 'externalWrite', 'gitBranch', 'gitCommit', 'gitPush', 'mergeRequestWrite', 'credentialUse'],
-    hostContext: {
-      approval: 'unavailable',
-      filesystem: 'workspace-write',
-      network: 'offline',
-      observedAt: now.toISOString(),
-      process: 'isolated',
-      source: 'host',
-    },
-    mode: 'execute',
-    requestId: identity,
-    riskClass: 'standard',
-    sessionId: identity,
-    targetIssueIds: [],
     terminalCondition: compaction.terminalCondition ?? 'The recorded plan steps are each completed exactly once.',
-  });
-  if (!plan.valid) {
-    throw new Error(`host compaction envelope is invalid: ${plan.problems.map((problem) => problem.code).join(', ') || 'unknown problem'}`);
-  }
-  return plan.envelope;
+    headSha,
+    completedFacts: compaction.completedFacts ?? [],
+    noRepeatSet: compaction.noRepeatSet ?? [],
+    nextAction: compaction.nextAction ?? 'continue the remaining plan steps',
+    observedAt: now.toISOString(),
+  };
 }
 
 function validateObservation(value, caseId, configHash) {
@@ -338,16 +295,8 @@ export async function runEvaluationCase({ command, definition, configHash = 'fix
       ? await initializeFixtureRepository(workspace, { commitMessage: fixtureGit.commitMessage ?? FIXTURE_COMMIT_MESSAGE })
       : null;
     const compaction = definition.input?.compaction ?? null;
-    const hostEnvelope = compaction
-      ? hostCheckpointEnvelope({
-        allowedWritePaths: definition.input.fixture?.allowedWritePaths ?? [],
-        compaction,
-        definition,
-        headSha: headSha ?? '0'.repeat(40),
-        now: new Date(),
-        repetition,
-        workspace,
-      })
+    const recoveryCheckpoint = compaction
+      ? hostRecoveryCheckpoint({ compaction, headSha: headSha ?? '0'.repeat(40), now: new Date() })
       : null;
     const request = {
       schemaVersion: 1,
@@ -355,7 +304,7 @@ export async function runEvaluationCase({ command, definition, configHash = 'fix
       repetition,
       workspace,
       configHash,
-      ...(hostEnvelope ? { hostEnvelope } : {}),
+      ...(recoveryCheckpoint ? { recoveryCheckpoint } : {}),
       case: {
         ...definition,
         input: { ...definition.input, scenario: evaluationPrompt(definition) },

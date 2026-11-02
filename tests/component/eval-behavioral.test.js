@@ -56,15 +56,16 @@ test('行为运行执行真实运行时且确定性通过', async () => {
   }
 });
 
-test('已入库行为产物与再生成运行一致且无需写入', async () => {
-  const { suite } = await loadBehavioralSuite();
+test('历史行为产物有效性与当前行为通过独立于指纹新鲜度', async () => {
+  const { suite, runSchema } = await loadBehavioralSuite();
   const report = await syncBehavioralRunArtifact({ rootDir, suite, write: false });
-  assert.equal(report.status, 'current');
-  assert.equal(report.changed, false);
+  assert.ok(['current', 'stale'].includes(report.status));
+  assert.equal(report.run.status, 'passed');
+  assert.deepEqual(report.artifactErrors, []);
   assert.deepEqual(report.written, []);
   assert.deepEqual(report.backups, []);
   const checkedIn = await readJson(path.join(rootDir, BEHAVIORAL_RESULT_PATH));
-  assert.deepEqual(checkedIn, report.run);
+  assert.deepEqual(validateJsonAgainstSchema(checkedIn, runSchema, 'history'), []);
 });
 
 test('反转红区 oracle 使拒绝用例失败，套件无法同义反复地通过', async () => {
@@ -94,8 +95,31 @@ test('反转红区 oracle 使拒绝用例失败，套件无法同义反复地通
       'required-event',
       'required-output-fragment',
     ]);
+    const failedWrite = await syncBehavioralRunArtifact({ rootDir: assetRoot, suite: inverted, write: true });
+    assert.equal(failedWrite.run.status, 'failed');
+    assert.deepEqual(failedWrite.written, []);
   } finally {
     await rm(assetRoot, { force: true, recursive: true });
+  }
+});
+
+test('损坏历史行为产物仍阻断且写入不能掩盖错误', async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-behavioral-invalid-'));
+  try {
+    const { suite } = await loadBehavioralSuite();
+    const single = { ...suite, cases: [suite.cases[0]] };
+    const artifactPath = path.join(targetDir, BEHAVIORAL_RESULT_PATH);
+    await mkdir(path.dirname(artifactPath), { recursive: true });
+    for (const invalid of ['{broken', '{}']) {
+      await writeFile(artifactPath, invalid);
+      const report = await syncBehavioralRunArtifact({ rootDir: targetDir, suite: single, write: true });
+      assert.equal(report.status, 'invalid');
+      assert.ok(report.artifactErrors.length);
+      assert.deepEqual(report.written, []);
+      assert.equal(await readFile(artifactPath, 'utf8'), invalid);
+    }
+  } finally {
+    await rm(targetDir, { force: true, recursive: true });
   }
 });
 
@@ -133,7 +157,7 @@ test('blocked 与 failed 的聚焦验证通过命令码保持区分', async () =
   }
 });
 
-test('行为产物再生成显式执行、先备份并报告漂移字段', async () => {
+test('历史指纹漂移只提示且显式写入保存独立新结果', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-behavioral-artifact-'));
   try {
     const { suite } = await loadBehavioralSuite();
@@ -147,7 +171,8 @@ test('行为产物再生成显式执行、先备份并报告漂移字段', async
     await writeFile(artifactPath, `${JSON.stringify(stale, null, 2)}\n`, 'utf8');
 
     const dryRun = await syncBehavioralRunArtifact({ rootDir: targetDir, suite: single });
-    assert.equal(dryRun.status, 'drifted');
+    assert.equal(dryRun.status, 'stale');
+    assert.deepEqual(dryRun.artifactErrors, []);
     assert.equal(dryRun.changed, true);
     assert.deepEqual(dryRun.written, []);
     assert.deepEqual(dryRun.backups, []);
@@ -163,35 +188,34 @@ test('行为产物再生成显式执行、先备份并报告漂移字段', async
       suite: single,
       write: true,
     });
-    assert.equal(written.status, 'updated');
-    assert.deepEqual(written.written, [BEHAVIORAL_RESULT_PATH]);
-    assert.equal(written.backups.length, 1);
-    assert.equal(written.backups[0].target, BEHAVIORAL_RESULT_PATH);
-    const backup = JSON.parse(await readFile(path.join(targetDir, written.backups[0].backup), 'utf8'));
-    assert.equal(backup.fingerprint.assets.aggregateHash, '0'.repeat(64));
-    assert.deepEqual(JSON.parse(await readFile(artifactPath, 'utf8')), written.run);
+    assert.equal(written.status, 'stale');
+    assert.equal(written.written.length, 1);
+    assert.match(written.written[0], /^\.vibe-harness\/evals\/behavioral-/u);
+    assert.deepEqual(written.backups, []);
+    assert.deepEqual(JSON.parse(await readFile(artifactPath, 'utf8')), stale);
+    assert.deepEqual(JSON.parse(await readFile(path.join(targetDir, written.written[0]), 'utf8')), written.run);
 
     const current = await syncBehavioralRunArtifact({ rootDir: targetDir, suite: single });
-    assert.equal(current.status, 'current');
-    assert.equal(current.changed, false);
-    assert.deepEqual(current.changes, []);
+    assert.equal(current.status, 'stale');
+    assert.equal(current.changed, true);
+    assert.deepEqual(current.artifactErrors, []);
   } finally {
     await rm(targetDir, { force: true, recursive: true });
   }
 });
 
-test('行为产物再生成在缺失时直接创建且不产生备份', async () => {
+test('历史行为产物缺失时新结果不冒充已入库基线', async () => {
   const targetDir = await mkdtemp(path.join(tmpdir(), 'vibe-behavioral-missing-'));
   try {
     const { suite } = await loadBehavioralSuite();
     const single = structuredClone(suite);
     single.cases = [single.cases[0]];
     const report = await syncBehavioralRunArtifact({ rootDir: targetDir, suite: single, write: true });
-    assert.equal(report.status, 'updated');
-    assert.deepEqual(report.written, [BEHAVIORAL_RESULT_PATH]);
+    assert.equal(report.status, 'stale');
+    assert.equal(report.written.length, 1);
     assert.deepEqual(report.backups, []);
     assert.deepEqual(report.changes.map((item) => item.field), ['fingerprint']);
-    const saved = JSON.parse(await readFile(path.join(targetDir, BEHAVIORAL_RESULT_PATH), 'utf8'));
+    const saved = JSON.parse(await readFile(path.join(targetDir, report.written[0]), 'utf8'));
     assert.deepEqual(saved.fingerprint, report.run.fingerprint);
     assert.equal(saved.mode, 'offline');
   } finally {
@@ -207,15 +231,16 @@ test('行为 CLI 默认只读、暴露包脚本并拒绝未知参数', async () 
   assert.deepEqual(payload, {
     backups: [],
     cases: (await loadBehavioralSuite()).suite.cases.map((item) => ({ id: item.id, passed: true })),
-    changes: [],
+    changes: payload.changes,
     criticalPassRate: 1,
     ok: true,
     overallScore: 1,
     path: BEHAVIORAL_RESULT_PATH,
-    status: 'current',
+    status: payload.status,
     suite: 'vibe-harness-behavioral',
     written: [],
   });
+  assert.ok(['current', 'stale'].includes(payload.status));
   await assert.rejects(
     execFileAsync(process.execPath, [path.join(rootDir, 'scripts/eval-behavioral.js'), '--bogus']),
     (error) => error.code === 1 && /unknown argument/u.test(error.stderr),

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -23,6 +24,49 @@ export function stableJson(value) {
 
 export function suiteHash(suite) {
   return createHash('sha256').update(stableJson(suite)).digest('hex');
+}
+
+// Inputs are stimuli, not the oracle. Every other field (weights, assertions,
+// thresholds, exemptions, reporting expectations and repetitions) stays bound.
+export function evalCriteriaFingerprint(suite) {
+  const { version, ...criteria } = suite;
+  return suiteHash({ ...criteria, cases: (suite.cases ?? []).map(({ input, ...definition }) => definition) });
+}
+
+export function assessEvalCriteria(suite, reference, approvedSuite = null) {
+  if (suiteHash(suite) === reference.fingerprint?.suiteHash) return { status: 'unchanged' };
+  if (!approvedSuite || suiteHash(approvedSuite) !== reference.fingerprint?.suiteHash) {
+    return { status: 'blocked', reason: 'approved-suite-unavailable' };
+  }
+  return evalCriteriaFingerprint(suite) === evalCriteriaFingerprint(approvedSuite)
+    ? { status: 'unchanged', inputChanged: true }
+    : { status: 'blocked', reason: 'protected-criteria-change' };
+}
+
+export function historicalApprovedSuite(rootDir, reference, {
+  suitePath = 'evals/suites/vibe-harness-core.json',
+  referencePath = 'evals/references/vibe-harness-core.offline.json',
+} = {}) {
+  try {
+    const sha = execFileSync('git', ['log', '-1', '--format=%H', '--', referencePath],
+      { cwd: rootDir, encoding: 'utf8', windowsHide: true, timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    if (!/^[0-9a-f]{40,64}$/u.test(sha)) return null;
+    const suite = JSON.parse(execFileSync('git', ['show', `${sha}:${suitePath}`],
+      { cwd: rootDir, encoding: 'utf8', windowsHide: true, timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'] }));
+    return suiteHash(suite) === reference.fingerprint?.suiteHash ? suite : null;
+  } catch { return null; }
+}
+
+/** A new run under the approved oracle. Never mutates the historical pair and
+ * never represents Agent behavior: replay scores only deterministic stimuli. */
+export async function evaluateCurrentEvalInputs({ rootDir, suite, reference, approvedSuite = undefined }) {
+  const criteria = assessEvalCriteria(suite, reference,
+    approvedSuite === undefined && suiteHash(suite) !== reference.fingerprint?.suiteHash
+      ? historicalApprovedSuite(rootDir, reference) : approvedSuite);
+  if (criteria.status === 'blocked') return { status: 'blocked', criteria, run: null, proof: 'contract-replay' };
+  const run = await buildOfflineRun(suite, { assetRoot: rootDir, generatedAt: new Date().toISOString() });
+  const regressed = run.overallScore < reference.overallScore || run.criticalPassRate < reference.criticalPassRate;
+  return { status: run.status === 'passed' && !regressed ? 'passed' : 'failed', criteria, run, proof: run.proof };
 }
 
 export async function buildOfflineRun(suite, {

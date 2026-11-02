@@ -56,7 +56,7 @@ CLI 与安装运行时共用档位选择器，以命令和项目相对 `cwd` 去
 
 ### 重任务锁
 
-重型验证不再用仓库级互斥锁串行化。候选验证在交付 FIFO 外运行，持有 Git common dir 下的候选活动租约（nonce、PID、心跳与 TTL），心跳持续续约，持有者退出或心跳过期后才可回收，不因等待时间长而强删活跃租约；被后续发布取代的候选收到协作 CANCEL sidecar，下一次轮询在检查之间中止，进程树终止后租约被强制释放。并发验证的资源争用以明确的失败原因报告，不以测试失败掩盖。
+重型验证按声明的具名资源控制并发；实际持有者负责释放活跃租约，不因等待时间长强删。本地 stage 的仓库锁只保护本地 Git 变更，不承载验证或远端动作。
 
 项目检查可在 stdout 或 stderr 输出一行 `[VIBE_HARNESS_CHECK] {"status":"not_applicable","reason":"..."}` 表示未执行适用验证，也可声明 `blocked` 或 `failed`；该协议不能把失败退出码提升为通过，后续跳过标记不能覆盖失败。所有检查均不适用时返回 unverified；部分检查跳过时记录覆盖缺口，不缓存整组通过。affected 范围确实没有变化时可无操作结束，但不产生通过收据。
 
@@ -68,7 +68,7 @@ CLI 与安装运行时共用档位选择器，以命令和项目相对 `cwd` 去
 
 `timingsMs` 分别记录 preparation、scopeResolution、snapshotBefore/After、inputFingerprint、dependencyScan、coalescingWait、resourceWait、execution、cacheLookup 和 total；inputFingerprint 包含 dependencyScan，资源等待与执行为逐检查累计，不能相加冒充并发墙钟。`dependencyScan.before/after` 记录 entries、files、bytes、memoHits 与 durationMs：单次快照以真实路径去重并流式读取，前后快照各自重新读取。缓存报告分别指出禁用、非确定性、warm、共享依赖、依赖/配置/工具链不可用与无匹配收据。
 
-候选准备与推送证明沿用 `proofTimingsMs` 分别记录 setup、verification、create/inspect。stage 只处理本地候选；publish 已在终锁前精确读取远端基线和重建隔离候选，终锁内再次对账，不新增全局调度器、不同步脏主检出。任务恢复使用现有 `task status --output summary`；状态回写与清理重试不重放合并/推送。
+本地 stage 直接 no-ff 合入 develop，记录 localMergeCommit 与 local_integrated，不检查远端、不推送、不重复任务完成验证。任务恢复使用现有 `task status --output summary`；状态回写与清理重试不重放合并/推送。
 
 ### 兼容与迁移
 

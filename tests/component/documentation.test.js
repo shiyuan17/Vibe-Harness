@@ -10,10 +10,25 @@ import {
   validateReadmeParity,
   validateCanonicalRuleLayout,
   validateSchemaParity,
+  validateRetiredAuthorizationInstructions,
 } from '../../scripts/lib/docs-validation.js';
 import { createDocsFixture, removeDocsFixture } from '../helpers/docs-fixture.js';
 
 const rootDir = path.resolve(import.meta.dirname, '../..');
+
+test('当前指南拒绝退役授权要求但允许退役说明与同义简写', () => {
+  for (const content of [
+    '不要求 Envelope，按用户授权行动。',
+    '不再需要 Execution Envelope。',
+    '无需等待 hostContext。',
+  ]) assert.deepEqual(validateRetiredAuthorizationInstructions(content, 'current.md'), []);
+  for (const content of [
+    '需要 Execution Envelope，否则拒绝。',
+    '不要求 Envelope。写入前必须提供 hostContext。',
+    '运行 pnpm envelope plan。',
+    '引用 execution-envelope.mjs。',
+  ]) assert.ok(validateRetiredAuthorizationInstructions(content, 'current.md').length > 0, content);
+});
 // Temporary fixtures stay under `tmp/`, which the repository scan excludes;
 // anything else inside the repository can be deleted by a parallel test while
 // docs-validation walks the working tree (see the guard case below).
@@ -100,8 +115,8 @@ test('legacy brand audit ignores archive assets', async () => {
 // the suite's --test-concurrency (20.9s solo on 2026-09-19, 30s default).
 test('execution envelope schemas are governed without Markdown false positives', { timeout: 120000 }, async () => {
   const governedPaths = await collectGovernedPaths(rootDir);
-  assert.ok(governedPaths.includes('docs/schemas/execution-envelope.schema.json'));
-  assert.ok(governedPaths.includes('schemas/execution-envelope.schema.json'));
+  assert.equal(governedPaths.includes('docs/schemas/execution-envelope.schema.json'), false);
+  assert.equal(governedPaths.includes('schemas/execution-envelope.schema.json'), false);
 
   const report = await validateDocumentation({ rootDir });
   const schemaErrors = report.errors.filter((error) => error.includes('execution-envelope.schema.json'));

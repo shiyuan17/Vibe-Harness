@@ -11,7 +11,7 @@ import { selectTierChecks } from '../../scripts/lib/validation-tiers.js';
 import { buildVerificationPlan } from '../../scripts/lib/verification-plan.js';
 import { runVerificationPlan } from '../../scripts/lib/project-verification.js';
 import { detectProjectProfile } from '../../scripts/lib/project-profile.js';
-import { verificationCheckEvidence } from '../../runtime/lib/verification-plan.mjs';
+import { verificationChanges, verificationCheckEvidence } from '../../runtime/lib/verification-plan.mjs';
 import { verifyProject } from '../../runtime/lib/verification-command.mjs';
 import { verificationCacheContext, findVerificationCheckReceipt, storeVerificationCheckReceipt,
   VERIFICATION_RECEIPT_SCHEMA_VERSION } from '../../runtime/lib/verification-receipt.mjs';
@@ -49,6 +49,52 @@ async function commitFixture(project) {
   await execute('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test',
     'commit', '--quiet', '-m', 'fixture'], { cwd: project });
 }
+
+test('冻结范围优先于工作区，显式路径优先；无效上下文不静默换基线', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, 'one.txt'), 'one\n');
+    await commitFixture(project);
+    await writeFile(path.join(project, 'unrelated.json'), '{}\n');
+    const names = ['VIBE_HARNESS_VERIFY_PATHS', 'VIBE_HARNESS_VERIFY_BASE', 'VIBE_HARNESS_VERIFY_SCOPE'];
+    const previous = names.map((name) => process.env[name]);
+    try {
+      process.env.VIBE_HARNESS_VERIFY_PATHS = JSON.stringify(['one.txt']);
+      process.env.VIBE_HARNESS_VERIFY_BASE = (await execute('git', ['rev-parse', 'HEAD'], { cwd: project })).stdout.trim();
+      process.env.VIBE_HARNESS_VERIFY_SCOPE = 'affected';
+      assert.deepEqual(verificationChanges(project).changedPaths, ['one.txt']);
+      assert.equal(verificationChanges(project).selectionMode, 'frozen-context');
+      assert.deepEqual(verificationChanges(project, { paths: ['two.txt'] }).changedPaths, ['two.txt']);
+      process.env.VIBE_HARNESS_VERIFY_BASE = 'nonexistent';
+      assert.throws(() => verificationChanges(project));
+      process.env.VIBE_HARNESS_VERIFY_PATHS = 'not-json';
+      assert.throws(() => verificationChanges(project), /Invalid inherited/u);
+    } finally {
+      names.forEach((name, index) => { if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index]; });
+    }
+  });
+});
+
+test('workspace 逐项复用不会因非确定性检查而退回整组重跑', async () => {
+  await fixture(async (project) => {
+    await writeFile(path.join(project, '.gitignore'), '.vibe-harness/\nfront.runs\nback.runs\n');
+    await writeFile(path.join(project, 'front.mjs'), "import { appendFileSync } from 'node:fs'; appendFileSync('front.runs', 'run\\n');\n");
+    await writeFile(path.join(project, 'back.mjs'), "import { appendFileSync } from 'node:fs'; appendFileSync('back.runs', 'run\\n');\n");
+    await configure(project, {
+      tiers: { quick: ['node front.mjs', 'node back.mjs'], standard: [], deep: [] },
+      checks: [{ id: 'front', command: 'node front.mjs', deterministic: true },
+        { id: 'back', command: 'node back.mjs', deterministic: false }],
+    });
+    await commitFixture(project);
+    assert.equal((await verifyProject(project, { reuse: true })).status, 'passed');
+    const next = await verifyProject(project, { reuse: true });
+    assert.equal(next.checks.front.status, 'reused', JSON.stringify(next.cache));
+    assert.equal(next.checks.back.status, 'passed');
+    assert.equal(next.cache.status, 'partial');
+    assert.equal(await readFile(path.join(project, 'front.runs'), 'utf8'), 'run\n');
+    await writeFile(path.join(project, 'front.mjs'), "console.log('changed');\n");
+    assert.equal((await verifyProject(project, { reuse: true })).checks.front.status, 'passed');
+  });
+});
 
 for (const tier of ['quick', 'standard', 'deep']) {
   test(`安装运行时与 CLI 档位选择一致：${tier}`, async () => {
@@ -175,6 +221,7 @@ test('无锚点验证复用已认证收据且未跟踪源码变化使其失效',
     const second = await runCommand(['verify', '--project', project, '--reuse']);
     assert.equal(second.report.status, 'reused');
     assert.equal(second.report.verification.schemaVersion, 3);
+    assert.equal(second.report.verification.inputsStable, true);
     assert.equal(second.report.reused.id, first.report.verification.id);
     assert.equal(await readFile(path.join(project, 'runs.txt'), 'utf8'), 'run\n');
     await writeFile(path.join(project, 'new-source.js'), 'export const value = 1;\n');
@@ -612,6 +659,15 @@ test('旧版和失败收据不能复用且后续失败移除同状态旧通过�
     const file = path.join(directory, filename);
     const receipt = JSON.parse(await readFile(file, 'utf8'));
     await writeFile(file, JSON.stringify({ ...receipt, schemaVersion: 2 }));
+    // Workspace mode now also owns independently authenticated atomic records.
+    // Invalidate the legacy check record too; a corrupt aggregate alone must
+    // not discard a still-valid atomic result.
+    const checkDirectory = await checkCacheDirectory(project);
+    for (const name of await readdir(checkDirectory)) {
+      const checkFile = path.join(checkDirectory, name);
+      const record = JSON.parse(await readFile(checkFile, 'utf8'));
+      await writeFile(checkFile, JSON.stringify({ ...record, schemaVersion: 2 }));
+    }
     const legacy = await runCommand(['verify', '--project', project, '--reuse']);
     assert.equal(legacy.report.cache.status, 'miss');
     assert.equal(legacy.report.status, 'failed');
@@ -620,6 +676,7 @@ test('旧版和失败收据不能复用且后续失败移除同状态旧通过�
     const failure = await runCommand(['verify', '--project', project, '--no-reuse']);
     assert.equal(failure.report.status, 'failed');
     await assert.rejects(readFile(file));
+    assert.deepEqual(await readdir(checkDirectory), [], 'a real failure revokes the previous atomic pass');
   });
 });
 

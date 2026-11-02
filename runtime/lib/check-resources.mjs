@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { hostname } from 'node:os';
 import { delay, runGit } from './cli-runtime.mjs';
-import { processStartIdentity } from './services.mjs';
+import { processStartIdentity, treeGone } from './services.mjs';
+let runnerStartIdentity;
 
 export function normalizeCheckResources(values = []) {
   if (!Array.isArray(values) || values.some((value) => typeof value !== 'string'
@@ -47,6 +48,15 @@ function inspectResourceOwner(file, checkIdentity) {
         unlinkSync(file);
         return { owner, reclaimed: true };
       }
+      const tree = owner.processTree;
+      if (tree?.observed === true && Number.isInteger(tree.pid) && tree.pid > 0
+        && (process.platform !== 'win32' || typeof tree.startIdentity === 'string'
+          && !['', 'unreadable', 'missing'].includes(tree.startIdentity))
+        && treeGone(tree.pid, { startIdentity: tree.startIdentity, tracked: tree.tracked ?? [] })
+        && readFileSync(file, 'utf8') === observed) {
+        unlinkSync(file);
+        return { owner, reclaimed: true };
+      }
       return { owner, recoveryRequired: true };
     }
     if (checkIdentity && owner.processStartTime && !['missing', 'unreadable'].includes(owner.processStartTime)) {
@@ -73,7 +83,9 @@ export async function acquireCheckResources(projectDir, values, { timeoutMs = 12
   const startedAt = new Date().toISOString();
   // A PID alone is not ownership: retain the OS start identity for diagnostics
   // and refuse automatic recovery if that number has been recycled.
-  const processStartTime = processStartIdentity(process.pid);
+  const processStartTime = runnerStartIdentity ??= processStartIdentity(process.pid);
+  const ticket = `${String(started).padStart(16, '0')}-${token}`;
+  const waiterFile = path.join(root, `wait-${ticket}.json`);
   const release = ({ retain = false } = {}) => {
     if (retain) return;
     for (const file of held.reverse()) {
@@ -84,7 +96,33 @@ export async function acquireCheckResources(projectDir, values, { timeoutMs = 12
     held.length = 0;
   };
   try {
+    writeFileSync(waiterFile, JSON.stringify({
+      token, ticket, names, pid: process.pid, hostname: hostname(), phase: 'reserved', startedAt, processStartTime,
+    }), { flag: 'wx', mode: 0o600 });
     acquire: while (true) {
+      // Order only overlapping resource requests. Disjoint frontend/backend
+      // checks can proceed; no partial lock is held while queued.
+      const earlier = readdirSync(root).filter((entry) => entry.startsWith('wait-') && entry.endsWith('.json')
+        && entry.slice(5, -5) < ticket).sort();
+      for (const entry of earlier) {
+        const observed = inspectResourceOwner(path.join(root, entry), false);
+        if (observed.reclaimed) continue;
+        const waiting = observed.owner;
+        const name = waiting?.names?.find((value) => names.includes(value));
+        if (!name) continue;
+        contended = true;
+        release();
+        const owner = { pid: waiting.pid ?? null, phase: 'queued', startedAt: waiting.startedAt ?? null };
+        if (Date.now() - lastReport >= 1000) {
+          onWait?.({ resource: name, owner, waitMs: Date.now() - started });
+          lastReport = Date.now();
+        }
+        if (Date.now() - started >= timeoutMs) {
+          return { ok: false, code: 'CHECK_RESOURCE_BUSY', resource: name, owner, waitMs: Date.now() - started };
+        }
+        await delay(50);
+        continue acquire;
+      }
       for (const name of names) {
         const file = path.join(root, `${createHash('sha256').update(name).digest('hex')}.json`);
         try {
@@ -122,16 +160,20 @@ export async function acquireCheckResources(projectDir, values, { timeoutMs = 12
       }
       break;
     }
-    const begin = () => {
+    const begin = (processTree = undefined) => {
       for (const file of held) {
         const record = JSON.parse(readFileSync(file, 'utf8'));
         if (record.token !== token) throw new Error('Resource lock ownership changed');
-        writeFileSync(file, JSON.stringify({ ...record, phase: 'running' }));
+        writeFileSync(file, JSON.stringify({ ...record, phase: 'running', ...(processTree ? { processTree } : {}) }));
       }
     };
     return { ok: true, waitMs: Date.now() - started, contended, begin, release };
   } catch (error) {
     release();
     return { ok: false, code: 'CHECK_RESOURCE_UNAVAILABLE', error: error.message };
+  } finally {
+    try {
+      if (JSON.parse(readFileSync(waiterFile, 'utf8')).token === token) unlinkSync(waiterFile);
+    } catch { /* Unknown ownership or inaccessible queue records are preserved. */ }
   }
 }

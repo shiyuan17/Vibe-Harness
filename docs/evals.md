@@ -6,7 +6,7 @@ Eval run schema v2 保留 offline 和 online 兼容接口，`proof` 枚举保留
 
 - contract-replay：offline replay 产出，只证明 suite、fixture、oracle、scoring 与 reference 一致。
 - online-canary：online run 产出，证明指定模型、宿主和版本的多轮行为。
-- stub-behavioral：`pnpm eval:behavioral` 产出的最小行为层（2026-09-18 落地）。它在一次性沙箱中执行当前真实运行时组件（Hook `evaluateHook` 与聚焦项目验证 `runFocusedProjectVerification`），覆盖红区默认底线拒绝、项目红区扩展、宿主权限预设优先于项目配置、放行控制与 blocked/failed 验证语义共 6 个确定性场景（`evals/suites/vibe-harness-behavioral.json`）；不调用模型、不做变异，产物可复现（`evals/results/vibe-harness-behavioral.stub.json`，内嵌 suite hash 与资产指纹，由 `pnpm eval:behavioral --write` 显式再生成）。历史上的变异评测路径因抖动已随 `refactor(eval): remove flaky behavioral eval path` 移除，现行路径是场景驱动而非变异驱动。该层只证明当前资产下确定性运行时组件的行为合同；模型提示遵从与多轮行为仍由 online canary 承担，资产敏感度另由 Harness Evals 的 RED 阶段（`pnpm eval:harness run --phase red --harness-ref <旧提交>`，旧 Harness 必须失败）交叉覆盖。
+- stub-behavioral：`pnpm eval:behavioral` 产出的最小行为层（2026-09-18 落地）。它在一次性沙箱中执行当前真实运行时组件（Hook `evaluateHook` 与聚焦项目验证 `runFocusedProjectVerification`），覆盖红区默认底线拒绝、项目红区扩展、宿主权限预设优先于项目配置、放行控制与 blocked/failed 验证语义共 6 个确定性场景（`evals/suites/vibe-harness-behavioral.json`）；不调用模型、不做变异，产物可复现（`evals/results/vibe-harness-behavioral.stub.json`，内嵌 suite hash 与资产指纹，保留为历史证据；`pnpm eval:behavioral --write` 将当前结果另存 `.vibe-harness/evals/`）。历史上的变异评测路径因抖动已随 `refactor(eval): remove flaky behavioral eval path` 移除，现行路径是场景驱动而非变异驱动。该层只证明当前资产下确定性运行时组件的行为合同；模型提示遵从与多轮行为仍由 online canary 承担，资产敏感度另由 Harness Evals 的 RED 阶段（`pnpm eval:harness run --phase red --harness-ref <旧提交>`，旧 Harness 必须失败）交叉覆盖。
 
 v1 资产继续可读，写入器只生成 v2。
 
@@ -18,7 +18,7 @@ v1 资产继续可读，写入器只生成 v2。
 
 core suite 覆盖安装、安全 Hook、浏览器和显式工具能力。
 
-确定性 replay 只验证 suite、oracle、scoring、schema 和签入结果能够重复生成；它不执行当前 Agent 规则、Skill 或 Hook，不能单独作为在线行为修复证据。
+确定性 replay 只验证当前输入在既有 suite、oracle、scoring 和阈值下的结果；旧输入、旧 reference 与旧结果保留，不因源码指纹变化要求重录 reference。它不执行当前 Agent 规则、Skill 或 Hook，不能单独作为在线行为修复证据。
 
 ## 生命周期
 
@@ -32,9 +32,9 @@ pnpm eval:replay --write
 
 offline 模式验证 suite、oracle、聚合和 reference 一致性。online runner 必须在一次性项目中执行，限制输出与超时，并保护全局配置。reference 更新始终显式执行，不能为让变更通过而自动提升；写入必须同时满足 `--confirm-reference-update` 与宿主注入的 `VIBE_HARNESS_PROTECTED_APPROVAL=1`，既有 reference 存在时还需 `--force`，由它先备份旧文件再替换，因此 `eval run --write` 与受保护的 `eval reference --write --confirm-reference-update --force` 是一组固定顺序。资产敏感度（改动规则、Skill、Hook 或配置后必须失败）由 stub-behavioral 产物的资产指纹耦合与 Harness Evals 的 RED 阶段共同验证；旧 behavioral 变异命令已移除，见上文 proof 说明。run fingerprint 分别记录 config、hooks、rules、skills 分类哈希与聚合哈希，分组清单单源于 `scripts/lib/eval-assets.js`（漂移比较与契约测试导入同一导出，两份 eval schema 的 required 清单固定同一契约，新增分组需同步 schema 与本节）；资产漂移、缺 reference 或 degraded run 不计为通过。
 
-签入的 offline run（`evals/results/vibe-harness-core.offline.json`）与 reference 内嵌同一份资产指纹，两个命令按同一份指纹覆盖不同比对：`pnpm eval:check` 交叉校验 run 与 reference，并把 reference 内嵌指纹与当前资产树复核（漂移时以 `asset fingerprint drift for <field>` 列出分组并给出再生成顺序）；`pnpm eval:replay` 只读比对签名入产物与当前资产。因此两者必须同时更新，顺序是先再生成 reference，再用 `pnpm eval:replay --write` 重生成 run（旧文件备份到 `.vibe-harness/backups/`）。`--write` 先只校验 suite 契约，写完后交叉比对 reference 指纹，仍不一致就以非零退出并给出再生成命令；未漂移时不写文件、不产生备份。
+签入 offline run（`evals/results/vibe-harness-core.offline.json`）与 reference 是历史配对。`pnpm eval:check` 校验两者的合同并单独报告历史证据 stale；`pnpm eval:replay` 对当前输入生成新结果，`--write` 写入 `.vibe-harness/evals/` 新文件，不覆写历史配对。输入改变而判据不变可重跑；判据、预期、oracle、评分或豁免改变仍须受保护审批。批准 suite 无法从历史核实时记 blocked；行为断言失败记 failed，不能靠刷新 reference 消除。离线通过不证明真实 Agent 行为。
 
-stub-behavioral 产物按同一纪律单独配对：`pnpm eval:check` 校验 `evals/results/vibe-harness-behavioral.stub.json` 与签入套件的 id、version、suite hash、case 一一对应，并按资产指纹做 hash-only 漂移复核（带 `(behavioral run)` 后缀与专属 nextAction）；重新执行运行时并再生产物是 `pnpm eval:behavioral` 的职责，默认只读，`--write` 显式再生成并备份旧文件，运行失败时不写产物。
+stub-behavioral 产物单独保留：`pnpm eval:check` 校验 `evals/results/vibe-harness-behavioral.stub.json` 与其套件的 id、version、suite hash、case 对应关系；资产指纹变化只报告旧行为证据 stale，不把它当当前通过。重新执行运行时是 `pnpm eval:behavioral` 的职责；资产过期、执行受阻与行为失败分别报告，离线 replay 不弥补真实 Agent 证据缺口。
 
 `pnpm eval:check`、`pnpm eval:replay`、`pnpm eval:behavioral` 和在线 canary 都是显式命令，不属于 `pnpm check` 的默认快速路径。
 
@@ -55,7 +55,7 @@ stub-behavioral 产物按同一纪律单独配对：`pnpm eval:check` 校验 `ev
 | `harness-evals/` | 新统一体系的框架资产（scenarios、fixtures、runners、verifiers、external 适配等）。 | 框架资产提交；运行生成物 `reports/generated/`、`traces/runs/`、`baselines/candidates/`、`regressions/generated/` 不提交，本地缺失等同空历史，由 CI 产生 |
 | `.vibe-harness/` | 运行时状态：`evals/runs/` 存放 offline/online run 工件（`eval reference --from` 的输入），另有 backups、tasks、transactions。 | 整体忽略 |
 
-写路径数据流：`evals/` 经 install-map 投影为 `.agents/evals/`；`eval run --write` 落 `.vibe-harness/evals/runs/`，经宿主注入 `VIBE_HARNESS_PROTECTED_APPROVAL=1` 且显式 `eval reference --from <run> --write --confirm-reference-update --force` 提升为 `evals/references/`，再由 `pnpm eval:replay --write` 生成配对签入 run；`pnpm eval:behavioral --write` 单独再生成 `evals/results/vibe-harness-behavioral.stub.json`；`pnpm eval:harness run` 的产物只落 `harness-evals/` 的不提交生成目录。旧 `evals/` 资产不复制进 `harness-evals/`。
+写路径数据流：`evals/` 经 install-map 投影为 `.agents/evals/`；`eval run --write` 落 `.vibe-harness/evals/runs/`，经宿主注入 `VIBE_HARNESS_PROTECTED_APPROVAL=1` 且显式 `eval reference --from <run> --write --confirm-reference-update --force` 提升为 `evals/references/`，再由 `pnpm eval:replay --write` 生成配对签入 run；`pnpm eval:behavioral --write` 只新增 `.vibe-harness/evals/behavioral-*.json`，不覆盖历史行为产物；历史结构错误与当前行为失败仍阻断，单纯指纹漂移仅报告 stale；`pnpm eval:harness run` 的产物只落 `harness-evals/` 的不提交生成目录。旧 `evals/` 资产不复制进 `harness-evals/`。
 
 不变量：投影与源字节一致且无孤儿（复用 `eval-projection.js` 计划器）；`evals/references/` 恰好一份、`evals/results/` 恰好两份签入产物；`evals/` 与 `.agents/evals/` 的全部文件必须被 git 跟踪——`eval:check` 无条件读取 behavioral 产物，未跟踪的必需资产会让 fresh clone 直接失败；harness-evals 生成目录与 `.vibe-harness/` 不得出现被跟踪文件；`harness-evals/` 内不得有与 `evals/` 字节相同的复制件。
 
@@ -96,9 +96,9 @@ Windows 写入型 Eval 的 `auto` backend 仅接受可在 WSL 内原生执行的
 
 fixture 可声明 `allowedWritePaths`，其成员必须是 workspace 内的可移植相对路径，默认空数组。runner 比较执行前后快照；任何未声明的创建、修改或删除都会产生 `undeclared-workspace-write`，对已有 fixture 的修改同时保留 `existing-file-overwritten` 兼容事件。execution 的测试命令只由 harness 执行，不作为可见 fixture 暴露给模型。
 
-execution suite 支持宿主受控压缩用例（样例 `EVAL-EXEC-COMPACT-001`）：case 在 `input.compaction` 声明 `resumePrompt`、`contextWindow` 与 `autoCompactTokenLimit`，driver 先把 fixture 初始化为确定性 Git 仓库（固定作者与提交时间），再向 runner 注入宿主 Execution Envelope v2 —— 它冻结真实 worktree、branch 与 HEAD，并刻意携带与实时状态不一致的过期 checkpoint，用于检查「旧摘能不能覆盖实时事实」。runner 跑完第一轮后从隔离 `CODEX_HOME` 的 session store 读取宿主自己的客户端 token 记账（`token_count`），把 `-c model_auto_compact_token_limit` 收敛到「低于续跑携带量、高于压实后常驻量」的窄区间，再用 `codex exec resume <sessionId>` 执行第二轮；因此声明的预算只是上界，实际值由本机实测决定。
+execution suite 支持宿主受控压缩用例（样例 `EVAL-EXEC-COMPACT-001`）：case 在 `input.compaction` 声明 `resumePrompt`、`contextWindow` 与 `autoCompactTokenLimit`，driver 先把 fixture 初始化为确定性 Git 仓库（固定作者与提交时间），再向 runner 注入纯恢复数据 recoveryCheckpoint —— 它记录真实 HEAD、目标与下一步，并刻意携带与实时状态不一致的过期 checkpoint，不包含任何授权字段，用于检查「旧摘能不能覆盖实时事实」。runner 跑完第一轮后从隔离 `CODEX_HOME` 的 session store 读取宿主自己的客户端 token 记账（`token_count`），把 `-c model_auto_compact_token_limit` 收敛到「低于续跑携带量、高于压实后常驻量」的窄区间，再用 `codex exec resume <sessionId>` 执行第二轮；因此声明的预算只是上界，实际值由本机实测决定。
 
-`compaction-observed` 只接受 session store 中真实的 `compacted` / `context_compacted` 记录：模型自述、fixture 里手写的摘要、或把摘要塞进首轮提示都不算证据。压缩用例在缺少宿主 Envelope 时 fail-closed，不会退化为普通 case；宿主确实无法在不连续压缩的前提下完成一轮恢复时，runner 写入 capability 诊断而不是伪造成功。给压缩用例的 fixture 需要足够的首轮上下文（例如一份需要通读的完整 runbook），否则压实后的常驻量会立刻再次触顶，模型会在「重读 → 被压实 → 遗忘 → 重读」之间空转。
+`compaction-observed` 只接受 session store 中真实的 `compacted` / `context_compacted` 记录：模型自述、fixture 里手写的摘要、或把摘要塞进首轮提示都不算证据。压缩用例在缺少有效恢复数据 时 fail-closed，不会退化为普通 case；宿主确实无法在不连续压缩的前提下完成一轮恢复时，runner 写入 capability 诊断而不是伪造成功。给压缩用例的 fixture 需要足够的首轮上下文（例如一份需要通读的完整 runbook），否则压实后的常驻量会立刻再次触顶，模型会在「重读 → 被压实 → 遗忘 → 重读」之间空转。
 
 EVAL-SPLIT 用例通过 canonical RULE/SKILL fixture 引用当前治理规则，覆盖小型兼容改动无需拆分，以及实际并行协作需要依赖、唯一契约归属和集成验证。提示不提供预定决策答案；隐藏语义 rubric 评判结果。
 

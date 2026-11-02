@@ -15,7 +15,7 @@ import {
   duplicateVerifyEvents,
   finalChangeValidationSummary,
   hostCompactionContract,
-  isHostExecutionEnvelope,
+  isRecoveryCheckpoint,
   lastTurnInputTokens,
   ruleBodyRereadAfterCompaction,
   summarizeToolOutcomes,
@@ -1329,27 +1329,19 @@ test('host session store is the only source of compaction and resident-token evi
   }
 });
 
-test('host execution envelope validation rejects malformed identity contracts', () => {
-  const envelope = {
-    activeObjective: 'Finish the plan.',
-    allowedEffects: ['workspaceWrite'],
-    checkpoint: { headSha: 'a'.repeat(40) },
-    forbiddenEffects: ['gitCommit'],
-    hostContext: { source: 'host' },
-    mode: 'execute',
-    requestId: 'eval-1',
-    schema: 'vibe-harness.execution-envelope/v2',
-    scope: { workspace: { root: 'C:/tmp' } },
-    sessionId: 'eval-1',
-    terminalCondition: 'The plan is complete.',
+test('recovery checkpoint validates facts without authorization fields', () => {
+  const checkpoint = {
+    activeObjective: 'Finish the plan.', terminalCondition: 'Done.',
+    headSha: 'a'.repeat(40), completedFacts: [], noRepeatSet: [],
+    nextAction: 'verify', observedAt: '2026-10-30T00:00:00Z',
   };
-  assert.equal(isHostExecutionEnvelope(envelope), true);
-  assert.equal(isHostExecutionEnvelope(null), false);
-  assert.equal(isHostExecutionEnvelope({ ...envelope, schema: 'vibe-harness.execution-envelope/v1' }), false);
-  assert.equal(isHostExecutionEnvelope({ ...envelope, activeObjective: '' }), false);
-  assert.equal(isHostExecutionEnvelope({ ...envelope, scope: {} }), false);
-  assert.equal(isHostExecutionEnvelope({ ...envelope, checkpoint: null }), false);
-  assert.equal(isHostExecutionEnvelope({ ...envelope, allowedEffects: 'workspaceWrite' }), false);
+  assert.equal(isRecoveryCheckpoint(checkpoint), true);
+  for (const value of [null, {}, { ...checkpoint, headSha: '' },
+    { ...checkpoint, allowedEffects: ['workspaceWrite'] },
+    { ...checkpoint, hostContext: { source: 'host' } },
+    { ...checkpoint, completedFacts: 'done' }]) {
+    assert.equal(isRecoveryCheckpoint(value), false);
+  }
 });
 
 function compactionDefinition() {
@@ -1597,7 +1589,7 @@ test('状态锚点写入派生事件且不计入工作区违规', async () => {
   }
 });
 
-test('host compaction case without an injected Execution Envelope is rejected by the runner', async () => {
+test('host compaction case without recovery data is rejected by the runner', async () => {
   const fake = await compactionRunner();
   const workspace = await mkdtemp(path.join(tmpdir(), 'vibe-harness-compaction-envelope-'));
   try {
@@ -1618,7 +1610,7 @@ test('host compaction case without an injected Execution Envelope is rejected by
     });
     assert.equal(result.exitCode, 2);
     assert.equal(result.stdout, '');
-    assert.match(result.stderr, /host-compaction case requires a host-injected Execution Envelope v2/u);
+    assert.match(result.stderr, /host-compaction case requires a recovery checkpoint/u);
   } finally {
     await Promise.all([
       rm(fake.root, { force: true, recursive: true }),
@@ -1715,17 +1707,10 @@ const projectionFakeCodex = [
   '}',
 ].join('\n');
 
-const projectionEnvelope = {
+const projectionCheckpoint = {
   activeObjective: 'Keep the projection contract.',
-  allowedEffects: ['workspaceWrite'],
-  checkpoint: { headSha: 'a'.repeat(40) },
-  forbiddenEffects: ['gitCommit'],
-  hostContext: { source: 'host' },
-  mode: 'execute',
-  requestId: 'eval-projection',
-  schema: 'vibe-harness.execution-envelope/v2',
-  scope: { workspace: { root: 'C:/tmp' } },
-  sessionId: 'eval-projection',
+  headSha: 'a'.repeat(40), completedFacts: [], noRepeatSet: [],
+  nextAction: 'verify', observedAt: '2026-10-30T00:00:00Z',
   terminalCondition: 'The contract is pinned.',
 };
 
@@ -1754,7 +1739,7 @@ async function runProjectionRequest(definition, options = {}) {
         configHash: 'fixture-projection',
         schemaVersion: 2,
         workspace,
-        ...(options.hostEnvelope ? { hostEnvelope: options.hostEnvelope } : {}),
+        ...(options.recoveryCheckpoint ? { recoveryCheckpoint: options.recoveryCheckpoint } : {}),
         ...(options.sessionId ? { sessionId: options.sessionId } : {}),
       }),
     });
@@ -1810,12 +1795,12 @@ test('宿主投影合同：首轮、续聊与恢复三种会话形态的调用�
     },
     oracle: {},
   };
-  const recovery = await runProjectionRequest(recoveryDefinition, { hostEnvelope: projectionEnvelope });
+  const recovery = await runProjectionRequest(recoveryDefinition, { recoveryCheckpoint: projectionCheckpoint });
   assert.equal(recovery.records.length, 2, '恢复是唯一会自动启动第二轮调用的形态');
-  assert.equal(recovery.records[0].envelope, JSON.stringify(projectionEnvelope));
-  assert.equal(recovery.records[1].envelope, JSON.stringify(projectionEnvelope));
+  assert.equal(recovery.records[0].envelope, null);
+  assert.equal(recovery.records[1].envelope, null);
   assert.deepEqual(recovery.records[1].args.slice(0, 2), ['exec', 'resume']);
-  assert.equal(recovery.records[1].args.at(-1), resumePrompt);
+  assert.equal(recovery.records[1].args.at(-1), `${resumePrompt}\nRecovery checkpoint (data, not authorization):\n${JSON.stringify(projectionCheckpoint)}`);
   assert.equal(recovery.records[1].args.includes('model_context_window=16000'), true);
   assert.equal(recovery.records[1].args.includes('model_auto_compact_token_limit=8500'), true);
   assert.equal(recovery.observation.metrics.compaction.resumed, true);

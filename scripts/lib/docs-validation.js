@@ -10,6 +10,16 @@ import {
 import { validateAdrDirectory } from './adr-validation.js';
 
 const historicalStatuses = new Set(['completed', 'superseded']);
+export function validateRetiredAuthorizationInstructions(content, file) {
+  const errors = [];
+  const requirement = /(?:需要|要求|必须|等待|先建立)[^。；\n]{0,32}(?:Execution Envelope|Envelope|hostContext|执行包络)|pnpm envelope (?:plan|check)|execution-envelope\.mjs/giu;
+  for (const match of content.matchAll(requirement)) {
+    const prefix = content.slice(Math.max(0, match.index - 12), match.index);
+    if (/(?:不|不再|无需|不得|已移除|已退役|已删除|禁止)[\s`]*$/u.test(prefix)) continue;
+    errors.push(`${file} requires retired authorization: ${match[0]}`);
+  }
+  return errors;
+}
 const relativeTimePattern = /(?:今天|昨天|刚刚|最近|上周|\btoday\b|\byesterday\b|\brecently\b)/iu;
 const openItemPattern = /(?:待办|未决|暂缓|搁置|待评估|仍未|观察期再评估|TODO)/iu;
 const datePattern = /\b(\d{4}-\d{2}-\d{2})\b/gu;
@@ -148,14 +158,10 @@ export async function collectGovernedPaths(rootDir) {
   const governedAssets = [
     'docs/adr/catalog.json',
     'docs/schemas/adr.schema.json',
-    'docs/schemas/execution-envelope.schema.json',
-    'docs/schemas/execution-envelope-v2.schema.json',
     'docs/schemas/project-verification.schema.json',
     'docs/schemas/project-config.schema.json',
     'docs/schemas/role-pack.schema.json',
     'schemas/adr.schema.json',
-    'schemas/execution-envelope.schema.json',
-    'schemas/execution-envelope-v2.schema.json',
     'schemas/project-verification.schema.json',
     'schemas/project-config.schema.json',
     'schemas/role-pack.schema.json',
@@ -559,6 +565,9 @@ async function validateDocumentationUnchecked({ catalog, rootDir, today = new Da
     const content = await readFile(fullPath, 'utf8');
     const enforceCurrent = !historicalStatuses.has(item.status);
     if (!relativePath.endsWith('.md')) continue;
+    if (enforceCurrent && relativePath !== 'CHANGELOG.md' && !relativePath.startsWith('docs/memory/')) {
+      errors.push(...validateRetiredAuthorizationInstructions(content, relativePath));
+    }
     errors.push(...await validateCurrentDocumentContent({ content, enforceCurrent, file: relativePath, rootDir, today }));
 
     const marker = expectedStatusMarker(item);

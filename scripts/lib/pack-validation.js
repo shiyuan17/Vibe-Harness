@@ -22,7 +22,7 @@ import { validateRedZoneManifest } from './red-zone.js';
 import { defaultRedZonePaths } from './project-config.js';
 import { scanForForbiddenTerms } from './redaction.js';
 import { canonicalAgentsTemplate, loadAdapterCatalog, resolveAdapterEntry, skillRootPrefixes } from './adapter.js';
-import { validateDocumentation } from './docs-validation.js';
+import { validateDocumentation, validateRetiredAuthorizationInstructions } from './docs-validation.js';
 import { renderTemplate, withDefaultTemplateData } from './template-renderer.js';
 import { declaresFastPathCard, FAST_PATH_CARD_HEADING, loadRuleIndex, renderRulesLine } from './rules-index.js';
 import { EXECUTE_PRESETS as PROJECTION_EXECUTE_PRESETS, WRITE_PRESETS as PROJECTION_WRITE_PRESETS } from './role-projection.js';
@@ -120,9 +120,9 @@ async function checkRequiredTerms(rootDir, { file, terms }) {
   if (content === null) {
     return [`${file} is missing`];
   }
-  return terms
+  return [...validateRetiredAuthorizationInstructions(content, file), ...terms
     .filter((term) => !content.includes(term))
-    .map((term) => `${file} must document ${term}`);
+    .map((term) => `${file} must document ${term}`)];
 }
 
 function parseSkillFrontmatter(content) {
@@ -512,7 +512,7 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
     rule: 'docs/rules/git-rules.md',
     skill: 'skills/core/vb-git-develop-flow/SKILL.md',
     skillName: 'vb-git-develop-flow',
-    sharedTerms: ['`vb-git-develop-flow`', 'local-land', '`origin/develop`', '--target-mode primary', '主检出'],
+    sharedTerms: ['`vb-git-develop-flow`', 'local-land', '`develop`', 'local_integrated', '主检出'],
   },
   {
     rule: 'docs/rules/linear-workflow.md',
@@ -531,7 +531,7 @@ export const RULE_SKILL_PARITY_PAIRS = Object.freeze([
     rule: 'docs/rules/linear-workflow.md',
     skill: 'skills/integrations/vb-linear-worktree-develop/SKILL.md',
     skillName: 'vb-linear-worktree-develop',
-    sharedTerms: ['`vb-linear-worktree-develop`', 'local-land', '`origin/develop`', '--target-mode primary', '主检出'],
+    sharedTerms: ['`vb-linear-worktree-develop`', 'local-land', '`develop`', 'local_integrated', '主检出'],
   },
 ]);
 
@@ -571,7 +571,7 @@ export const RULE_PORTABILITY_CHECKS = Object.freeze([
   { label: 'CI job name', pattern: /main-release-gate|develop-gate|merge-gate/u },
   { label: 'repository script', pattern: /pnpm /u },
   { label: 'external documentation link', pattern: /(?:^[ \t]*(?:[-*][ \t]+)?<?https?:\/\/\S+|\[[^\]\r\n]*\]\(https?:\/\/[^)\r\n]+\)|^[ \t]*\[[^\]\r\n]+\]:[ \t]*https?:\/\/\S+|(?:详见|参见|参考|依据|遵循)[^\r\n。；]{0,40}https?:\/\/\S+)/mu },
-  { label: 'version-only proof', pattern: /(?:\bv\d+(?:\.\d+)*\s*(?:宿主\s*)?证明|宿主\s*v\d+(?:\.\d+)*\s*证明|(?:需要|缺少|缺)\s*(?:可验证\s*)?v\d+(?:\s*Envelope)?(?=[，。；\s]|$))/iu },
+  { label: 'version-only proof', pattern: /(?:\bv\d+(?:\.\d+)*\s*(?:宿主\s*)?证明|宿主\s*v\d+(?:\.\d+)*\s*证明|(?:需要|缺少|缺)\s*(?:可验证\s*)?v\d+(?=[，。；\s]|$))/iu },
   { label: 'external specification delegation', pattern: /(?:以[^。\r\n；]{0,60}(?:规格|规范文档)[^。\r\n；]{0,20}为准|(?:详见|参见)[^。\r\n；]{0,40}(?:规格|规范文档)|以其 ADR (?:索引|模板|schema)|(?:按|遵循|依据)\s*ADR\s*(?:要求|规范)?\s*(?:执行|处理|操作))/iu },
 ]);
 
@@ -701,12 +701,11 @@ const SKILL_EXECUTION_BOUNDARY_FILES = [
 
 /**
  * Stop-boundary wording that every entry-point Skill keeps stating. Detailed
- * Execution Envelope fields live in governance-core; repeating the whole field
+ * Authorization rules live in governance-core; repeating the whole field
  * list in Skills makes normal tasks pay the full governance text cost.
  */
 const SKILL_EXECUTION_BOUNDARY_SHARED_TERMS = [
-  'Agent 不得自造', '缺授权', '暂停', 'contract-only/degraded',
-  '跨边界', 'worktree bootstrap', 'integrated_cleanup_pending',
+  '授权', 'worktree bootstrap', '清理',
 ];
 
 /**
@@ -714,13 +713,13 @@ const SKILL_EXECUTION_BOUNDARY_SHARED_TERMS = [
  */
 const SKILL_EXECUTION_BOUNDARY_FILE_TERMS = {
   'skills/core/vb-git-develop-flow/SKILL.md': [
-    'origin/develop', '主检出', '推送确认即代码集成完成',
+    'localMergeCommit',
   ],
   'skills/integrations/vb-linear-worktree-develop/SKILL.md': [
-    'origin/develop', '主检出', '推送确认后标记 Done',
+    'localMergeCommit',
   ],
   'skills/integrations/linear-workflow/SKILL.md': [
-    '不扫描 Ready 队列', '推送确认即代码集成完成',
+    'Linear',
   ],
 };
 
@@ -768,20 +767,12 @@ export const CONTENT_QUALITY_CHECKS = [
       '快速',
       '轻量',
       '完整',
-      // 授权与 Execution Envelope：mode 上限表与 v1/v2 分级保持唯一来源
+      // 授权与宿主权限
       '每个写入动作都要有覆盖该动作的授权',
-      '| mode | effect 上限 |',
-      'inspect、plan、monitor',
-      '仅 `linearWrite`',
-      'credentialUse、hostWrite、externalWrite',
-      // worktree 生命周期是工作区内部操作：授权来自本轮显式请求与运行时能
-      // 核对的 Git 事实，宿主核验只留在真正的跨边界效果上。
+      '不建立项目级授权凭证',
       'worktree 生命周期只要求本地工作区核验',
-      '宿主核验只用于跨边界效果',
-      'hostContext 必须由宿主提供',
+      '独立安全检查',
       'canonicalCwd、worktreeRoot、gitCommonDir、gitDir、branch、baseRef、baseSha、initialHeadSha、allowedWriteRoots',
-      '高风险或不可分类调用缺少有效授权记录、工作区核验或宿主核验信息时 fail-closed',
-      'Agent 不得自填这些信息冒充宿主核验',
       '不据此停止整个请求',
       '保留不依赖该操作的安全工作',
       // 验证范围与证据标签
@@ -1156,7 +1147,7 @@ export const CONTENT_QUALITY_CHECKS = [
       'Windows 比较忽略大小写',
       'Scope 重叠或 resourceLocks 相同',
       '不自行拆 Issue、改变 Parent、创建或删除关系',
-      '关闭 Linear 的 Parent/Sub-issue 自动关闭',
+      'Parent/Sub-issue',
       'Fan-in Verification',
       'Parent 不得 Done',
       'write 叶子由 closing PR/MR 合并',
@@ -1228,7 +1219,7 @@ export const CONTENT_QUALITY_CHECKS = [
       // ADR-0013 removed the develop fast gate: the rule now states the
       // withdrawal and the land allow-list instead of the old requirement.
       '不再作为集成分支的合并门禁',
-      '目标 ref 最终化按短租约串行',
+      '仓库级短时锁串行化本地变更',
       '紧急旁路必须有明确过期时间、授权人和审计记录',
       // 协作工作流引用必须带条件语气：未安装 linear-workflow 的项目同样成立。
       '若项目已安装该规则',
@@ -2378,7 +2369,7 @@ export function validateRolePresetDerivations(rolePack, {
   return errors;
 }
 
-export async function validatePack(rootDir) {
+export async function validatePack(rootDir, { selfInstall = false } = {}) {
   const manifests = await loadAllManifests(rootDir);
   const schemas = await loadAllManifestSchemas(rootDir);
   const installMapSchema = await readPackJson(path.join(rootDir, 'schemas/install-map.schema.json'));
@@ -2466,9 +2457,9 @@ export async function validatePack(rootDir) {
   });
   const documentation = await validateDocumentation({ rootDir });
   const fullProfileGroups = new Set(manifests.profiles.items.find((item) => item.id === 'full')?.groups ?? []);
-  const selfInstallErrors = await validateSelfInstalledArtifacts(rootDir, manifests.adapters, installMaps, {
+  const selfInstallErrors = selfInstall ? await validateSelfInstalledArtifacts(rootDir, manifests.adapters, installMaps, {
     requiredGroups: fullProfileGroups,
-  });
+  }) : [];
   const instructionBudget = await validateInstructionBudget(rootDir);
   // One shared install map may serve several adapters; validate each unique
   // map once and merge the errors.
@@ -2495,6 +2486,7 @@ export async function validatePack(rootDir) {
     documentationErrors: documentation.errors,
     documentationWarnings: documentation.warnings,
     selfInstallErrors,
+    selfInstallStatus: selfInstall ? 'checked' : 'not_selected',
     workflowScan,
     ok: missing.length === 0
       && installMapMissing.length === 0

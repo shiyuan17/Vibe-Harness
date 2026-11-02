@@ -467,7 +467,7 @@ function portListening(port, { host = '127.0.0.1', timeoutMs = PORT_PROBE_TIMEOU
     socket.setTimeout(timeoutMs, () => finish(null));
     socket.once('connect', () => finish(true, { abort: false }));
     socket.once('error', (error) => {
-      const code = error?.code;
+      const code = /** @type {NodeJS.ErrnoException} */ (error)?.code;
       finish(code === 'ECONNREFUSED' || code === 'EHOSTUNREACH' || code === 'ENETUNREACH' ? false : null);
     });
   });

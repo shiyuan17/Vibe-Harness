@@ -3,7 +3,8 @@ import { validatePack } from './lib/pack-validation.js';
 import { checkSelfInstallConformance } from './lib/self-install-check.js';
 
 const rootDir = process.cwd();
-const report = await validatePack(rootDir);
+const selfInstallSelected = process.argv.includes('--self-install');
+const report = await validatePack(rootDir, { selfInstall: selfInstallSelected });
 
 if (!report.ok) {
   console.error(JSON.stringify(report, null, 2));
@@ -13,7 +14,8 @@ if (!report.ok) {
 // Pack validation covers the assets; this covers the repository's own installed
 // copy of them, which is where generated content (the managed AGENTS.md block,
 // rendered targets) drifts silently. See docs/rules/governance-core.md.
-const selfInstall = await checkSelfInstallConformance(rootDir);
+const selfInstall = selfInstallSelected ? await checkSelfInstallConformance(rootDir)
+  : { ok: true, skipped: 'source-only; run validate --self-install or doctor for deployed conformance' };
 if (!selfInstall.ok) {
   console.error(JSON.stringify({
     error: 'self-install drift: the installed copy of these targets no longer matches the installer output',

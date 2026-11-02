@@ -97,16 +97,9 @@
           "hookActivation": { "type": "string", "enum": ["manual-trust", "config-file", "unsupported"] },
           "executionAuthority": {
             "type": "object",
-            "required": ["envelopeVersions", "trustedSource", "projectConfigMayAuthorize", "highRiskEnforcement", "goalLifecycle"],
+            "required": ["projectConfigMayAuthorize", "goalLifecycle"],
             "properties": {
-              "envelopeVersions": {
-                "type": "array",
-                "uniqueItems": true,
-                "items": { "type": "string", "enum": ["v1", "v2"] }
-              },
-              "trustedSource": { "type": "string", "enum": ["host-injected", "none"] },
               "projectConfigMayAuthorize": { "type": "boolean", "const": false },
-              "highRiskEnforcement": { "type": "string", "enum": ["host-required", "unsupported"] },
               "goalLifecycle": { "type": "string", "enum": ["host-native-required", "prompt-only", "unsupported"] }
             },
             "additionalProperties": false

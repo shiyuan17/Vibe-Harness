@@ -16,6 +16,8 @@ import { buildDeliveryVerificationPlan, verificationRiskMetadata } from './verif
 
 import { runMicroCheck } from './micro-runner.mjs';
 import { gitFingerprint, gitTreeFingerprint } from './git-fingerprint.mjs';
+import { qualityExceptionFor } from './delivery-exception.mjs';
+import { invalidateVerificationCheckReceipt } from './verification-receipt.mjs';
 import {
   verificationChanges,
   verificationCheckEvidence,
@@ -85,6 +87,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   const timingsMs = { preparation: 0, scopeResolution: 0, snapshotBefore: 0, snapshotAfter: 0,
     inputFingerprint: 0, dependencyScan: 0, coalescingWait: 0, resourceWait: 0, execution: 0, cacheLookup: 0 };
   const startedAt = new Date().toISOString();
+  const verificationId = randomUUID();
   if (args.full && (args.tier || args.only || args.micro || args.async)) return {
     schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify', status: 'failed',
     code: 'FULL_FLAGS_CONFLICT', error: '--full cannot be combined with --tier, --only, --micro or --async', checks: {},
@@ -300,19 +303,26 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   const before = planOnly ? null : await gitFingerprint(projectDir);
   timingsMs.snapshotBefore = Date.now() - snapshotBeforeMs;
   if (!planOnly) verificationProgress(args, 'snapshot-end', { stage: 'before', durationMs: timingsMs.snapshotBefore });
+  if (!planOnly && args.expectedHead && before.snapshot.head !== args.expectedHead) {
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify',
+      status: 'blocked', code: 'VERIFICATION_CANDIDATE_MISMATCH', checks: {}, timingsMs };
+  }
   const receiptPlan = { ...changeScope, selectedChecks: tierPlan.selectedChecks, deferredChecks: tierPlan.deferredChecks, tier: tierPlan.tier, scope };
   let cacheContext = planOnly ? null : await verificationCacheContext(projectDir, receiptPlan, before);
+  if (!planOnly && args.deliveryEvidence && !cacheContext.inputsAvailable) {
+    return { schemaVersion: VERIFY_SCHEMA_VERSION, engine: VERIFY_ENGINE, command: 'verify',
+      status: 'blocked', code: 'VERIFICATION_INPUTS_UNAVAILABLE', reason: cacheContext.reason,
+      dependencyScan: cacheContext.dependencyMetrics, checks: {}, timingsMs };
+  }
   const sharingKeys = !planOnly && args.reuse
-    ? cacheContext.mode === 'tree-content'
-      ? [...cacheContext.perCheck.filter((check) => check.available).map((check) => `verify:${check.key}`),
-        ...(cacheContext.available ? [`verify:${cacheContext.key}`] : [])]
-      : cacheContext.available ? [`verify:${cacheContext.key}`] : []
+    ? [...cacheContext.perCheck.filter((check) => check.available).map((check) => `verify:${check.key}`),
+      ...(cacheContext.available ? [`verify:${cacheContext.key}`] : [])]
     : [];
   // Acquire all content-key reservations in sorted order. Keep them until the
   // final input comparison and authenticated receipt store, so waiters cannot
   // mistake a running check for completed evidence.
   const sharing = sharingKeys.length ? await acquireCheckResources(projectDir, sharingKeys, {
-    timeoutMs: Math.min(timeoutMs, 120000),
+    timeoutMs,
     onWait: (detail) => verificationProgress(args, 'resource-wait', { stage: 'coalescing', ...detail }),
   }) : null;
   timingsMs.coalescingWait = sharing?.waitMs ?? 0;
@@ -373,6 +383,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
           before: before.snapshot,
           after: confirmed.snapshot,
           stable: true,
+          inputsStable: true,
           snapshotComparison: 'match',
           verifiedTree: before.snapshot.indexTree === confirmed.snapshot.indexTree ? confirmed.snapshot.indexTree : null,
           review: verificationReview({
@@ -401,7 +412,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     }
   }
   const checkCache = new Map();
-  if (!planOnly && args.reuse && cacheContext?.mode === 'tree-content') {
+  if (!planOnly && args.reuse) {
     for (const check of cacheContext.perCheck ?? []) {
       if (!selectedNames.includes(check.id)) continue;
       checkCache.set(check.id, await findVerificationCheckReceipt(projectDir, check, {
@@ -411,7 +422,12 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   }
   cacheLookupMs = Date.now() - cacheLookupStartedAt;
   timingsMs.cacheLookup = cacheLookupMs;
-  verificationProgress(args, 'plan', { tier: tierPlan.tier, selected: selectedNames, deferredCount: tierPlan.deferredChecks.length, cacheLookupMs });
+  verificationProgress(args, 'plan', { tier: tierPlan.tier, selected: selectedNames,
+    scopeSource: changeScope.selectionMode, changedPaths: changeScope.changedPaths,
+    reasons: tierPlan.selectionReasonsByCheck,
+    checks: selectedNames.map((id) => ({ id, cache: checkCache.get(id)?.status ?? 'not_cacheable',
+      reason: checkCache.get(id)?.reason ?? cacheContext?.perCheck.find((check) => check.id === id)?.reason })),
+    deferredCount: tierPlan.deferredChecks.length, cacheLookupMs });
   if (!planOnly) await storeVerificationReceipt(projectDir, cacheContext, { status: 'running' });
   let selectedCount = 0;
   let stopped = false;
@@ -445,6 +461,12 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       checks[name] = { status: 'not_run', command: displayCommand(command, projectDir), reason: cancelled ? 'verification-cancelled' : 'previous-check-failed' };
       return;
     }
+    const exception = !planOnly ? qualityExceptionFor(args.qualityExceptions, name) : null;
+    if (exception) {
+      checks[name] = { status: exception.status, command: displayCommand(command, projectDir),
+        exception: { authorized: true, reason: exception.reason, residualRisk: exception.residualRisk } };
+      return;
+    }
     const cachedCheck = treeChangedDuringRun ? null : checkCache.get(name);
     if (cachedCheck?.status === 'hit') {
       checks[name] = {
@@ -472,12 +494,12 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       return;
     }
     const cwd = verificationCwd(projectDir, checkMetadata.get(name)?.cwd);
-    if (!await probeExecutable(tokens[0] === 'node' ? process.execPath : tokens[0], cwd.absolute)) {
-      checks[name] = { status: 'blocked', code: 'MISSING_EXECUTABLE', command: displayCommand(command, projectDir) };
-      return;
-    }
     if (planOnly) {
       checks[name] = { status: 'planned', command: displayCommand(command, projectDir), cwd: cwd.relative };
+      return;
+    }
+    if (!await probeExecutable(tokens[0] === 'node' ? process.execPath : tokens[0], cwd.absolute)) {
+      checks[name] = { status: 'blocked', code: 'MISSING_EXECUTABLE', command: displayCommand(command, projectDir) };
       return;
     }
     let result;
@@ -506,15 +528,18 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     const checkTimeoutMs = declaredTimeoutMs ?? timeoutMs;
     const effectiveTimeoutMs = remainingBudgetMs === null ? checkTimeoutMs : Math.max(1, Math.min(checkTimeoutMs, remainingBudgetMs));
     let stage = 'waiting-resource';
+    let outputBytes = 0;
+    let lastOutputAt = null;
     verificationProgress(args, 'resource-acquire', { check: name, stage });
     const heartbeat = args.onProgress ? setInterval(() => verificationProgress(args, 'heartbeat', {
       check: name, stage, elapsedMs: Date.now() - checkStartedAt, timeoutMs: checkTimeoutMs,
+      signal: 'process-alive', outputBytes, outputIdleMs: lastOutputAt === null ? null : Date.now() - lastOutputAt,
     }), 30_000) : null;
     heartbeat?.unref();
     let resources;
     try {
       resources = await acquireCheckResources(projectDir, checkMetadata.get(name)?.resources, {
-        timeoutMs: Math.min(effectiveTimeoutMs, 120000),
+        timeoutMs: effectiveTimeoutMs,
         onWait: (detail) => verificationProgress(args, 'resource-wait', { check: name, stage, ...detail }),
       });
       if (!resources.ok) result = { status: 'blocked', code: resources.code, exitCode: null };
@@ -525,12 +550,15 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
           ...(budgetMs === null ? {} : { budgetMs }) });
         result = await executeCommand(executableCommand, cwd.absolute,
         Math.max(1, effectiveTimeoutMs - resources.waitMs), projectDir,
-        { ...candidateEnvironment(projectDir).environment, ...verificationContextEnvironment({ ...changeScope, scope }) });
+        { ...candidateEnvironment(projectDir).environment, ...verificationContextEnvironment({ ...changeScope, scope }),
+          VIBE_HARNESS_VERIFICATION_ID: verificationId },
+        { onProcess: (tree) => resources.begin?.(tree),
+          onOutput: ({ bytes, observedAt }) => { outputBytes = bytes; lastOutputAt = observedAt; } });
       }
     } catch (error) {
       result = { status: 'blocked', code: 'UNSAFE_COMMAND', exitCode: null, stderr: boundedOutput(error.message, projectDir) };
     } finally {
-      resources?.release?.({ retain: ['TIMEOUT', 'OUTPUT_LIMIT'].includes(result?.code) });
+      resources?.release?.({ retain: ['TIMEOUT', 'OUTPUT_LIMIT'].includes(result?.code) && result?.processTreeStopped !== true });
       if (heartbeat) clearInterval(heartbeat);
     }
     const durationMs = Date.now() - checkStartedAt;
@@ -543,6 +571,9 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       exitCode: result.exitCode,
       durationMs,
       resourceWaitMs: resources?.waitMs ?? 0,
+      executionMs: Math.max(0, durationMs - (resources?.waitMs ?? 0)),
+      outputBytes,
+      ...(result.processTreeStopped !== undefined ? { processTreeStopped: result.processTreeStopped } : {}),
       ...(resources?.resource ? { resource: resources.resource, owner: resources.owner, guidance: resources.guidance } : {}),
       ...(declaredTimeoutMs ? { timeoutMs: effectiveTimeoutMs } : {}),
       ...(result.stdout ? { stdout: result.stdout } : {}),
@@ -550,7 +581,10 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       ...verificationCheckEvidence(result.stdout, result.stderr, result.status),
     };
     stopped ||= ['failed', 'blocked'].includes(checks[name].status);
-    retainSharing ||= ['TIMEOUT', 'OUTPUT_LIMIT'].includes(result.code);
+    if (['failed', 'blocked'].includes(checks[name].status)) {
+      await invalidateVerificationCheckReceipt(projectDir, cacheContext.perCheck.find((check) => check.id === name));
+    }
+    retainSharing ||= ['TIMEOUT', 'OUTPUT_LIMIT'].includes(result.code) && result.processTreeStopped !== true;
     timingsMs.resourceWait += resources?.waitMs ?? 0;
     timingsMs.execution += Math.max(0, durationMs - (resources?.waitMs ?? 0));
     if (budgetDeadline !== null && Date.now() >= budgetDeadline) {
@@ -648,7 +682,11 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       selectedMicroChecks: [],
       deferredMicroChecks: [],
       estimatedCostMs: estimateSelectedCost(selectedNames),
-      cache: { status: 'not_requested' },
+      cache: { status: 'not_evaluated', reason: 'read-only plan does not probe executables or create authentication keys',
+        checks: Object.fromEntries(tierPlan.selectedChecks.map((check) => [check.id, {
+          status: check.deterministic ? 'eligible_pending_input_check' : 'not_cacheable',
+          scope: check.cacheScope ?? 'selection',
+        }])) },
       warnings: reviewWarnings,
       environment: { mode: environmentMode, status: environmentStatus },
     };
@@ -661,7 +699,11 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
   const executed = selectedNames.filter((name) => checks[name]?.status === 'passed');
   const reused = selectedNames.filter((name) => checks[name]?.status === 'reused');
   const completed = [...executed, ...reused];
-  const checksNotRun = completed.length < selectedNames.length;
+  // A scope-aware atom can resolve itself as inapplicable. That is not a pass
+  // (and never gets a passing check cache), but is not an unfinished check.
+  // At least one applicable check must still provide real evidence.
+  const applicableNames = selectedNames.filter((name) => checks[name]?.status !== 'not_selected');
+  const checksNotRun = completed.length < applicableNames.length;
     // Writing the receipt is itself a write to the workspace — the first one
     // creates the project's `.vibe-harness` directory and moves the repository
     // root's timestamps — so the store is created before the snapshot the receipt
@@ -685,9 +727,11 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       ? 'failed'
     : blocked
       ? 'blocked'
+      : checksNotRun
+        ? 'unverified'
       : completed.length === 0
         ? 'unverified'
-        : reused.length === selectedNames.length ? 'reused' : 'passed';
+        : reused.length === applicableNames.length ? 'reused' : 'passed';
   const review = verificationReview({
     changedPaths: changeScope.changedPaths,
     selectedNames,
@@ -703,7 +747,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       ? 'checks_failed'
       : blocked
         ? 'checks_blocked'
-        : checksNotRun
+        : checksNotRun || completed.length === 0
           ? 'checks_not_run'
           : 'verified';
   // Each check owns its cache record. A later non-deterministic check that
@@ -728,12 +772,12 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       checkReceipts.push({
         id: name,
         stored: await storeVerificationCheckReceipt(projectDir, checkContext,
-          { finishedAt: new Date().toISOString() }).catch(() => false),
+          { finishedAt: new Date().toISOString(), writeFingerprint: after.writeFingerprint }).catch(() => false),
       });
     }
   }
   const cacheStatus = args.reuse
-    ? reused.length === selectedNames.length ? 'hit' : reused.length > 0 ? 'partial' : 'miss'
+    ? completed.length > 0 && reused.length === applicableNames.length ? 'hit' : reused.length > 0 ? 'partial' : 'miss'
     : 'not_requested';
   const checkCacheReport = Object.fromEntries((cacheContext.perCheck ?? []).map((check) => {
     const cachedCheck = checkCache.get(check.id);
@@ -794,11 +838,10 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
     dependencyScan: { before: cacheContext.dependencyMetrics, after: afterContext.dependencyMetrics },
     cache: {
       status: cacheStatus,
-      reason: cacheContext?.mode === 'tree-content'
-        ? treeContentReason() : cached?.reason ?? cacheContext?.reason,
+      reason: treeContentReason(),
       stored: false,
       lookupMs: cacheLookupMs,
-      ...(cacheContext?.mode === 'tree-content' ? { checks: checkCacheReport } : {}),
+      checks: checkCacheReport,
       checkReceipts,
     },
     warnings: reviewWarnings,
@@ -818,7 +861,7 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       status: verificationStatus,
       // Receipt identity: governance-core.md references these fields when a
       // delivery cites `vibe-harness verify --project`.
-      id: randomUUID(),
+      id: verificationId,
       finishedAt: new Date().toISOString(),
       fingerprint: after.fingerprint,
       // The write evidence a completion receipt is validated against is the
@@ -845,8 +888,13 @@ export async function verifyProject(projectDir, args, { planOnly = false } = {})
       ? 'failed'
       : blocked
         ? 'blocked'
-        : completed.length === selectedNames.length && ['passed', 'reused'].includes(report.status) ? 'passed' : 'unverified';
-  report.cache.stored = await storeVerificationReceipt(projectDir, cacheContext, {
+        : !checksNotRun && completed.length > 0 && ['passed', 'reused'].includes(report.status) ? 'passed' : 'unverified';
+  report.cache.stored = await storeVerificationReceipt(projectDir, {
+    ...cacheContext,
+    // Whole-run hits synthesize passing check statuses. Keep mixed-scope runs
+    // as provenance only and reuse their actual passing atoms independently.
+    available: cacheContext.available && applicableNames.length === selectedNames.length,
+  }, {
     ...report.verification,
     status: receiptStatus,
     // The per-check commands this run reported, so the acceptance entries a

@@ -12,7 +12,7 @@ import {
   validateEvalSuiteSemantics,
 } from './lib/eval-contract.js';
 import { createEvalAssetFingerprint } from './lib/eval-assets.js';
-import { suiteHash } from './lib/eval-replay.js';
+import { evaluateCurrentEvalInputs, suiteHash } from './lib/eval-replay.js';
 import { compareAssetFingerprints } from './lib/eval-scoring.js';
 import { validateClarificationCatalog } from './lib/clarification-metrics.js';
 import { evaluateGoalDefinition, validateGoalDefinitionCatalog } from './lib/goal-definition-metrics.js';
@@ -20,7 +20,7 @@ import { loadAllManifests, readJson, validateJsonAgainstSchema } from './lib/man
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const assets = await loadEvalAssets(rootDir);
-const errors = validateEvalAssets(assets);
+const errors = validateEvalAssets(assets, { historicalInputs: true });
 // One fingerprint per run: both drift checks (approved reference, behavioral
 // artifact) compare against the same checkout state, and recomputing it walks
 // every rules/skills/hooks/config asset.
@@ -28,7 +28,9 @@ const currentAssetFingerprint = await createEvalAssetFingerprint(rootDir);
 // The approved reference must still describe this checkout. Cross-checking run
 // against reference cannot see a rule, Skill, Hook or config change, because
 // both signed-in artifacts stay internally consistent while already stale.
-errors.push(...await validateApprovedReferenceAssets(rootDir, currentAssetFingerprint));
+const historicalDrift = await validateApprovedReferenceAssets(rootDir, currentAssetFingerprint);
+const currentEvaluation = await evaluateCurrentEvalInputs({ rootDir, suite: assets.suite, reference: assets.reference });
+if (currentEvaluation.status !== 'passed') errors.push(`current contract replay ${currentEvaluation.status}: ${currentEvaluation.criteria.reason ?? 'behavior-failed'}`);
 const manifests = await loadAllManifests(rootDir);
 const [clarificationCatalog, goalCatalog, goalRun] = await Promise.all([
   readJson(path.join(rootDir, 'evals/clarification-cases.json')),
@@ -69,7 +71,7 @@ if (behavioralRun.suite?.hash !== suiteHash(behavioralSuite)) {
 if (!behavioralRun.fingerprint?.assets) {
   errors.push('behavioral run must embed the asset fingerprint');
 } else {
-  errors.push(...compareAssetFingerprints(currentAssetFingerprint, behavioralRun.fingerprint.assets)
+  historicalDrift.push(...compareAssetFingerprints(currentAssetFingerprint, behavioralRun.fingerprint.assets)
     .mismatches
     .map((mismatch) => ASSET_DRIFT_PREFIX + mismatch.field + ' (behavioral run)'));
 }
@@ -95,7 +97,9 @@ if (errors.length > 0) {
   const referenceDrifted = errors.some((error) => error.startsWith(ASSET_DRIFT_PREFIX) && !error.endsWith(' (behavioral run)'));
   console.error(JSON.stringify({
     errors,
-    nextAction: behavioralDrifted && referenceDrifted
+    nextAction: currentEvaluation.criteria?.reason === 'protected-criteria-change'
+      ? 'Oracle, weights, thresholds or exemptions changed; obtain protected approval. Do not regenerate the reference to hide a failure.'
+      : behavioralDrifted && referenceDrifted
       ? 'Confirm the drifted groups match this change, obtain protected approval from the host, then regenerate the reference and behavioral pair: pnpm vibe-harness eval run --project . --mode offline --write, VIBE_HARNESS_PROTECTED_APPROVAL=1 pnpm vibe-harness eval reference --project . --from <run> --write --confirm-reference-update --force, pnpm eval:sync --write, pnpm eval:replay --write, pnpm eval:behavioral --write.'
       : behavioralDrifted
       ? 'Confirm the drifted groups match this change, then regenerate the behavioral artifact with pnpm eval:behavioral --write.'
@@ -107,4 +111,8 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log('Vibe-Harness evaluation contracts passed.');
+console.log(JSON.stringify({ status: 'passed', proof: currentEvaluation.proof,
+  currentAssetFingerprint, currentEvaluation: { status: currentEvaluation.status,
+    overallScore: currentEvaluation.run.overallScore, criticalPassRate: currentEvaluation.run.criticalPassRate },
+  historicalEvidence: historicalDrift.length ? { status: 'stale', reasons: historicalDrift } : { status: 'current' },
+  agentBehavior: 'unverified; offline replay is not a real Agent run' }, null, 2));

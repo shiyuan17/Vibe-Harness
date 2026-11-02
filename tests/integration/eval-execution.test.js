@@ -41,7 +41,7 @@ async function parentBatchEvalFixture() {
   }
 }
 
-test('Parent 批次执行评测使用真实提交图、远端 SHA 和状态写入顺序的正负控', async () => {
+test('Parent 批次执行评测使用本地提交图、未推送事实和状态写入顺序的正负控', async () => {
   const f = await parentBatchEvalFixture();
   try {
     const schema = await readJson(path.join(rootDir, 'schemas/eval-suite.schema.json'));
@@ -57,9 +57,7 @@ test('Parent 批次执行评测使用真实提交图、远端 SHA 和状态写�
       f.git(f.state.source, 'commit', '-qm', `feat(ENG-${id}): implement ${id}`);
     }
     f.git(f.state.repo, 'merge', '--no-ff', '--no-edit', 'feat/ENG-P-batch');
-    f.node(f.state.repo, 'check.cjs');
     const head = f.git(f.state.repo, 'rev-parse', 'HEAD');
-    f.git(f.state.repo, 'push', '--no-force', f.state.remote, `${head}:refs/heads/develop`);
     f.node(f.workspace, 'linear.cjs', 'ENG-A');
     assert.throws(() => f.node(f.workspace, '-e',
       "process.argv[2]='ENG-B';require('./linear.cjs');throw Error('response lost after write')"));
@@ -73,7 +71,7 @@ test('Parent 批次执行评测使用真实提交图、远端 SHA 和状态写�
     const events = await readFile(f.state.events, 'utf8');
     const parsed = events.trim().split('\n').map(JSON.parse);
     await writeFile(f.state.events, [...parsed.slice(1, 2), parsed[0], ...parsed.slice(2)].map(JSON.stringify).join('\n') + '\n');
-    assert.equal((await inspect()).summary.failed, 1, '远端确认前的 Done 必须拒绝');
+    assert.equal((await inspect()).summary.failed, 1, '错误的 Done 顺序必须拒绝');
     await writeFile(f.state.events, events);
     const checks = await readFile(f.state.checks, 'utf8');
     await writeFile(f.state.checks, '');
@@ -82,9 +80,10 @@ test('Parent 批次执行评测使用真实提交图、远端 SHA 和状态写�
     await writeFile(f.state.checks, checks.trim().split('\n').map((line) => ({ ...JSON.parse(line), worktrees: 3 })).map(JSON.stringify).join('\n') + '\n');
     assert.equal((await inspect()).summary.failed, 1, '逐 Issue 多建任务树必须拒绝');
     await writeFile(f.state.checks, checks);
+    f.git(f.state.repo, 'push', '--no-force', f.state.remote, `${head}:refs/heads/develop`);
+    assert.equal((await inspect()).summary.failed, 1, '本地流程不得追加推送');
     f.git(f.state.remote, 'update-ref', 'refs/heads/develop', f.state.base);
-    assert.equal((await inspect()).summary.failed, 1, '本地完成不能冒充远端交付');
-    f.git(f.state.remote, 'update-ref', 'refs/heads/develop', head);
+    await writeFile(f.state.events, events);
     assert.equal((await inspect()).summary.failed, 0);
   } finally {
     await rm(f.workspace, { recursive: true, force: true });
@@ -100,8 +99,6 @@ test('Parent 批次执行判据拒绝把两个 Issue 混入一次提交', async 
     f.git(f.state.source, 'commit', '-qm', 'feat(ENG-A): deliver ENG-A and ENG-B together');
     f.git(f.state.repo, 'merge', '--no-ff', '--no-edit', 'feat/ENG-P-batch');
     f.node(f.state.repo, 'check.cjs');
-    const head = f.git(f.state.repo, 'rev-parse', 'HEAD');
-    f.git(f.state.repo, 'push', '--no-force', f.state.remote, `${head}:refs/heads/develop`);
     for (const id of ['ENG-A', 'ENG-B', 'ENG-P']) f.node(f.workspace, 'linear.cjs', id);
     const result = await runHiddenTests({ workspace: f.workspace, case: f.definition }, {});
     assert.equal(result.summary.failed, 1, '最终内容和 Done 都正确也不能掩盖错误的提交归属');
@@ -388,7 +385,7 @@ test('host compaction case keeps the stale checkpoint out of the fixture and the
   assert.doesNotMatch(fixtureText, /compacted|summary|checkpoint/iu);
   assert.doesNotMatch(item.input.scenario, /VIBE_HARNESS_EXECUTION_ENVELOPE|compacted this conversation/iu);
   assert.equal(item.input.fixture.files.some((file) => file.path === '.gitignore'), false);
-  assert.match(item.input.compaction.resumePrompt, /VIBE_HARNESS_EXECUTION_ENVELOPE/u);
+  assert.match(item.input.compaction.resumePrompt, /recovery checkpoint/u);
   assert.equal(item.input.compaction.resumePrompt.includes(item.input.scenario), false);
   assert.match(item.oracle.forbiddenEvents.find((entry) => entry.value === 'git-head-advanced').dimension, /safety/u);
 });
@@ -408,7 +405,7 @@ test('EVAL-EXEC-ANCHOR-001 用例约束压缩恢复的锚点读写与重复验�
   const fixtureText = JSON.stringify(item.input.fixture.files);
   assert.doesNotMatch(fixtureText, /compacted|summary|checkpoint/iu);
   assert.doesNotMatch(item.input.scenario, /VIBE_HARNESS_EXECUTION_ENVELOPE|compacted this conversation/iu);
-  assert.match(item.input.compaction.resumePrompt, /VIBE_HARNESS_EXECUTION_ENVELOPE/u);
+  assert.match(item.input.compaction.resumePrompt, /recovery checkpoint/u);
   assert.equal(item.input.compaction.resumePrompt.includes(item.input.scenario), false);
   assert.equal(item.input.compaction.resumePrompt.includes('docs/rules/governance-core.md'), false);
   // Anchor writes must be observable without counting as workspace violations,

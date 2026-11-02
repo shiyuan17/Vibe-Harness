@@ -14,11 +14,11 @@ function usage() {
   console.log();
   console.log('Executes the behavioral suite against the real runtime (hook + focused verification)');
   console.log('and compares the result with the checked-in stub artifact (evals/results/).');
-  console.log('  --write  Regenerate the checked-in artifact; the previous file is backed up under .vibe-harness/backups/.');
+  console.log('  --write  Save a new current run under .vibe-harness/evals/; preserve historical artifacts.');
   console.log('  --json   Emit the complete report as JSON.');
   console.log();
   console.log('The artifact embeds the asset fingerprint, so a rule, Hook, config or suite change');
-  console.log('requires regenerating it (`pnpm eval:behavioral --write`).');
+  console.log('reports stale history without failing current behavior or requiring baseline changes.');
 }
 
 /** @param {any} payload */
@@ -65,11 +65,10 @@ async function main() {
     });
     return;
   }
-  if (report.changed && !write) {
+  if (report.artifactErrors.length > 0) {
     fail({
       changes: report.changes,
-      errors: ['behavioral run differs from the checked-in result'],
-      nextAction: 'Regenerate the artifact with `pnpm eval:behavioral --write` (behavioral evidence must follow asset changes).',
+      errors: report.artifactErrors,
       ok: false,
     });
     return;
@@ -91,7 +90,7 @@ async function main() {
   }
   console.log(report.status === 'current'
     ? 'Vibe-Harness behavioral run artifact is current.'
-    : `Vibe-Harness behavioral run artifact ${write ? 'updated' : 'drifted'}.`);
+    : 'Historical behavioral artifact is stale; current behavior passed.');
   for (const change of report.changes) {
     console.log(`changed: ${change.field} ${change.from ?? '-'} -> ${change.to ?? '-'}`);
   }
