@@ -508,8 +508,6 @@ export async function createInstallPlan({
   const plannedTargets = new Set(actions.map((action) => action.relativeTarget));
   actions.push(...await planDeselectedModuleRetirements(ctx, plannedTargets));
 
-  actions.push(...await planGeneratedDirectoryRetirements(ctx, actions));
-
   actions.push(...await planOrphanedStateRetirements(ctx, new Set(actions.map((action) => action.relativeTarget))));
 
   const generatedDirectories = computeGeneratedDirectories(ctx, actions);
@@ -537,8 +535,6 @@ export async function createInstallPlan({
     skillRoots,
     targets: retainedTargets,
   });
-  const stateDirectory = path.basename(path.dirname(stateFilePath(path.resolve(targetDir))));
-
   const owner = 'adapter:' + adapter.id;
   const adapterConfigTargets = new Set(Object.values(adapter.projectConfig ?? {})
     .flatMap((item) => [item.target, ...(item.alternateTargets ?? [])]));
@@ -905,62 +901,12 @@ async function planEntryActions(ctx) {
 }
 
 async function planUpgradeRetirements(ctx, entryActions) {
-  const { allowedGroups, installMap, managed, skillRoots, state, targetDir, upgrade } = ctx;
+  const { state, targetDir, upgrade } = ctx;
   if (!upgrade) return [];
-  const isSkillRootTarget = skillRootMatcher(skillRoots);
   const actions = [];
-  for (const entry of installMap.retiredEntries ?? []) {
-    if (!allowedGroups.has(entry.group)) {
-      continue;
-    }
-    assertPortableRelativePath(entry.target, 'retired install target');
-    const relativeTarget = entry.target.replaceAll('\\', '/');
-    const managedFile = managed.get(relativeTarget);
-    if (!managedFile) {
-      continue;
-    }
-    const target = path.resolve(targetDir, relativeTarget);
-    assertInsideDir(targetDir, target, 'retired install target');
-    await assertSafePathInside(targetDir, target, 'retired install target');
-    if (!(await pathExists(target))) {
-      continue;
-    }
-    const currentHash = await hashFile(target);
-    actions.push({
-      expectedHash: managedFile.targetHash,
-      group: entry.group,
-      kind: currentHash === managedFile.targetHash ? 'retire' : 'retire-modified',
-      redZone: Boolean(entry.redZone),
-      relativeTarget,
-      target,
-    });
-  }
-
-  const plannedSkillTargets = new Set([...entryActions, ...actions].map((action) => action.relativeTarget));
-  for (const managedFile of state?.files ?? []) {
-    const relativeTarget = managedFile.target.replaceAll('\\', '/');
-    if (!isSkillRootTarget(relativeTarget)
-      || plannedSkillTargets.has(relativeTarget)) {
-      continue;
-    }
-    assertPortableRelativePath(relativeTarget, 'orphaned skill target');
-    const target = path.resolve(targetDir, relativeTarget);
-    assertInsideDir(targetDir, target, 'orphaned skill target');
-    await assertSafePathInside(targetDir, target, 'orphaned skill target');
-    if (!(await pathExists(target))) continue;
-    const currentHash = await hashFile(target);
-    actions.push({
-      expectedHash: managedFile.targetHash,
-      group: managedFile.group,
-      kind: currentHash === managedFile.targetHash ? 'retire' : 'retire-modified',
-      redZone: Boolean(managedFile.redZone),
-      relativeTarget,
-      target,
-    });
-    plannedSkillTargets.add(relativeTarget);
-  }
-
-  const currentPlanTargets = new Set([...entryActions, ...actions].map((action) => action.relativeTarget));
+  // A single ownership-based pass covers retired groups and Skills too.
+  // Never infer ownership from a filename or the new profile's group list.
+  const currentPlanTargets = new Set(entryActions.map((action) => action.relativeTarget));
   for (const managedFile of state?.files ?? []) {
     const relativeTarget = managedFile.target.replaceAll('\\', '/');
     if (currentPlanTargets.has(relativeTarget)) continue;
@@ -986,6 +932,7 @@ async function planUpgradeRetirements(ctx, entryActions) {
       discard: true,
       expectedHash,
       group: managedFile.group,
+      contentStrategy: managedFile.contentStrategy,
       kind: currentHash === expectedHash ? retireKind : 'retire-modified',
       ...(isManagedJson(managedFile.contentStrategy) ? { managedJson: managedFile.managedJson } : {}),
       redZone: Boolean(managedFile.redZone),
@@ -994,14 +941,8 @@ async function planUpgradeRetirements(ctx, entryActions) {
     });
     currentPlanTargets.add(relativeTarget);
   }
-  for (const relativeTarget of ['.vibe-harness/session-task-bindings.json', '.vibe-harness/subagents/receipts']) {
-    const target = path.resolve(targetDir, relativeTarget);
-    assertInsideDir(targetDir, target, 'obsolete runtime state');
-    await assertSafePathInside(targetDir, target, 'obsolete runtime state');
-    if (await pathExists(target)) {
-      actions.push({ discard: true, kind: 'retire-runtime-state', redZone: false, relativeTarget, target });
-    }
-  }
+  // Task/session data is not an installed asset. Never infer permission to
+  // delete it from an upgrade, even after the commands that used it retire.
   return actions;
 }
 
@@ -1119,6 +1060,7 @@ async function planDeselectedModuleRetirements(ctx, plannedTargets) {
       discard: true,
       expectedHash,
       group: managedFile.group,
+      contentStrategy: managedFile.contentStrategy,
       kind,
       ...(isManagedJson(managedFile.contentStrategy) ? { managedJson: managedFile.managedJson } : {}),
       redZone: Boolean(managedFile.redZone),
@@ -1128,36 +1070,6 @@ async function planDeselectedModuleRetirements(ctx, plannedTargets) {
     plannedTargets.add(relativeTarget);
   }
   return actions;
-}
-
-async function planGeneratedDirectoryRetirements(ctx, actions) {
-  const { state, targetDir } = ctx;
-  const result = [];
-  const retiringOwners = new Map(actions
-    .filter((action) => action.discard && action.kind === 'retire')
-    .map((action) => [action.relativeTarget, action.expectedHash]));
-  for (const directory of state?.generatedDirectories ?? []) {
-    if (/\/tools\/(?:codebase-memory-mcp|rtk|ast-grep)\//u.test(directory.ownerTarget.replaceAll('\\', '/'))) continue;
-    const expectedOwnerHash = retiringOwners.get(directory.ownerTarget);
-    if (!expectedOwnerHash) continue;
-    assertPortableRelativePath(directory.target, 'deselected generated directory');
-    const target = path.resolve(targetDir, directory.target);
-    const ownerTarget = path.resolve(targetDir, directory.ownerTarget);
-    if (directory.projectScoped) assertInsideDir(targetDir, target, 'deselected generated directory');
-    else assertInsideDir(path.dirname(ownerTarget), target, 'deselected generated directory');
-    await assertSafePathInside(targetDir, target, 'deselected generated directory');
-    result.push({
-      discard: true,
-      expectedOwnerHash,
-      kind: 'retire-generated-directory',
-      ownerTarget: directory.ownerTarget,
-      projectScoped: Boolean(directory.projectScoped),
-      redZone: false,
-      relativeTarget: directory.target,
-      target,
-    });
-  }
-  return result;
 }
 
 function computeGeneratedDirectories(ctx, actions) {
@@ -1643,6 +1555,16 @@ function retirementTargets(actions = []) {
 }
 
 function validatePlanGuards(plan) {
+  if (plan.actions.some((action) => ['retire-runtime-state', 'retire-generated-directory'].includes(action.kind))) {
+    throw new Error('Refusing automatic retirement of runtime state or generated directories.');
+  }
+  const modifiedExecutableConfig = plan.actions.find((action) => action.kind === 'retire-modified'
+    && (isManagedJson(action.contentStrategy) || isManagedToml(action.contentStrategy)
+      || action.managedJson || (['hooks', 'adapter-config', 'mcp-config'].includes(action.group)
+        && /\.(?:jsonc?|toml)$/u.test(action.relativeTarget))));
+  if (modifiedExecutableConfig) {
+    throw new Error(`Cannot safely detach modified executable configuration: ${modifiedExecutableConfig.relativeTarget}`);
+  }
   if (plan.preserveUserModified && !plan.upgrade) {
     throw new Error('--preserve-user-modified requires --upgrade.');
   }
@@ -1680,13 +1602,23 @@ function validatePlanGuards(plan) {
   }
 }
 
-const TRACKED_ACTION_KINDS = ['write', 'retire', 'retire-managed-ignore', 'retire-managed-json', 'retire-managed-mcp', 'retire-generated-directory'];
+const TRACKED_ACTION_KINDS = ['write', 'retire', 'retire-managed-ignore', 'retire-managed-json', 'retire-managed-mcp'];
 
 async function assertActionPaths(plan) {
   for (const action of plan.actions.filter((item) => item.kind === 'unchanged' || TRACKED_ACTION_KINDS.includes(item.kind))) {
     assertPortableRelativePath(action.relativeTarget, 'install target');
     assertInsideDir(plan.targetDir, action.target, 'install target outside target directory');
     await assertSafePathInside(plan.targetDir, action.target, 'install target');
+    if (String(action.kind).startsWith('retire')
+      && (isManagedJson(action.contentStrategy) || isManagedToml(action.contentStrategy) || action.managedJson)) {
+      const content = await readFile(action.target, 'utf8');
+      const currentHash = isManagedJson(action.contentStrategy) || action.managedJson
+        ? managedJsonHash(content, action.managedJson)
+        : hashManagedBlock(extractManagedMcpBlock(content));
+      if (currentHash !== action.expectedHash) {
+        throw new Error(`Executable configuration changed after planning: ${action.relativeTarget}`);
+      }
+    }
   }
 }
 
@@ -1847,26 +1779,6 @@ async function executeRetireActions(plan, ctx) {
   const { backupId, discardedTargets, retiredFiles } = ctx;
   const isSkillRootTarget = skillRootMatcher(plan.skillRoots ?? []);
 
-  for (const action of plan.actions.filter((item) => item.kind === 'retire-runtime-state')) {
-    await rm(action.target, { force: true, recursive: true });
-    retired.push(action.relativeTarget);
-  }
-
-  for (const action of plan.actions.filter((item) => item.kind === 'retire-generated-directory')) {
-    const ownerTarget = path.join(plan.targetDir, action.ownerTarget);
-    if (!(await pathExists(action.target))) {
-      discardedTargets.add(action.relativeTarget);
-      continue;
-    }
-    if (!(await pathExists(ownerTarget)) || await hashFile(ownerTarget) !== action.expectedOwnerHash) {
-      skipped.push({ reason: 'owner-modified', target: action.relativeTarget });
-      continue;
-    }
-    await rm(action.target, { force: true, recursive: true });
-    discardedTargets.add(action.relativeTarget);
-    retired.push(action.relativeTarget);
-  }
-
   for (const action of plan.actions) {
     if (action.kind === 'retire-missing') {
       // The target is already gone; only the registration is dropped.
@@ -2002,7 +1914,7 @@ function mergeInstallState(plan, ctx, retireResult) {
     } : file);
   }
   const generatedDirectories = [...new Map([
-    ...(previousState?.generatedDirectories ?? []).filter((item) => !retiredTargets.has(item.ownerTarget)),
+    ...(previousState?.generatedDirectories ?? []),
     ...plan.generatedDirectories,
   ].map((item) => [item.target, item])).values()];
   return {

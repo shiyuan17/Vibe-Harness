@@ -11,6 +11,7 @@ import test from 'node:test';
 import { promisify } from 'node:util';
 
 import { applyInstallPlan, createInstallPlan, createMultiTargetInstallPlan } from '../../scripts/lib/install-planner.js';
+import { writeDefaultProjectConfig } from '../../scripts/lib/project-config.js';
 
 const execFileAsync = promisify(execFile);
 const rootDir = path.resolve(import.meta.dirname, '../..');
@@ -227,7 +228,8 @@ test('CLI write mode writes files when red-zone confirmation is explicit', async
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-apply-'));
   try {
     const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
-    await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', 'full']);
+    // Legacy config fixture, not a supported CLI profile-selection path.
+    await writeDefaultProjectConfig({ projectDir: target, profile: 'full' });
     await execFileAsync(process.execPath, [
       cliPath,
       'install',
@@ -235,11 +237,8 @@ test('CLI write mode writes files when red-zone confirmation is explicit', async
       target,
       '--target',
       'codex',
-      '--profile',
-      'full',
       '--write',
       '--confirm-red-zone',
-      '--allow-degraded',
     ]);
 
     const taskTemplate = await readFile(path.join(target, 'docs/templates/task.md'), 'utf8');
@@ -261,7 +260,7 @@ test('CLI write mode installs localized en-US templates when language is en-US',
   const target = await mkdtemp(path.join(tmpdir(), 'vibe-harness-enus-'));
   try {
     const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
-    await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', 'full']);
+    await writeDefaultProjectConfig({ projectDir: target, profile: 'full' });
     // init defaults to zh-CN; switch to en-US before installing so the
     // sourceForEntry localization picks the .en-US.md template sources.
     const configPath = path.join(target, 'vibe-harness.config.json');
@@ -275,11 +274,8 @@ test('CLI write mode installs localized en-US templates when language is en-US',
       target,
       '--target',
       'codex',
-      '--profile',
-      'full',
       '--write',
       '--confirm-red-zone',
-      '--allow-degraded',
     ]);
 
     const deliveryTemplate = await readFile(path.join(target, 'docs/templates/delivery.md'), 'utf8');
@@ -307,7 +303,7 @@ async function legacyTierProject({ tiers } = {}) {
     'utf8',
   );
   const cliPath = path.join(rootDir, 'scripts/vibe-harness.js');
-  await execFileAsync(process.execPath, [cliPath, 'init', '--project', target, '--target', 'codex', '--profile', 'core']);
+  await writeDefaultProjectConfig({ projectDir: target, profile: 'core' });
   // A config written before the tiers existed has no `tiers` key; that is the
   // upgrade surface, so the fixture drops it (or seeds a partial one).
   const configPath = path.join(target, 'vibe-harness.config.json');
@@ -327,7 +323,7 @@ test('install --upgrade 预演报告将要补充的层键且不写入', async ()
   try {
     const before = await readFile(configPath, 'utf8');
     const plan = await execFileAsync(process.execPath, [
-      cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--upgrade', '--dry-run',
+      cliPath, 'install', '--project', target, '--target', 'codex', '--upgrade', '--dry-run',
     ]);
     const report = JSON.parse(plan.stdout);
 
@@ -351,7 +347,7 @@ test('install --upgrade 未经红区确认拒绝写回分层配置', async () =>
     const before = await readFile(configPath, 'utf8');
     await assert.rejects(
       execFileAsync(process.execPath, [
-        cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--upgrade', '--write', '--allow-degraded',
+        cliPath, 'install', '--project', target, '--target', 'codex', '--upgrade', '--write',
       ]),
       /validationCommands\.tiers.*confirm-red-zone/u,
     );
@@ -372,12 +368,9 @@ test('install --upgrade --write 只补充缺失的层键', async () => {
       target,
       '--target',
       'codex',
-      '--profile',
-      'core',
       '--upgrade',
       '--write',
       '--confirm-red-zone',
-      '--allow-degraded',
     ]);
     const config = await readConfig(configPath);
 
@@ -398,7 +391,7 @@ test('install --upgrade 不改动已完整声明的分层配置', async () => {
   const { cliPath, configPath, target } = await legacyTierProject({ tiers: declared });
   try {
     const result = await execFileAsync(process.execPath, [
-      cliPath, 'install', '--project', target, '--target', 'codex', '--profile', 'core', '--upgrade', '--dry-run',
+      cliPath, 'install', '--project', target, '--target', 'codex', '--upgrade', '--dry-run',
     ]);
     const report = JSON.parse(result.stdout);
 

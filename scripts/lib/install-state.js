@@ -58,28 +58,6 @@ function stateDirNameFor(targetDir) {
   return path.basename(path.dirname(stateFilePath(targetDir)));
 }
 
-function toolStateTargets(targetDir) {
-  const stateDir = stateDirNameFor(targetDir);
-  return [
-    `${stateDir}/tool-state/tools.json`,
-    `${stateDir}/tool-state/provisioning.json`,
-  ];
-}
-
-// The tool runtime writes its state outside the installer's file plan, so a
-// surviving manifest under .agents/runtime/tools/ (not adapter ownership)
-// decides whether that state must be kept.
-async function toolRuntimeManifestsPresent(targetDir) {
-  const toolsRoot = path.join(targetDir, '.agents', 'runtime', 'tools');
-  if (!(await pathExists(toolsRoot))) return false;
-  const entries = await readdir(toolsRoot, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
-    if (await pathExists(path.join(toolsRoot, entry.name, 'package.json'))) return true;
-  }
-  return false;
-}
-
 export async function hashFile(filePath) {
   const content = await readFile(filePath);
   return createHash('sha256').update(content).digest('hex');
@@ -230,6 +208,9 @@ export async function collectTargetFiles(targetDir, currentDir = targetDir) {
 async function assertStateActionPathsSafe(targetDir, actions, label) {
   await assertSafePathInside(targetDir, stateFilePath(targetDir), `${label} state`);
   for (const action of actions) {
+    if (['delete-generated-directory', 'delete-tool-state'].includes(action.kind)) {
+      throw new Error(`Unsupported ${label} action: ${action.kind}; unregistered mutable state must be preserved.`);
+    }
     for (const key of ['target', 'ownerTarget', 'restoreTarget', 'backup', 'baselineBackup']) {
       if (typeof action[key] !== 'string') continue;
       assertPortableRelativePath(action[key], `${label} ${key}`);
@@ -245,27 +226,8 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
   }
 
   const actions = [];
-  for (const directory of state.generatedDirectories ?? []) {
-    if (/\/tools\/(?:codebase-memory-mcp|rtk|ast-grep)\//u.test(directory.ownerTarget.replaceAll('\\', '/'))) continue;
-    assertPortableRelativePath(directory.target, 'install-state generated directory');
-    assertPortableRelativePath(directory.ownerTarget, 'install-state generated directory owner');
-    const target = path.join(targetDir, directory.target);
-    const ownerTarget = path.join(targetDir, directory.ownerTarget);
-    if (directory.projectScoped) assertInsideDir(targetDir, target, 'generated directory');
-    else assertInsideDir(path.dirname(ownerTarget), target, 'generated directory');
-    const owner = state.files.find((file) => file.target === directory.ownerTarget);
-    if (!owner) {
-      throw new Error(`Generated directory owner is not managed: ${directory.ownerTarget}`);
-    }
-    actions.push({
-      expectedOwnerHash: owner.targetHash,
-      kind: 'delete-generated-directory',
-      ownerTarget: directory.ownerTarget,
-      projectScoped: Boolean(directory.projectScoped),
-      redZone: false,
-      target: directory.target,
-    });
-  }
+  // Generated directories may contain user files. Their owner's hash does not
+  // authorize recursive deletion during rollback.
   for (const file of state.generatedFiles ?? []) {
     assertPortableRelativePath(file.target, 'install-state generated file');
     const target = path.join(targetDir, file.target);
@@ -347,15 +309,8 @@ export async function createRollbackPlan({ dryRun = true, redZoneConfirmed = fal
     });
   }
 
-  // The runtime writes tool-state/tools.json and the transient
-  // tool-state/provisioning.json marker outside the installer's file plan,
-  // so they survive as orphans unless retirement is explicit. A rollback
-  // exits the whole install, so both files are retired whenever present.
-  // tools.json churns on every provision (`updatedAt`), so hash discipline
-  // would only produce spurious 'target-modified' skips.
-  for (const target of toolStateTargets(targetDir)) {
-    actions.push({ kind: 'delete-tool-state', redZone: false, target });
-  }
+  // Unregistered tool/session state is left for the owner; rollback only
+  // operates on the exact files whose ownership was recorded.
 
   await assertStateActionPathsSafe(targetDir, actions, 'rollback');
 
@@ -397,31 +352,13 @@ export async function applyRollbackPlan(plan, hooks = {}) {
     assertPortableRelativePath(action.target, 'rollback target');
     const target = path.join(plan.targetDir, action.target);
     assertInsideDir(plan.targetDir, target, 'rollback target');
-    if (action.kind === 'delete-generated-directory') {
-      assertPortableRelativePath(action.ownerTarget, 'rollback generated directory owner');
-      const ownerTarget = path.join(plan.targetDir, action.ownerTarget);
-      if (action.projectScoped) assertInsideDir(plan.targetDir, target, 'rollback generated directory');
-      else assertInsideDir(path.dirname(ownerTarget), target, 'rollback generated directory');
-      if (await pathExists(target)) {
-        if (!(await pathExists(ownerTarget)) || await hashFile(ownerTarget) !== action.expectedOwnerHash) {
-          skipped.push({ reason: 'owner-modified', target: action.target });
-          continue;
-        }
-        await rm(target, { force: true, recursive: true });
-        applied.push(action.target);
-      }
-    } else if (action.kind === 'delete-generated-file' && await pathExists(target)) {
+    if (action.kind === 'delete-generated-file' && await pathExists(target)) {
       if (await hashFile(target) !== action.expectedHash) {
         skipped.push({ reason: 'target-modified', target: action.target });
         continue;
       }
       await rm(target, { force: true });
       applied.push(action.target);
-    } else if (action.kind === 'delete-tool-state') {
-      if (await pathExists(target)) {
-        await rm(target, { force: true });
-        applied.push(action.target);
-      }
     } else if (action.kind === 'remove-managed-ignore-block' && await pathExists(target)) {
       const content = await readFile(target, 'utf8');
       const block = extractManagedCbmIgnoreBlock(content);
@@ -540,7 +477,6 @@ export async function createUninstallPlan({ allTargets = false, configUpdate = n
   const targetOwner = targeted ? 'adapter:' + target : null;
   const exclusivelyOwned = (item) => !targeted || item.owners.every((owner) => owner === targetOwner);
   const selectedRetiredFiles = (state.retiredFiles ?? []).filter(exclusivelyOwned);
-  const selectedDirectories = (state.generatedDirectories ?? []).filter(exclusivelyOwned);
   const selectedGeneratedFiles = (state.generatedFiles ?? []).filter(exclusivelyOwned);
   const selectedFiles = (state.files ?? []).filter(exclusivelyOwned);
   const baselineBackups = new Map();
@@ -569,25 +505,7 @@ export async function createUninstallPlan({ allTargets = false, configUpdate = n
     });
   }
 
-  for (const directory of selectedDirectories) {
-    if (/\/tools\/(?:codebase-memory-mcp|rtk|ast-grep)\//u.test(directory.ownerTarget.replaceAll('\\', '/'))) continue;
-    assertPortableRelativePath(directory.target, 'install-state generated directory');
-    assertPortableRelativePath(directory.ownerTarget, 'install-state generated directory owner');
-    const target = path.join(targetDir, directory.target);
-    const ownerTarget = path.join(targetDir, directory.ownerTarget);
-    if (directory.projectScoped) assertInsideDir(targetDir, target, 'generated directory');
-    else assertInsideDir(path.dirname(ownerTarget), target, 'generated directory');
-    const owner = state.files.find((file) => file.target === directory.ownerTarget);
-    if (!owner) throw new Error(`Generated directory owner is not managed: ${directory.ownerTarget}`);
-    actions.push({
-      expectedOwnerHash: owner.targetHash,
-      kind: 'delete-generated-directory',
-      ownerTarget: directory.ownerTarget,
-      projectScoped: Boolean(directory.projectScoped),
-      redZone: false,
-      target: directory.target,
-    });
-  }
+  // Directory registration is not proof that all descendants are disposable.
   for (const file of selectedGeneratedFiles) {
     assertPortableRelativePath(file.target, 'install-state generated file');
     assertInsideDir(targetDir, path.join(targetDir, file.target), 'generated file');
@@ -643,21 +561,7 @@ export async function createUninstallPlan({ allTargets = false, configUpdate = n
     }
   }
 
-  // Tool runtime state must retire with the tool runtimes: the provisioning
-  // marker is transient process state, and tools.json only matters while a
-  // manifest under .agents/runtime/tools/ survives the uninstall. Manifests
-  // carry owners: ['shared'], so a targeted uninstall keeps both the tools
-  // and their state.
-  const survivingToolManifests = targeted
-    ? state.files.filter((file) => !exclusivelyOwned(file)
-      && file.target.startsWith('.agents/runtime/tools/')
-      && file.target.endsWith('/package.json'))
-    : [];
-  if (survivingToolManifests.length === 0) {
-    for (const target of toolStateTargets(targetDir)) {
-      actions.push({ kind: 'delete-tool-state', redZone: false, target });
-    }
-  }
+  // Do not turn uninstall into a cleanup command for mutable tool data.
 
   await assertStateActionPathsSafe(targetDir, actions, 'uninstall');
 
@@ -685,15 +589,6 @@ async function applyUninstallAction(plan, action) {
   await assertSafePathInside(plan.targetDir, target, 'uninstall target');
 
   if (action.kind === 'leave-existing') return null;
-  if (action.kind === 'delete-generated-directory') {
-    const ownerTarget = path.join(plan.targetDir, action.ownerTarget);
-    if (action.projectScoped) assertInsideDir(plan.targetDir, target, 'generated directory');
-    else assertInsideDir(path.dirname(ownerTarget), target, 'generated directory');
-    if (!(await pathExists(target))) return null;
-    if (!(await pathExists(ownerTarget)) || await hashFile(ownerTarget) !== action.expectedOwnerHash) return 'owner-modified';
-    await rm(target, { force: true, recursive: true });
-    return null;
-  }
   if (action.kind === 'delete-generated-file') {
     if (!(await pathExists(target))) return null;
     if (await hashFile(target) !== action.expectedHash) return 'target-modified';
@@ -775,15 +670,6 @@ async function applyUninstallAction(plan, action) {
   if (action.kind === 'delete-created') {
     if (!(await pathExists(target))) return null;
     if (await hashFile(target) !== action.expectedHash) return 'target-modified';
-    await rm(target, { force: true });
-    return null;
-  }
-  if (action.kind === 'delete-tool-state') {
-    // Re-check on disk: a partial uninstall that left a tool manifest behind
-    // (for example because its directory was owner-modified) must keep the
-    // tool state that manifest still describes.
-    if (await toolRuntimeManifestsPresent(plan.targetDir)) return 'tool-runtime-present';
-    if (!(await pathExists(target))) return null;
     await rm(target, { force: true });
     return null;
   }

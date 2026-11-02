@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { pathExists } from './manifest.js';
+import { assertSafePathInside, pathExists } from './manifest.js';
 import { renderTemplate } from './template-renderer.js';
 import { parsePluginsOption, resolveModuleSelection } from './module-selection.js';
 import { expandInstallPreset, installPresetForId, parsePresetOption } from './install-preset.js';
@@ -230,12 +230,11 @@ export function parseTargetsOption(value) {
   return tokens;
 }
 
-export async function writeDefaultProjectConfig({ force = false, preset, projectDir, profile = 'core', target = 'codex', targets }) {
+export async function writeDefaultProjectConfig({ dryRun = false, force = false, preset = undefined, projectDir, profile = 'core', target = 'codex', targets }) {
   const configPath = path.join(projectDir, productIdentity.configFile);
   if (!force && await pathExists(configPath)) {
     throw new Error(`Refusing to overwrite existing config: ${configPath}`);
   }
-  await mkdir(projectDir, { recursive: true });
   if (!mvpTargets.has(target)) throw new Error(`Unknown target: ${target}`);
   validateProfileName(profile);
   const selectedTargets = targets ?? [target];
@@ -269,7 +268,9 @@ export async function writeDefaultProjectConfig({ force = false, preset, project
   // itself declares and write the derivation (or three empty arrays when no
   // command is unambiguous) so the file states the tier surface explicitly
   // instead of leaving it implicit until the first `install --upgrade`.
-  const tierFacts = await readProjectTierFacts(projectDir);
+  const tierFacts = await pathExists(projectDir)
+    ? await readProjectTierFacts(projectDir)
+    : { packageManager: undefined, scripts: {}, stacks: {} };
   const derivedTiers = deriveValidationTiers({
     configuredCommands: config.validationCommands,
     packageManager: tierFacts.packageManager ?? config.packageManager,
@@ -277,7 +278,11 @@ export async function writeDefaultProjectConfig({ force = false, preset, project
     stacks: tierFacts.stacks,
   });
   config.validationCommands = { ...config.validationCommands, tiers: derivedTiers.tiers };
-  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  if (!dryRun) {
+    await assertSafePathInside(projectDir, configPath, 'project config');
+    await mkdir(projectDir, { recursive: true });
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  }
   return { config, path: configPath };
 }
 

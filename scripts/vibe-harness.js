@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 import path from 'node:path';
-import { completionReceipt, overrideWarnings, resolveDelivery } from '../runtime/lib/delivery.mjs';
-import { createHash, randomUUID } from 'node:crypto';
+import { overrideWarnings } from '../runtime/lib/delivery.mjs';
 import { fileURLToPath } from 'node:url';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 
 import { inspectValidationCommands } from './lib/command-status.js';
 import { inspectGitHooks } from './lib/git-hooks.js';
@@ -15,23 +14,18 @@ import {
   createUninstallPlan,
   hashFile,
   readInstallState,
-  registerGeneratedFile,
   stateFilePath,
 } from './lib/install-state.js';
-import { pathExists, readJson } from './lib/manifest.js';
+import { pathExists } from './lib/manifest.js';
 import {
   applyInstallPlan,
-  createInstallPlan,
   createMultiTargetInstallPlan,
   diffMultiTargetInstall,
-  diffTargetInstall,
-  inspectTargetInstall,
   isMutatingInstallAction,
   previewInstallPlan,
   strictEnforcementWarnings,
 } from './lib/install-planner.js';
 import { validatePack } from './lib/pack-validation.js';
-import { createVerificationPreflightError, runVerificationPlan } from './lib/project-verification.js';
 import { detectProjectProfile } from './lib/project-profile.js';
 import {
   defaultWorktreeMirrors,
@@ -49,20 +43,11 @@ import {
   writeDefaultProjectConfig,
 } from './lib/project-config.js';
 import {
-  DEFAULT_VALIDATION_TIER,
   emptyValidationTiers,
-  normalizeTierOption,
   planValidationTierMigration,
   validationTiersDeclared,
 } from './lib/validation-tiers.js';
-import { normalizeVerificationScope } from './lib/verification-contract.js';
-import { installPresetForId, parsePresetOption, resolveInstallSurface } from './lib/install-preset.js';
-import { collectProjectBaselineInputs, createProjectBaseline } from './lib/project-baseline.js';
-import {
-  checkProjectEvaluations,
-  runProjectEvaluations,
-  writeProjectEvaluationReference,
-} from './lib/project-evaluation.js';
+import { resolveInstallSurface } from './lib/install-preset.js';
 import { canonicalAgentsTemplate, loadAdapterCatalog, resolveAdapter } from './lib/adapter.js';
 import { safetyPostureWarnings } from './lib/safety-posture.js';
 import {
@@ -74,27 +59,14 @@ import {
   runtimeHookWarnings,
 } from './lib/runtime-diagnostics.js';
 import {
-  createToolProvisioningPlan,
   inspectProvisioningMarker,
   inspectProfileTools,
-  provisionProfileTools,
   toolWarnings,
 } from './lib/tool-provisioning.js';
 import { inspectTransactions, recoverTransaction } from './lib/file-transaction.js';
 import { assertNoUnsupportedLegacyAssets } from './lib/project-layout.js';
 import { findNestedInstallations, nestedInstallMigrationCommands } from './lib/nested-install.js';
 import { sanitizePublicReport } from './lib/tool-provisioning/subprocess.js';
-import { AUDIT_KINDS, runProjectAudit } from './lib/project-audit.js';
-import {
-  createFindQuestionPacket,
-  renderFindQuestionMarkdown,
-  validateFindQuestionPacket,
-  writeFindQuestionPacket,
-} from './lib/find-question.js';
-import { buildImpactMapping, collectChangedDetails, collectChangedPaths } from './lib/change-impact.js';
-import { buildVerificationPlan } from './lib/verification-plan.js';
-import { enqueueVerification } from './verification-queue.js';
-import { verificationChanges } from '../runtime/lib/verification-plan.mjs';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -111,13 +83,6 @@ function healthReport({ baseOk = true, profile, tools = {} }) {
 function applyHealthExit(status, args) {
   if (status === 'invalid') process.exitCode = 1;
   if (status === 'degraded' && !args['allow-degraded']) process.exitCode = 2;
-}
-
-function toolStateRelativePath(targetDir) {
-  return path.relative(
-    targetDir,
-    path.join(path.dirname(stateFilePath(targetDir)), 'tool-state/tools.json'),
-  ).replaceAll('\\', '/');
 }
 
 // Signal 0 only probes process existence: ESRCH means the pid is gone, EPERM
@@ -270,23 +235,6 @@ function toolSummaryLines(tools = {}, recommendations = []) {
   });
 }
 
-/**
- * Record a blocking strict-Hook refusal on a completion receipt.
- *
- * The Hook block is a delivery fact rather than a verification detail: the
- * receipt is `blocked` (never `passed`) and names the refusal, so a consumer
- * cannot read it as complete delivery evidence while the report is invalid.
- */
-function withHookBlock(receipt, hookFailure) {
-  if (!hookFailure) return receipt;
-  return {
-    ...receipt,
-    status: 'blocked',
-    unverified: [...new Set([...(receipt.unverified ?? []), `hook:${hookFailure.code ?? 'HOOK_POLICY_BLOCKED'}`])],
-    remainingRisks: [...new Set([...(receipt.remainingRisks ?? []), hookFailure.message ?? 'Strict Hook enforcement blocks delivery.'])],
-  };
-}
-
 function emitReport(report, args, { error = false } = {}) {
   const targetDir = path.resolve(args.project ?? process.cwd());
   const normalized = sanitizePublicReport(normalizeReport(report), targetDir);
@@ -316,7 +264,7 @@ function emitReport(report, args, { error = false } = {}) {
   (error ? console.error : console.log)(JSON.stringify(normalized, null, args.verbose ? 2 : 0));
 }
 
-// diff/rollback/uninstall/baseline print raw plan reports; redact them through the
+// diff/rollback/uninstall print raw plan reports; redact them through the
 // same public-report sanitizer so absolute project paths never reach stdout.
 function printRawReport(report, args) {
   const targetDir = path.resolve(args.project ?? process.cwd());
@@ -329,36 +277,11 @@ function parseArgs(argv) {
     const token = argv[index];
     if (token.startsWith('--')) {
       const key = token.slice(2);
-      if (key === 'plugin' || key === 'paths') {
-        const values = [];
-        while (index + 1 < argv.length && !argv[index + 1].startsWith('--')) {
-          values.push(argv[index + 1]);
-          index += 1;
-        }
-        args[key] = [...(Array.isArray(args[key]) ? args[key] : []), ...values];
-        continue;
-      }
-      if (key === 'reviewed') {
-        // Repeatable, and comma-separated like `run.mjs verify --reviewed`, so a
-        // caller can name several checks without repeating the flag in an
-        // order-sensitive way.
-        const values = [];
-        while (index + 1 < argv.length && !argv[index + 1].startsWith('--')) {
-          values.push(argv[index + 1]);
-          index += 1;
-        }
-        args[key] = [...(Array.isArray(args[key]) ? args[key] : []), ...values.flatMap((value) => value.split(',')).map((value) => value.trim()).filter(Boolean)];
-        continue;
-      }
       const next = argv[index + 1];
       if (!next || next.startsWith('--')) {
         args[key] = true;
       } else {
-        if (key === 'tool' && args[key] !== undefined) {
-          args[key] = Array.isArray(args[key]) ? [...args[key], next] : [args[key], next];
-        } else {
-          args[key] = next;
-        }
+        args[key] = next;
         index += 1;
       }
     } else {
@@ -381,42 +304,39 @@ function resolveCommandTargets(config, state, requestedTarget) {
 }
 
 async function init(args) {
-  const allowedOptions = new Set(['_', 'force', 'preset', 'profile', 'project', 'target', 'targets']);
+  const allowedOptions = new Set(['_', 'force', 'project', 'target', 'targets', 'write', 'dry-run', 'confirm-red-zone', 'output', 'verbose']);
   const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
   if (unknownOption) throw new Error('Unknown init option: --' + unknownOption);
-  const projectDir = path.resolve(args.project ?? process.cwd());
-  const existingState = await readInstallState(projectDir);
-  const preset = args.preset === undefined ? undefined : parsePresetOption(args.preset);
-  const presetProfile = preset ? installPresetForId(preset).profile : null;
-  if (presetProfile && args.profile !== undefined && args.profile !== presetProfile) {
-    throw new Error('preset ' + preset + ' requires profile ' + presetProfile + ', received --profile ' + args.profile + '.');
+  if (args.write && !args['confirm-red-zone']) {
+    throw new Error('Writing vibe-harness.config.json requires --confirm-red-zone.');
   }
+  const projectDir = path.resolve(args.project);
   const targets = args.targets === undefined ? undefined : parseTargetsOption(args.targets);
   if (targets && args.target !== undefined) {
     throw new Error('Use --target <adapter> or --targets <adapter,...>, not both.');
   }
-  const selectedTargets = targets ?? [args.target ?? existingState?.targets?.[0] ?? 'codex'];
+  const selectedTargets = targets ?? [args.target ?? 'codex'];
   const result = await writeDefaultProjectConfig({
+    dryRun: !args.write,
     force: Boolean(args.force),
-    preset,
-    profile: presetProfile ?? args.profile ?? existingState?.profile ?? 'core',
     projectDir,
     target: selectedTargets[0],
     targets: selectedTargets,
   });
-  console.log(JSON.stringify({
+  emitReport({
+    ok: true,
+    dryRun: !args.write,
     config: result.config,
     path: result.path,
-    written: [result.path],
-  }, null, 2));
+    written: args.write ? [result.path] : [],
+  }, args);
 }
 
 async function install(args) {
   if (!args.project) throw new Error('install requires --project <path>; legacy --target path and --apply were removed.');
-  if (Object.hasOwn(args, 'rtk-hooks')) throw new Error('--rtk-hooks has been retired; use install --upgrade to migrate existing configuration.');
   const allowedOptions = new Set([
-    '_', 'allow-degraded', 'allow-preview', 'confirm-red-zone', 'dry-run', 'force', 'modules', 'output',
-    'plugin', 'preset', 'preserve-retired', 'preserve-user-modified', 'profile', 'project', 'provision', 'skip-provision', 'target', 'upgrade', 'verbose', 'write',
+    '_', 'confirm-red-zone', 'dry-run', 'force', 'output',
+    'preserve-retired', 'preserve-user-modified', 'project', 'target', 'upgrade', 'verbose', 'write',
   ]);
   const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
   if (unknownOption) throw new Error(`Unknown install option: --${unknownOption}`);
@@ -428,9 +348,6 @@ async function install(args) {
   }
   if (args['preserve-user-modified'] && args.force) {
     throw new Error('--preserve-user-modified cannot be combined with --force.');
-  }
-  if (args['skip-provision'] && args.provision) {
-    throw new Error('Use --provision or --skip-provision, not both.');
   }
   if (args.write && args['dry-run']) {
     throw new Error('Use --write or --dry-run, not both.');
@@ -454,9 +371,7 @@ async function install(args) {
   const adapterId = selectedTargets[0];
   const adapter = await resolveAdapter(rootDir, adapterId);
   const resolvedInstallSurface = resolveInstallSurface({ args, config, installState: existingState });
-  const installSurface = args['skip-provision']
-    ? { ...resolvedInstallSurface, provision: false, provisionSource: 'cli-skipped' }
-    : resolvedInstallSurface;
+  const installSurface = resolvedInstallSurface;
   const profile = validateProfileName(installSurface.profile);
   const effectiveConfig = {
     ...config,
@@ -579,38 +494,7 @@ async function install(args) {
     && await pathExists(installedHookDefinition)
     && await hashFile(installedHookDefinition) !== hookDefinitionBefore;
   const previewFiles = plan.dryRun ? await previewInstallPlan(plan, { includeContent: Boolean(args.verbose) }) : [];
-  const allowPreview = installSurface.allowPreview;
-  // Single superset plan (allowPreview:true) derives both the user-facing plan and
-  // the deferred preview tools, avoiding a duplicate createToolProvisioningPlan call.
-  const allToolActions = createToolProvisioningPlan({
-    allowPreview: true,
-    profile,
-    resolvedModules: plan.resolvedModules,
-    targetDir,
-  });
-  const compactToolAction = ({ id, mode, phases, supportLevel, version }) => ({ id, mode, phases, supportLevel, version });
-  const plannedToolActions = (allowPreview ? allToolActions : allToolActions.filter((item) => item.supportLevel !== 'preview'))
-    .map(compactToolAction);
-  const deferredToolActions = allToolActions
-    .filter((item) => item.supportLevel === 'preview' && !allowPreview)
-    .map(compactToolAction);
-  const provisionRequested = installSurface.provision;
-  const provisionExecuted = provisionRequested && !plan.dryRun;
-  const tools = provisionExecuted
-    ? await provisionWithSignalHandling({
-        allowPreview: installSurface.allowPreview,
-        mcpConflicts: result.mcpConflicts,
-        profile,
-        resolvedModules: plan.resolvedModules,
-        targetDir,
-      })
-    : await inspectProfileTools(profile, targetDir, plan.resolvedModules, undefined, {
-        allowPreview: installSurface.allowPreview,
-      });
-  if (provisionExecuted && plannedToolActions.length > 0) {
-    await registerGeneratedFile(targetDir, toolStateRelativePath(targetDir));
-  }
-  let health = provisionExecuted ? healthReport({ profile, tools }) : { ok: true, status: 'ready' };
+  let health = { ok: true, status: 'ready' };
   const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
   // Project-owned seeds keep whatever the project wrote into them. The plan
   // marks the targets whose content is retained instead of reinstalled, so both
@@ -623,12 +507,6 @@ async function install(args) {
     .filter((action) => action.kind === 'user-modified' && !action.projectOwned)
     .map((action) => ({ reason: 'user-modified-file-preserved', target: action.relativeTarget }));
   const warnings = [
-    ...(provisionExecuted
-      ? toolWarnings(tools)
-      : (plannedToolActions.length > 0 ? [{
-          code: 'PROVISIONING_NOT_RUN',
-          message: 'Tool provisioning was not run; use vibe-harness provision --project <project> --write.',
-        }] : [])),
     ...safetyPostureWarnings(adapter),
     ...(retainedProjectOwned.length > 0 ? [{
       code: 'PROJECT_OWNED_FILE_RETAINED',
@@ -697,10 +575,8 @@ async function install(args) {
           relativeTarget: path.relative(targetDir, configUpdate.path).replaceAll('\\', '/'),
         }
       : null,
-    deferredToolActions,
     dryRun: plan.dryRun,
     implicitModules: plan.implicitModules,
-    plannedToolActions,
     adapterCapabilities: plan.adapterCapabilities,
     linearMcp: plan.linearMcp,
     missingCapabilities: plan.missingCapabilities,
@@ -708,11 +584,6 @@ async function install(args) {
     preset: installSurface.preset,
     profile: plan.profile,
     prunedBackups: result.prunedBackups ?? [],
-    provisioning: {
-      executed: provisionExecuted,
-      requested: provisionRequested,
-      source: installSurface.provisionSource,
-    },
     previewCapabilities: plan.previewCapabilities,
     requestedModules: plan.requestedModules,
     requestedPlugins: plan.requestedPlugins,
@@ -728,8 +599,6 @@ async function install(args) {
     target: isMvpMode && selectedTargets.length === 1 ? adapterId : undefined,
     targets: selectedTargets,
     ...(args.verbose ? { targetDir: plan.targetDir } : {}),
-    tools,
-    recommendations: toolRecommendations(tools, profile, { adapterId, mvp: isMvpMode }),
     warnings,
     retired: result.retired,
     retiredToolConfiguration: toolMigration.removed,
@@ -858,7 +727,7 @@ async function validate(args) {
       commandStatus,
       enforcementPolicy,
       strictEnforcementRefusals: target.strictEnforcementRefusals ?? [],
-      recommendations: toolRecommendations(tools, installSurface.profile, { adapterId: adapter.id, mvp: true }),
+      recommendations: toolRecommendations(tools),
       runtimeHooks,
       roles: roleRuntimeReport(target.adapters),
       scope: 'project',
@@ -885,358 +754,14 @@ async function validate(args) {
   emitReport({ ok: true, scope: 'pack', status: 'ready' }, args);
 }
 
-async function verify(args) {
-  if (!args.project) throw new Error('verify requires --project <path>.');
-  const targetDir = path.resolve(args.project);
-  const config = await readRequiredProjectConfig(targetDir);
-  const delivery = resolveDelivery(config, args.delivery);
-  if (delivery.write === false && !args.plan) throw new Error('inspect-only only permits verify --plan');
-  const installState = await readInstallState(targetDir);
-  const { configured: targets, selected: selectedTargets } = resolveCommandTargets(config, installState, args.target);
-  validateProjectConfig(config);
-  const enforcementPolicy = resolveEnforcementPolicy(config);
-  const adapter = await resolveAdapter(rootDir, selectedTargets[0]);
-  const projectProfile = await detectProjectProfile({ config, targetDir });
-  const validationCommands = validationCommandView(projectProfile, config);
-  const commandStatus = await inspectValidationCommands({ commands: validationCommands, targetDir });
-  const runtimeHooks = await inspectRuntimeHooks(adapter, targetDir);
-  const strictEnforcementRefusals = [];
-  const hookPolicyWarnings = [
-    ...safetyPostureWarnings(adapter),
-    ...runtimeHookWarnings(runtimeHooks, {
-      definitionChanged: await hookDefinitionDrift(adapter, targetDir, installState),
-      enforcementPolicy,
-    }),
-    ...strictEnforcementWarnings(strictEnforcementRefusals),
-  ];
-  const blockingHookFailure = blockingHookWarning(hookPolicyWarnings);
-  if (args.tier !== undefined && args.full) {
-    throw new Error('Use --tier or --full, not both: --tier selects a cost layer, --full runs the complete matrix.');
-  }
-  // The fast layer is the default path: standard and deep evidence has to be
-  // asked for. `--full` stays the single explicit "complete matrix" door and
-  // implies every declared layer.
-  const full = Boolean(args.full);
-  const tierExplicit = args.tier !== undefined;
-  const tier = tierExplicit ? normalizeTierOption(args.tier) : (full ? 'deep' : DEFAULT_VALIDATION_TIER);
-  /** @type {'affected'|'layer'|'full'|null} */
-  const scope = args.scope === undefined
-    ? null
-    : normalizeVerificationScope(args.scope);
-  const changeScope = verificationChanges(targetDir, { paths: args.paths, base: args.base });
-  const changedPaths = changeScope.changedPaths;
-  let changedDetails = [];
-  try {
-    changedDetails = await collectChangedDetails({ cwd: targetDir, base: changeScope.baseSha });
-  } catch (error) {
-    const detail = String(error?.stderr ?? '') + ' ' + String(error?.message ?? '');
-    if (!/not a git repository|不是 git 仓库/iu.test(detail)) throw error;
-  }
-  const plan = await buildVerificationPlan({
-    changedPaths,
-    commandStatus,
-    config,
-    changedDetails,
-    targetDir,
-    full,
-    tier,
-    tierExplicit,
-    tiers: validationCommands.tiers,
-    tierSource: projectProfile.tierSource,
-    scope,
-    only: typeof args.only === 'string' ? args.only.split(',').filter(Boolean) : args.only ? [] : null,
-  });
-  const planned = { ...plan, ...changeScope, impactMapping: buildImpactMapping(changedPaths, plan.selectedChecks) };
-  if (!full && planned.scope === 'affected' && changeScope.selectionMode === 'changed' && changedPaths.length === 0) {
-    planned.skippedChecks = planned.selectedChecks.map((check) => ({ id: check.id, status: 'not_selected', reason: 'empty-change-scope' }));
-    planned.selectedChecks = [];
-    if (!args.plan) {
-      emitReport({ ok: true, scope: 'project', status: 'unverified', noChanges: true, plan: planned }, args);
-      return;
-    }
-  }
-  if (args.async && !args.plan) {
-    if (tier !== 'deep') throw new Error('--async requires --tier deep.');
-    const fingerprint = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-    const queueReceipt = await enqueueVerification({
-      projectDir: targetDir,
-      tier,
-      scope: planned.scope,
-      planFingerprint: fingerprint(planned),
-      commandSetFingerprint: fingerprint(planned.selectedChecks.map((item) => item.command)),
-    });
-    queueReceipt.plan = planned;
-    await writeFile(path.join(targetDir, '.vibe-harness', 'verification', 'queue', `${queueReceipt.id}.json`), JSON.stringify(queueReceipt, null, 2) + '\n', 'utf8');
-    emitReport({
-      ok: true,
-      scope: 'project',
-      status: 'queued',
-      queue: queueReceipt,
-      ...(args.verbose ? { targetDir } : {}),
-    }, args);
-    return;
-  }
-  if (args.plan) {
-    emitReport({
-      ok: true,
-      scope: 'project',
-      status: 'ready',
-      ...(args.verbose ? { targetDir } : {}),
-      plan: planned,
-    }, args);
-    return;
-  }
-  const verificationReport = await runVerificationPlan({
-    allowManual: Boolean(args['allow-manual']),
-    // A passing receipt is reusable only for the same workspace, plan and
-    // content fingerprint. --no-reuse is the explicit escape hatch.
-    budgetMs: config.verification?.budgetMs,
-    reuse: !args['no-reuse'],
-    commandStatus,
-    plan: planned,
-    reviewed: Array.isArray(args.reviewed) ? args.reviewed : [],
-    targetDir,
-    timeoutMs: config.verification?.timeoutMs,
-  });
-  const completion = delivery.requireReceipt
-    ? withHookBlock(completionReceipt({
-      ...verificationReport, status: verificationReport.ok && !blockingHookFailure ? 'passed' : 'blocked',
-      checks: verificationReport.results,
-      scope: planned.scope, selectedChecks: verificationReport.verification?.selectedChecks,
-      deferredChecks: verificationReport.verification?.deferredChecks,
-    }, delivery), blockingHookFailure)
-    : null;
-  // The completion draft is built for every receipt-required delivery, and a
-  // draft the evidence *refutes* must not be reported `ready`: a consumer that
-  // read only the ordinary report status would otherwise treat a blocked
-  // completion as a successful delivery. `completionReceipt` keeps absent
-  // evidence (deferred layers, a review this caller never declared, a workspace
-  // it could not observe) as `unverified`, so this gate fires exactly when the
-  // commands contradict the completion claim — including a workspace that
-  // changed under passing checks, where the commands alone would read green.
-  // Whether the draft is `passed` is what `task check --complete` and
-  // `worktree cleanup` re-derive from a `complete` receipt.
-  const completionBlocked = completion !== null && completion.status === 'blocked';
-  const reportOk = verificationReport.ok && !blockingHookFailure && !completionBlocked;
-  emitReport({
-    ...verificationReport,
-    // The strict-Hook block belongs to the delivery result, so the completion
-    // receipt is built from the effective status and carries the block as an
-    // unverified item. A receipt that said `passed` while the report was blocked
-    // by an unenforced Hook would be consumed as successful delivery evidence.
-    ...(completion ? { completion } : {}),
-    delivery: { profile: delivery.profile, stage: 'verify' },
-    ...(reportOk ? {} : { ok: false }),
-    deferredChecks: verificationReport.verification?.deferredChecks ?? [],
-    deferredMicroChecks: verificationReport.verification?.deferredMicroChecks ?? planned.deferredMicroChecks ?? [],
-    selectedMicroChecks: verificationReport.verification?.selectedMicroChecks ?? planned.selectedMicroChecks ?? [],
-    minimumTier: verificationReport.verification?.minimumTier ?? planned.minimumTier ?? null,
-    escalation: verificationReport.verification?.escalation ?? planned.escalation ?? null,
-    enforcementPolicy,
-    executionTier: verificationReport.verification?.executionTier ?? null,
-    nextTier: verificationReport.verification?.nextTier ?? null,
-    scopeConfidence: verificationReport.verification?.scopeConfidence ?? planned.scopeConfidence ?? null,
-    estimatedCostMs: verificationReport.verification?.estimatedCostMs ?? planned.estimatedCostMs ?? null,
-    budgetMs: verificationReport.verification?.budgetMs ?? planned.budgetMs ?? null,
-    environment: verificationReport.verification?.environment ?? planned.environment ?? null,
-    runtimeHooks,
-    scope: 'project',
-    verificationScope: planned.scope ?? null,
-    scopeStatus: verificationReport.verification?.scopeStatus ?? 'complete',
-    status: reportOk ? 'ready' : 'invalid',
-    strictEnforcementRefusals,
-    ...(args.verbose ? { targetDir } : {}),
-    tierFallback: verificationReport.verification?.tierFallback ?? null,
-    tierSource: verificationReport.verification?.tierSource ?? null,
-    warnings: [...hookPolicyWarnings, ...delivery.warnings, ...overrideWarnings(config)],
-  }, args, { error: !reportOk });
-  if (!reportOk) process.exitCode = 1;
-}
 
-async function baseline(args) {
-  if (!args.project) throw Object.assign(new Error('baseline requires --project <path>.'), { code: 'BASELINE_PROJECT_REQUIRED' });
-  if (args.target) throw Object.assign(new Error('baseline uses --project <path> and does not accept --target.'), { code: 'BASELINE_PROJECT_REQUIRED' });
-  if (args.write && args['dry-run']) throw new Error('Use --write or --dry-run, not both.');
-  const allowedOptions = new Set(['_', 'dry-run', 'force', 'project', 'verify', 'write']);
-  const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
-  if (unknownOption) throw new Error(`Unknown baseline option: --${unknownOption}`);
-  const targetDir = path.resolve(args.project);
-  let config;
-  try {
-    config = await readRequiredProjectConfig(targetDir);
-  } catch (cause) {
-    throw Object.assign(new Error('Project configuration is missing or invalid; run vibe-harness init before baseline.'), {
-      cause,
-      code: 'BASELINE_INSTALL_INVALID',
-    });
-  }
-  try {
-    validateProjectConfig(config);
-  } catch (cause) {
-    throw Object.assign(new Error('Project configuration is invalid; fix vibe-harness.config.json before baseline.'), {
-      cause,
-      code: 'BASELINE_INSTALL_INVALID',
-    });
-  }
-  const projectProfile = await detectProjectProfile({ config, targetDir });
-  const targets = projectTargets(config);
-  const adapter = await resolveAdapter(rootDir, targets[0]);
-  let installState;
-  let requestedModules;
-  let requestedPlugins;
-  try {
-    installState = await readInstallState(targetDir);
-    if (!installState) throw new Error('Install state is missing.');
-    const surface = resolveInstallSurface({ config, installState });
-    requestedModules = surface.modules;
-    requestedPlugins = surface.plugins;
-  } catch (cause) {
-    throw Object.assign(new Error('Project installation state is invalid; reinstall before baseline.'), {
-      cause,
-      code: 'BASELINE_INSTALL_INVALID',
-    });
-  }
-  const validationCommands = validationCommandView(projectProfile, config);
-  const renderData = { ...config, projectProfile, validationCommands };
-  const target = await diffMultiTargetInstall({
-    allowPreview: true,
-    managedAgentsBlock: true,
-    profile: config.profile,
-    requestedModules,
-    requestedPlugins,
-    renderData,
-    rootDir,
-    targetDir,
-    targets,
-  });
-  const inputs = await collectProjectBaselineInputs({
-    config,
-    projectProfile,
-    target,
-    targetDir,
-    validationCommands,
-  });
-  const result = await createProjectBaseline({
-    ...inputs,
-    baselineSchema: await readJson(path.join(rootDir, 'schemas/project-baseline.schema.json')),
-    config,
-    force: Boolean(args.force),
-    projectProfile,
-    target,
-    targetDir,
-    verify: Boolean(args.verify),
-    write: Boolean(args.write),
-  });
-  printRawReport(result, args);
-  if (!result.ok) process.exitCode = 1;
-}
 
-async function evaluateProject(args) {
-  const action = args._[1];
-  if (!['check', 'run', 'reference'].includes(action)) throw new Error('eval requires check, run, or reference.');
-  if (!args.project) throw new Error('eval requires --project <path>.');
-  if (args.target) throw new Error('eval uses --project <path> and does not accept --target.');
-  if (args.write && args['dry-run']) throw new Error('Use --write or --dry-run, not both.');
-  const allowed = {
-    check: new Set(['_', 'output', 'project', 'suite', 'verbose']),
-    run: new Set(['_', 'allow-degraded', 'dry-run', 'mode', 'output', 'project', 'reference', 'runner', 'suite', 'verbose', 'write']),
-    reference: new Set(['_', 'confirm-reference-update', 'dry-run', 'force', 'from', 'output', 'project', 'verbose', 'write']),
-  }[action];
-  const unknownOption = Object.keys(args).find((key) => !allowed.has(key));
-  if (unknownOption) throw new Error(`Unknown eval ${action} option: --${unknownOption}`);
-  const targetDir = path.resolve(args.project);
-  const config = await readRequiredProjectConfig(targetDir);
-  validateProjectConfig(config);
-  if (!config.evaluations?.enabled) throw new Error('Project evaluations are disabled.');
 
-  let report;
-  if (action === 'check') {
-    report = await checkProjectEvaluations({ config, rootDir, suiteId: args.suite, targetDir });
-  } else if (action === 'run') {
-    report = await runProjectEvaluations({
-      config,
-      mode: args.mode,
-      reference: args.reference,
-      rootDir,
-      runner: args.runner,
-      suiteId: args.suite,
-      targetDir,
-      write: Boolean(args.write),
-    });
-  } else {
-    if (!args.from) throw new Error('eval reference requires --from <run>.');
-    if (args.write && !args['confirm-reference-update']) {
-      throw new Error('eval reference --write requires --confirm-reference-update.');
-    }
-    report = await writeProjectEvaluationReference({
-      config,
-      force: Boolean(args.force),
-      from: args.from,
-      protectedApproval: process.env.VIBE_HARNESS_PROTECTED_APPROVAL === '1',
-      rootDir,
-      targetDir,
-      write: Boolean(args.write),
-    });
-  }
-  emitReport(report, args, { error: report.status === 'invalid' });
-  applyHealthExit(report.status, args);
-}
 
-async function auditProject(args) {
-  if (!args.project) throw new Error('audit requires --project <path>.');
-  if (!args.kind) throw new Error(`audit requires --kind ${AUDIT_KINDS.join('|')}.`);
-  if (args.target) throw new Error('audit uses --project <path> and does not accept --target.');
-  const allowed = new Set(['_', 'base', 'kind', 'output', 'project', 'receipt', 'verbose', 'write']);
-  const unknownOption = Object.keys(args).find((key) => !allowed.has(key));
-  if (unknownOption) throw new Error('Unknown audit option: --' + unknownOption);
-  const report = await runProjectAudit({
-    baseSha: typeof args.base === 'string' ? args.base : undefined,
-    kind: args.kind,
-    receiptPath: typeof args.receipt === 'string' ? args.receipt : undefined,
-    rootDir,
-    targetDir: path.resolve(args.project),
-    write: Boolean(args.write),
-  });
-  emitReport(report, args, { error: report.status === 'degraded' });
-  if (report.status === 'degraded') process.exitCode = 1;
-}
 
-async function findQuestion(args) {
-  if (args._[1] !== 'question' || args._.length !== 2) throw new Error('find requires exactly the question subcommand.');
-  if (typeof args.project !== 'string' || !args.project.trim()) throw new Error('find question requires --project <path>.');
-  const allowed = new Set(['_', 'depth', 'focus', 'output', 'json', 'project', 'report', 'scope', 'verbose', 'write']);
-  const unknownOption = Object.keys(args).find((key) => !allowed.has(key));
-  if (unknownOption) throw new Error('Unknown find question option: --' + unknownOption);
-  for (const flag of ['depth', 'focus', 'output', 'report', 'scope']) {
-    if (args[flag] !== undefined && (typeof args[flag] !== 'string' || !args[flag].trim())) throw new Error(`--${flag} requires a value.`);
-  }
-  for (const flag of ['write', 'json', 'verbose']) {
-    if (args[flag] !== undefined && args[flag] !== true) throw new Error(`--${flag} is a boolean flag.`);
-  }
-  if (args.json && args.output && args.output !== 'json') throw new Error('--json conflicts with --output.');
-  const output = args.output ?? (args.json ? 'json' : 'markdown');
-  if (!['markdown', 'json'].includes(output)) throw new Error('find question --output must be markdown or json.');
-  const packet = await createFindQuestionPacket({
-    depth: typeof args.depth === 'string' ? args.depth : 'deep',
-    focus: typeof args.focus === 'string' ? args.focus : [],
-    projectDir: path.resolve(args.project),
-    report: typeof args.report === 'string' ? args.report : undefined,
-    scope: typeof args.scope === 'string' ? args.scope : [],
-  });
-  await validateFindQuestionPacket(packet, rootDir);
-  if (args.write) await writeFindQuestionPacket(packet, args.project);
-  if (output === 'json') {
-    console.log(JSON.stringify(sanitizePublicReport(packet, args.project), null, args.verbose ? 2 : 0));
-  } else {
-    console.log(renderFindQuestionMarkdown(sanitizePublicReport(packet, args.project)));
-  }
-}
-
-/** @param {Record<string, any>} tools @param {string} profile @param {{adapterId?: string, mvp?: boolean}} options */
-function toolRecommendations(tools, profile, { adapterId = 'codex' } = {}) {
-  const retryCommand = `vibe-harness provision --project <project> --target ${adapterId} --profile ${profile} --write`;
+/** @param {Record<string, any>} tools */
+function toolRecommendations(tools) {
   return Object.entries(tools).flatMap(([tool, state]) => {
-    const toolRetryCommand = retryCommand + ' --tool ' + tool;
     if (state.status === 'unsupported') {
       const fallback = 'Use the project-supported fallback and record the limitation.';
       return [{
@@ -1253,17 +778,16 @@ function toolRecommendations(tools, profile, { adapterId = 'codex' } = {}) {
           action: 'resolve-mcp-config',
           code: state.code,
           ...(state.diagnostic ? { diagnostic: state.diagnostic } : {}),
-          message: `Remove or rename the unmanaged MCP server for ${tool}, then retry provisioning.`,
+          message: `Inspect the project's ${tool} configuration using the host's native tooling.`,
           phase: state.phase,
           tool,
         }];
       }
       return [{
-        action: 'retry-provision',
+        action: 'use-native-tooling',
         code: state.code,
-        command: toolRetryCommand,
         ...(state.diagnostic ? { diagnostic: state.diagnostic } : {}),
-        message: `Retry ${tool} provisioning after checking network access and the reported phase.`,
+        message: `Vibe-Harness no longer provisions ${tool}; manage it with the host or project-native tooling.`,
         phase: state.phase,
         tool,
       }];
@@ -1271,8 +795,7 @@ function toolRecommendations(tools, profile, { adapterId = 'codex' } = {}) {
     if (state.status === 'pending-config') {
       return [{
         action: 'configure-credentials',
-        command: toolRetryCommand,
-        message: `Configure a supported ${tool} credential in the environment, then retry provisioning.`,
+        message: `Manage ${tool} credentials through the host or project-native tooling.`,
         phase: state.phase,
         tool,
       }];
@@ -1387,10 +910,7 @@ async function doctor(args) {
     tools,
     transactionLock,
     transactions,
-    recommendations: toolRecommendations(tools, profile, {
-      adapterId: selectedTargets[0],
-      mvp: true,
-    }),
+    recommendations: toolRecommendations(tools),
     warnings,
     targets: selectedTargets,
   }, args);
@@ -1506,86 +1026,6 @@ async function uninstall(args) {
   if (result.skipped.length > 0) process.exitCode = 2;
 }
 
-function selectedToolIds(value) {
-  if (value === undefined) return undefined;
-  return Array.isArray(value) ? value : [value];
-}
-
-async function provisionWithSignalHandling(options) {
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  process.once('SIGINT', abort);
-  process.once('SIGTERM', abort);
-  try {
-    return await provisionProfileTools({ ...options, signal: controller.signal });
-  } finally {
-    process.removeListener('SIGINT', abort);
-    process.removeListener('SIGTERM', abort);
-  }
-}
-
-async function provision(args) {
-  if (!args.project) throw new Error('provision requires --project <path>.');
-  if (args.write && args['dry-run']) throw new Error('Use --write or --dry-run, not both.');
-  const allowedOptions = new Set([
-    '_', 'allow-degraded', 'allow-preview', 'dry-run', 'force', 'output', 'profile', 'project', 'target', 'tool', 'verbose', 'write',
-  ]);
-  const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
-  if (unknownOption) throw new Error(`Unknown provision option: --${unknownOption}`);
-  const targetDir = path.resolve(args.project);
-  const config = await readRequiredProjectConfig(targetDir);
-  const state = await readInstallState(targetDir);
-  if (!state) throw new Error(`No Vibe-Harness install state found in ${targetDir}; run install first.`);
-  const configuredTargets = projectTargets(config);
-  const adapterId = args.target ?? state.targets[0];
-  if (!configuredTargets.includes(adapterId) || !state.targets.includes(adapterId)) {
-    throw new Error('Provision target ' + adapterId + ' must be present in both configured and installed targets.');
-  }
-  const installSurface = resolveInstallSurface({ args, config, installState: state });
-  const profile = validateProfileName(installSurface.profile);
-  if (profile !== state.profile) {
-    throw new Error(`Provision profile ${profile} does not match installed profile ${state.profile}.`);
-  }
-  const toolIds = selectedToolIds(args.tool);
-  const plannedToolActions = createToolProvisioningPlan({
-    allowPreview: installSurface.allowPreview,
-    profile,
-    resolvedModules: state.resolvedModules,
-    targetDir,
-    toolIds,
-  }).map(({ id, mode, phases, supportLevel, version }) => ({ id, mode, phases, supportLevel, version }));
-  const dryRun = !args.write;
-  const tools = dryRun
-    ? await inspectProfileTools(profile, targetDir, state.resolvedModules, toolIds, {
-        allowPreview: installSurface.allowPreview,
-      })
-    : await provisionWithSignalHandling({
-        allowPreview: installSurface.allowPreview,
-        force: Boolean(args.force),
-        profile,
-        resolvedModules: state.resolvedModules,
-        targetDir,
-        toolIds,
-      });
-  if (!dryRun && plannedToolActions.length > 0) {
-    await registerGeneratedFile(targetDir, toolStateRelativePath(targetDir));
-  }
-  const health = dryRun ? { ok: true, status: 'ready' } : healthReport({ profile, tools });
-  emitReport({
-    ...health,
-    dryRun,
-    plannedToolActions,
-    preset: installSurface.preset,
-    profile,
-    recommendations: toolRecommendations(tools, profile, { adapterId }),
-    target: adapterId,
-    targets: state.targets,
-    tools,
-    warnings: dryRun ? [] : toolWarnings(tools),
-  }, args);
-  applyHealthExit(health.status, args);
-}
-
 async function recover(args) {
   if (!args.project) throw new Error('recover requires --project <path>.');
   if (args.write && args['dry-run']) throw new Error('Use --write or --dry-run, not both.');
@@ -1608,41 +1048,32 @@ async function recover(args) {
 }
 
 async function printUsage() {
-  console.log('用法：vibe-harness <init|install|provision|recover|uninstall|validate|verify|baseline|eval|audit|find question|doctor|diff|rollback> [--project path] [--target codex|claude|gemini|cursor|qoder|zcode|antigravity|opencode] [--targets codex,zcode,opencode (仅 init)] [--all-targets] [--profile minimal|core|full|docs-only] [--preset everything] [--modules list] [--plugin -all|linear-mcp|linear-mcp-readonly ...] [--tool id] [--write] [--dry-run] [--output json|summary|markdown] [--verbose] [--verify] [--full] [--tier quick|standard|deep] [--scope affected|layer|full] [--async] [--plan] [--no-reuse] [--force] [--upgrade] [--preserve-retired] [--preserve-user-modified] [--confirm-red-zone] [--allow-preview] [--allow-manual] [--allow-degraded] [--provision|--skip-provision]');
-  console.log('find question：默认 deep、只读生成审查包；支持 --scope、--focus、--output markdown|json、--report 和 --write。');
-  console.log('所有项目命令使用 --project <path>；--target 只选择 adapter，--targets 只在 init 时声明多宿主目标，--write 执行真实写入。旧版 --apply 和取路径值的 --target 已移除。');
+  console.log('用法：vibe-harness <init|install|validate|doctor|diff|rollback|uninstall|recover|help> --project <path>');
+  console.log('安装生命周期参数：--target <adapter>、--targets <adapter,...>（仅 init）、--all-targets、--write、--dry-run、--force、--upgrade、--preserve-retired、--preserve-user-modified、--confirm-red-zone、--output json|summary、--verbose。');
+  console.log('项目执行、任务、验证、评测、审计和工具托管命令已退役；请使用宿主能力与项目原生命令。');
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const command = args._[0] ?? 'help';
-  // help/usage is the lowest-friction surface; resolve it before legacy guards so
-  // `vibe-harness` / `vibe-harness help` / `vibe-harness unknown-cmd` never trip obsolete-flag errors.
-  const knownCommands = new Set(['init', 'install', 'provision', 'validate', 'verify', 'baseline', 'eval', 'audit', 'find', 'doctor', 'diff', 'rollback', 'uninstall', 'recover']);
-  if (command === 'help' || !knownCommands.has(command)) {
+  const knownCommands = new Set(['init', 'install', 'validate', 'doctor', 'diff', 'rollback', 'uninstall', 'recover', 'help']);
+  if (!knownCommands.has(command)) {
+    throw Object.assign(new Error(`Unknown or retired command: ${command}. Use the host or project-native tools.`), {
+      code: 'VIBE_HARNESS_COMMAND_UNSUPPORTED',
+    });
+  }
+  const allowedOptions = new Set(['_', 'project', 'target', 'targets', 'all-targets', 'write', 'dry-run',
+    'force', 'upgrade', 'preserve-retired', 'preserve-user-modified', 'confirm-red-zone',
+    'output', 'verbose', 'transaction', 'help']);
+  const unknownOption = Object.keys(args).find((key) => !allowedOptions.has(key));
+  if (unknownOption) throw new Error(`Unknown or retired option: --${unknownOption}`);
+  if (args._.length > 1) throw new Error('Unexpected positional argument.');
+  if (command === 'help' || args.help) {
     await printUsage();
     return;
   }
-  if (command === 'find') {
-    await findQuestion(args);
-    return;
-  }
-  if (args.apply) throw new Error('Legacy --apply was removed; use --project <path> with --write.');
-  if (args.workflow !== undefined) {
-    throw Object.assign(new Error('Legacy --workflow was removed; Vibe-Harness now uses one execution path.'), {
-      code: 'VIBE_HARNESS_OBSOLETE_GOVERNANCE_CONFIG',
-    });
-  }
-  if (args.profile) validateProfileName(args.profile);
-  if (args.delivery || (args.project && args.write && command !== 'init' && command !== 'recover')) {
-    const deliveryConfig = command === 'init' ? {} : await readRequiredProjectConfig(path.resolve(args.project));
-    const delivery = resolveDelivery(deliveryConfig, args.delivery);
-    if (delivery.write === false && args.write) throw new Error('inspect-only does not permit writes');
-  }
-  if (args.preset !== undefined && !['init', 'install'].includes(command)) {
-    throw new Error('--preset is only accepted by init and install; other commands read the preset from vibe-harness.config.json.');
-  }
-  if (args.preset !== undefined) parsePresetOption(args.preset);
+  if (typeof args.project !== 'string' || args.project.length === 0) throw new Error('A project command requires --project <path>.');
+  if (args.write && args['dry-run']) throw new Error('Use --write or --dry-run, not both.');
   if (args.targets !== undefined) {
     if (command !== 'init') throw new Error('--targets is only accepted by init.');
     parseTargetsOption(args.targets);
@@ -1659,18 +1090,8 @@ async function main() {
     await init(args);
   } else if (command === 'install') {
     await install(args);
-  } else if (command === 'provision') {
-    await provision(args);
   } else if (command === 'validate') {
     await validate(args);
-  } else if (command === 'verify') {
-    await verify(args);
-  } else if (command === 'baseline') {
-    await baseline(args);
-  } else if (command === 'eval') {
-    await evaluateProject(args);
-  } else if (command === 'audit') {
-    await auditProject(args);
   } else if (command === 'doctor') {
     await doctor(args);
   } else if (command === 'diff') {
@@ -1696,6 +1117,7 @@ try {
       ...(error.details ? { details: error.details } : {}),
       message: error.message,
     },
-  }, args._[0] === 'find' ? { ...args, project: typeof args.project === 'string' ? args.project : undefined, output: 'json' } : args, { error: true });
+  }, { ...args, project: typeof args.project === 'string' ? args.project : undefined,
+    output: ['json', 'summary'].includes(args.output) ? args.output : 'json' }, { error: true });
   process.exitCode = 1;
 }
