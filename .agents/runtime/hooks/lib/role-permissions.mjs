@@ -30,7 +30,7 @@ export function rolePresetTier(permissionPreset) {
  * Mirrors the host projections: non-writable presets deny the edit/apply_patch
  * tool family (opencode `edit: deny`, non-writable codex sandbox stays below
  * workspace-write), while shell-command effects remain governed by the
- * Execution Envelope so verification presets can still run test commands.
+ * host-native permissions so verification presets can still run test commands.
  * @param {string | null | undefined} permissionPreset
  * @param {string} toolName
  * @returns {boolean}

@@ -1,7 +1,7 @@
 /**
  * Single source of truth for shell segmentation and read-only classification.
  *
- * The policy layer and the Execution Envelope both need to answer "does this
+ * The policy layer and the effect classifier both need to answer "does this
  * shell segment have no side effects?". Keeping two word lists let them drift
  * apart, which produced the misjudged read-only commands recorded as AC-01,
  * AC-02 and AC-04 in audit-reports/2026-09-15-agent-config-review.md. Both
@@ -46,7 +46,7 @@ const POWERSHELL_READ_ONLY_VERB_PREFIXES = [
 /**
  * Arguments that turn an otherwise read-only tool into a writer or an
  * executor. Matching any pattern withdraws the read-only verdict so the
- * request keeps falling through to the Execution Envelope decision.
+ * request keeps falling through to the effect classifier decision.
  */
 const READ_ONLY_ARGUMENT_GUARDS = [
   [/(?:^|\s)-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)(?:\s|$)/iu, /^(?:find|awk|sed)$/iu],
@@ -305,15 +305,34 @@ function isReadOnlyCliRule(rule, args) {
  * @returns {boolean}
  */
 export function isReadOnlyShellSegment(segment) {
+  // Only plain local-variable literals are proven here. Do not evaluate an
+  // expression, assign $env:/scoped variables, or infer a script block's effect.
+  if (isReadOnlyPowerShellAssignment(segment)) return true;
   const invocation = shellInvocation(segment);
   if (!invocation) return false;
-  const { args, name } = invocation;
+  const { name } = invocation;
+  let { args } = invocation;
+  // -C only selects Git's working directory; do not confuse its path with a
+  // subcommand. Configuration overrides and other global flags stay guarded.
+  if (name === 'git') {
+    while (args[0] === '-C' && args[1] && !args[1].startsWith('-')) args = args.slice(2);
+  }
+  // Exact syntax only: --apply/--index/--3way and mixed options remain
+  // unclassified. A dry-run patch check never mutates files or the index.
+  if (name === 'git' && args[0] === 'apply') {
+    return args.length === 3 && args[1] === '--check' && !args[2].startsWith('-');
+  }
   const rule = READ_ONLY_CLI_RULES.get(name);
   if (rule) return isReadOnlyCliRule(rule, args);
   const known = SIMPLE_READ_ONLY_COMMANDS.has(name)
     || POWERSHELL_READ_ONLY_VERB_PREFIXES.some((prefix) => name.startsWith(prefix));
   if (!known) return false;
   return !argsMatchGuard(args, name);
+}
+
+/** Literal local state is safe only in a wholly read-only command pipeline. */
+export function isReadOnlyPowerShellAssignment(segment) {
+  return /^\$[A-Za-z_][A-Za-z0-9_]*\s*=\s*(?:'(?:[^']|'')*'|"[^"$`]*"|-?\d+(?:\.\d+)?|\$(?:true|false|null))\s*$/iu.test(segment);
 }
 
 /**
@@ -324,8 +343,23 @@ export function isReadOnlyShellSegment(segment) {
  * @returns {boolean}
  */
 export function commandWrites(segment) {
+  const segments = shellSegments(segment);
+  if (segments.length > 1) return segments.some(commandWrites);
+  // Search text is data, not a shell verb. In particular a quoted diagnostic
+  // pattern containing "Remove-Item" must not become a filesystem write.
+  if (isReadOnlyPowerShellAssignment(segment) || isReadOnlyDataCommand(segment)) return false;
   if (SHELL_WRITE_VERB_PATTERN.test(segment)) return true;
   return hasShellRedirection(segment);
+}
+
+/** Arguments to these bounded readers are data, not executable code. */
+export function isReadOnlyDataCommand(segment) {
+  const invocation = shellInvocation(segment);
+  return !!invocation && ['rg', 'grep', 'get-content', 'select-string'].includes(invocation.name)
+    && shellSegments(segment).length === 1
+    && !/[()[\]{}]/u.test(segment.replace(/'(?:[^']|'')*'|"[^"]*"/gu, ''))
+    && isReadOnlyShellSegment(segment) && !hasShellRedirection(segment)
+    && !hasUnsafeShellConstruct(segment);
 }
 
 /**
@@ -370,13 +404,13 @@ const READ_ONLY_TOOL_PATTERN = /^(?:read|glob|grep|search|view|inspect|list|stat
  * `update_plan` (a host-local checklist, not a workspace file), `view_image`
  * (returns pixels), the sub-agent surfaces, or the thread/automation read
  * tools; an unclassified tool still fails closed with
- * `EXECUTION_ENVELOPE_MISSING`, which would force an Execution Envelope for
+ * an unknown classification, which would force an effect classifier for
  * calls that cannot touch the workspace.
  *
  * Calls that mutate host state stay out of this list on purpose:
  * `write_stdin`, `create_thread`, `fork_thread`, `automation_update`,
  * `handoff_thread`, `set_thread_*`, `send_message_to_thread` and
- * `followup_task` keep the Envelope path, and so does every tool that is not
+ * `followup_task` keep the effect classification, and so does every tool that is not
  * named here.
  */
 const READ_ONLY_HOST_TOOL_PATTERN = /^(?:agent|get_goal|get_handoff_status|list_agents|list_archived_threads|list_projects|list_threads|read_file|read_thread|read_thread_terminal|spawn_agent|task|update_plan|view_image|wait_threads)$/iu;
@@ -422,6 +456,14 @@ const CODEBASE_MEMORY_TOOL_DECISIONS = [
 /** @type {Map<string, Map<string, 'read-only' | 'workspace-write' | 'high-risk'>>} */
 const MCP_TOOL_DECISIONS = new Map([
   ['codebase-memory-mcp', new Map(CODEBASE_MEMORY_TOOL_DECISIONS)],
+  ['codegraph', new Map([['codegraph_explore', 'read-only']])],
+  ['codex-app', new Map([
+    ['open_in_codex', 'read-only'],
+    ['read_thread', 'read-only'], ['list_threads', 'read-only'], ['list_archived_threads', 'read-only'],
+    ['wait_threads', 'read-only'], ['list_artifacts', 'read-only'], ['list_projects', 'read-only'],
+    ['get_worktree_creation_status', 'read-only'], ['get_handoff_status', 'read-only'],
+    ['read_thread_terminal', 'read-only'],
+  ])],
 ]);
 
 /**
@@ -466,7 +508,7 @@ const MCP_WRITE_VERB_PATTERN = /(?:^|__)(?:add|apply|archive|assign|cancel|clear
  * @param {string} toolName
  * @returns {boolean | null} `null` when the tool is not an MCP tool, `true`
  * when it is read-only, and `false` when it mutates or cannot be classified
- * (the caller then requires an Execution Envelope).
+ * (the caller then requires an effect classifier).
  */
 export function classifyMcpToolName(toolName) {
   if (!/^mcp__/iu.test(toolName)) return null;

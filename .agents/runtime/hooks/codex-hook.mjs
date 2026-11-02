@@ -8,8 +8,8 @@ import { promisify } from 'node:util';
 
 import { findProjectRoot, readHookSettings } from './lib/context.mjs';
 import { evaluateFrozenTestWrite } from './lib/frozen-test-writes.mjs';
-import { classifyExecutionEffects, evaluateExecutionEnvelope } from './lib/execution-envelope.mjs';
-import { readLegacyCompatibility } from './lib/legacy-envelope-compat.mjs';
+import { classifyExecutionEffects } from './lib/execution-effects.mjs';
+import { evaluateExecutionSafety } from './lib/execution-safety.mjs';
 import { analyzeToolRequest, commandFrom, createHostHookResult, normalizeHostHookInput } from './lib/policy.mjs';
 import { isReadOnlyToolName } from './lib/read-only-commands.mjs';
 
@@ -139,7 +139,6 @@ export async function evaluateHook(rawInput, {
   environment = process.env,
   expectedEvent,
   host = 'codex',
-  now,
   telemetry,
 } = {}) {
   const startedAt = process.hrtime.bigint();
@@ -173,7 +172,6 @@ export async function evaluateHook(rawInput, {
           ?? 'allow',
         ...(decision?.reasonCode ? { reasonCode: decision.reasonCode } : {}),
         ...(decision?.requestId ? { requestId: decision.requestId } : {}),
-        ...(decision?.compatibilityExpiresAt ? { compatibilityExpiresAt: decision.compatibilityExpiresAt } : {}),
         wouldBlock: decision?.wouldBlock === true || decision?.action === 'deny',
         suppressed: decision?.suppressed === true,
         durationMs,
@@ -211,8 +209,7 @@ export async function evaluateHook(rawInput, {
   }
   startupAt = process.hrtime.bigint();
   // Read-only tools with no command payload can never reach a deny verdict in
-  // policy (the write gate misses them), the envelope (read-only
-  // classification), so they skip project-root
+  // policy (the write gate misses them) and role classification, so they skip project-root
   // resolution and settings loading. The cwd check above still fails closed
   // first, and this answer matches createHostHookResult's allow shape for
   // every host.
@@ -235,16 +232,13 @@ export async function evaluateHook(rawInput, {
   }
   // The host injects the acting role's permission preset through the parent-
   // owned environment; the project config can also declare one. The host
-  // channel wins and, like the execution envelope, still applies when the
+  // channel wins and still applies when the
   // project turns the hook off, because role scoping is host authority.
   const hostPreset = typeof environment.VIBE_HARNESS_PERMISSION_PRESET === 'string'
     && environment.VIBE_HARNESS_PERMISSION_PRESET.trim().length > 0
     ? environment.VIBE_HARNESS_PERMISSION_PRESET.trim()
     : null;
-  const envelopeConfigured = Object.hasOwn(input, 'executionEnvelope')
-    || Object.hasOwn(environment, 'VIBE_HARNESS_EXECUTION_ENVELOPE')
-    || environment.VIBE_HARNESS_EXECUTION_ENVELOPE_REQUIRED === '1';
-  if (settings.mode === 'off' && !envelopeConfigured && !hostPreset) return emitTelemetry({}, { action: 'allow' });
+  if (settings.mode === 'off' && !hostPreset) return emitTelemetry({}, { action: 'allow' });
   const permissionPreset = hostPreset ?? settings.permissionPreset ?? null;
 
   const safetyDecision = analyzeToolRequest(input, {
@@ -259,16 +253,11 @@ export async function evaluateHook(rawInput, {
   if (safetyDecision.action === 'deny') {
     return emitTelemetry(createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() }), safetyDecision);
   }
-  const envelopeDecision = evaluateExecutionEnvelope(input, {
-    environment,
-    legacyCompatibility: readLegacyCompatibility(),
-    permissionPreset,
-    ...(now === undefined ? {} : { now }),
-  });
-  if (envelopeDecision.action !== 'allow') {
-    return emitTelemetry(createHostHookResult(host, input.event, envelopeDecision, { durationMs: elapsedMs() }), envelopeDecision);
+  const executionDecision = evaluateExecutionSafety(input, { permissionPreset });
+  if (executionDecision.action !== 'allow') {
+    return emitTelemetry(createHostHookResult(host, input.event, executionDecision, { durationMs: elapsedMs() }), executionDecision);
   }
-  const reportedDecision = envelopeDecision.reasonCode ? envelopeDecision : safetyDecision;
+  const reportedDecision = executionDecision.reasonCode ? executionDecision : safetyDecision;
   if (safetyDecision.action !== 'allow' || input.event === 'PermissionRequest') {
     return emitTelemetry(createHostHookResult(host, input.event, safetyDecision, { durationMs: elapsedMs() }), reportedDecision);
   }

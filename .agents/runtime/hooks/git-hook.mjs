@@ -1,19 +1,12 @@
 #!/usr/bin/env node
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-
 import { DEFAULT_RED_ZONE_PATHS, findProjectRoot, readHookSettings } from './lib/context.mjs';
 import { redZoneMatcher } from './lib/policy.mjs';
-import { inspectPushVerification, resolvePushBaseline } from '../lib/push-verification.mjs';
-import { verifyProject } from '../lib/verification-command.mjs';
-import { cleanupNativePushCandidate, prepareNativePushCandidate } from '../lib/worktree-command.mjs';
-
+import { resolveGitPushTarget } from '../lib/git-delivery-target.mjs';
 const execFileAsync = promisify(execFile);
 const secretPatterns = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/u,
@@ -26,7 +19,6 @@ const forbiddenPathPattern = /^(?:node_modules|\.vibe-harness\/backups)\//u;
 // ({ skip: ... }) and runtime context skips (t.skip/context.skip) pass through.
 const focusedTestPattern = /\b(?:test|it|describe)\.only\s*\(/u;
 const skippedTestPattern = /\b(?:test|it|describe)\.skip\s*\(/u;
-
 export function scanStagedDiff(diff, { redZoneConfirmed = false, redZonePaths = DEFAULT_RED_ZONE_PATHS } = {}) {
   const added = diff.split(/\r?\n/u).filter((line) => line.startsWith('+') && !line.startsWith('+++'));
   if (secretPatterns.some((pattern) => added.some((line) => pattern.test(line)))) {
@@ -50,7 +42,6 @@ export function scanStagedDiff(diff, { redZoneConfirmed = false, redZonePaths = 
     }
   }
 }
-
 async function preCommit(rootDir) {
   try {
     await execFileAsync('git', ['diff', '--cached', '--check'], {
@@ -77,7 +68,6 @@ async function preCommit(rootDir) {
   redZonePaths: settings.redZonePaths,
 });
 }
-
 // Reject shell metacharacters so a compromised vibe-harness.config.json cannot inject
 // commands through validationCommands. We additionally tokenize and spawn with
 // shell:false so even a missed metacharacter cannot reach a shell interpreter.
@@ -141,6 +131,7 @@ function runCommand(command, cwd, { timeout = 120000, stdio = 'inherit' } = {}) 
   });
 }
 
+
 export function parsePushUpdates(input) {
   if (Buffer.byteLength(input) > 1024 * 1024) throw new Error('Push updates exceed limit');
   return input.trim().split(/\r?\n/u).filter(Boolean).map((line) => {
@@ -160,52 +151,28 @@ async function prePush(rootDir, url, input) {
   }
   if (process.env.VIBE_HARNESS_MANAGED_PUSH === '1' || process.env.VIBE_HARNESS_PUSH_PROOF) {
     if (updates.length !== 1 || !url) throw new Error('PUSH_PROOF_TARGET_MISMATCH');
+    const { inspectPushVerification } = await import('../lib/push-verification.mjs');
     const result = await inspectPushVerification(rootDir, process.env.VIBE_HARNESS_PUSH_PROOF, { ...updates[0], url });
     if (!result.ok) throw new Error(`${result.code}: ${JSON.stringify({ changed: result.changed, environmentKeys: result.environmentKeys })}`);
     return;
   }
-  // Ordinary push: verify the exact pushed objects, never an unrelated dirty
-  // primary checkout. Each SHA is checked once even when pushed to two refs.
-  const checked = new Set();
-  for (const update of updates) {
-    if (/^0+$/u.test(update.sha) || checked.has(update.sha)) continue;
-    const temporary = await mkdtemp(path.join(tmpdir(), 'vibe-push-verification-'));
-    const candidate = path.join(temporary, `.vibe-harness-land-batch-${randomUUID()}`);
-    const emptyHooks = path.join(temporary, 'hooks');
-    await mkdir(emptyHooks);
-    const git = (args, cwd = rootDir) => execFileAsync('git', args, { cwd, windowsHide: true });
-    let added = false;
-    let settings = null;
-    try {
-      await git(['-c', `core.hooksPath=${emptyHooks}`, 'worktree', 'add', '--detach', candidate, update.sha]);
-      added = true;
-      settings = await prepareNativePushCandidate(rootDir, candidate);
-      const changedPaths = new Set();
-      for (const target of updates.filter((item) => item.sha === update.sha)) {
-        const base = await resolvePushBaseline(rootDir, target);
-        const changed = base
-          ? await git(['diff', '--name-only', '-z', '--no-renames', base, target.sha])
-          : await git(['ls-tree', '-r', '--name-only', '-z', target.sha]);
-        changed.stdout.split('\0').filter(Boolean).forEach((file) => changedPaths.add(file));
-      }
-      const paths = [...changedPaths];
-      const report = await verifyProject(candidate, { paths, deliveryEvidence: true,
-        reviewPolicy: 'none',
-        targetBranch: update.ref.replace('refs/heads/', '') });
-      if (!['passed', 'reused'].includes(report.status) || report.verification?.snapshotComparison !== 'match') {
-        throw new Error(`Exact push verification did not pass: ${report.code ?? report.status}`);
-      }
-      checked.add(update.sha);
-    } finally {
-      if (added) {
-        const dirty = await git(['status', '--porcelain=v1', '--untracked-files=all'], candidate);
-        if (!dirty.stdout.trim()) {
-          const cleaned = await cleanupNativePushCandidate(rootDir, candidate, settings);
-          if (!cleaned.removed) process.stderr.write(`Push candidate cleanup pending: ${candidate}\n`);
-        }
-      }
-      if (!existsSync(candidate)) await rm(temporary, { recursive: true, force: true });
-    }
+  const target = updates.length === 1 && url
+    ? resolveGitPushTarget(rootDir, ['--no-force', url, `${updates[0].sha}:${updates[0].ref}`]) : null;
+  if (!target) throw new Error('PUSH_TARGET_UNVERIFIED: require one configured endpoint, current frozen HEAD and exact development ref; force/deletion/multiple/protected targets are not supported.');
+  const [update] = updates;
+  const git = (args) => execFileAsync('git', args, {
+    cwd: rootDir, windowsHide: true, timeout: 10000, maxBuffer: 8 * 1024 * 1024,
+  });
+  if (!/^0+$/u.test(update.remoteSha)) {
+    try { await git(['merge-base', '--is-ancestor', update.remoteSha, update.sha]); }
+    catch { throw new Error('PUSH_NOT_FAST_FORWARD: fetch the exact target and reconcile before retry; unknown remote objects cannot establish push safety.'); }
+  }
+  const revision = /^0+$/u.test(update.remoteSha) ? update.sha : `${update.remoteSha}..${update.sha}`;
+  const changes = await git(['log', '--format=', '--patch', '--root', '--diff-merges=separate',
+    '--no-ext-diff', '--no-textconv', revision, '--']);
+  const added = changes.stdout.split(/\r?\n/u).filter((line) => line.startsWith('+') && !line.startsWith('+++'));
+  if (secretPatterns.some((pattern) => added.some((line) => pattern.test(line)))) {
+    throw new Error('PUSH_SECRET_DETECTED: possible credential in outgoing history; remove it and rotate exposed credentials before pushing.');
   }
 }
 
@@ -224,6 +191,12 @@ if (isMain) {
   try {
     const rootDir = await findProjectRoot(process.cwd());
     if (hook === 'pre-commit') await preCommit(rootDir);
+    else if (hook === 'commit-msg') {
+      const message = await readFile(process.argv[3], 'utf8');
+      if (secretPatterns.some((pattern) => pattern.test(message))) {
+        throw new Error('Possible secret found in commit message.');
+      }
+    }
     else if (hook === 'pre-push') {
       let input = '';
       for await (const chunk of process.stdin) {
