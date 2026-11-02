@@ -78,7 +78,7 @@ function addUrlTargets(command, targets) {
   }
 }
 
-function gitInvocation(segment) {
+export function gitInvocation(segment) {
   const invocation = shellInvocation(segment);
   if (!invocation || invocation.name !== 'git') return null;
   const args = invocation.args;

@@ -170,11 +170,34 @@ async function prePush(rootDir, url, input) {
     catch { throw new Error('PUSH_NOT_FAST_FORWARD: fetch the exact target and reconcile before retry; unknown remote objects cannot establish push safety.'); }
   }
   const revision = /^0+$/u.test(update.remoteSha) ? update.sha : `${update.remoteSha}..${update.sha}`;
-  const changes = await git(['log', '--format=', '--patch', '--root', '--diff-merges=separate',
-    '--no-ext-diff', '--no-textconv', revision, '--']);
-  const added = changes.stdout.split(/\r?\n/u).filter((line) => line.startsWith('+') && !line.startsWith('+++'));
-  if (secretPatterns.some((pattern) => added.some((line) => pattern.test(line)))) {
-    throw new Error('PUSH_SECRET_DETECTED: possible credential in outgoing history; remove it and rotate exposed credentials before pushing.');
+  const child = spawn('git', ['log', '--format=', '--patch', '--root', '--diff-merges=separate',
+    '--no-ext-diff', '--no-textconv', revision, '--'], {
+    cwd: rootDir, windowsHide: true, timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const completed = new Promise((resolve) => {
+    child.once('error', (error) => resolve(error));
+    child.once('close', (code, signal) => resolve(code === 0 && !signal
+      ? null : new Error('PUSH_SCAN_INCOMPLETE: outgoing history scan failed or timed out.')));
+  });
+  child.stdout.setEncoding('utf8');
+  const scanLine = (line) => {
+    if (line.startsWith('+') && !line.startsWith('+++') && secretPatterns.some((pattern) => pattern.test(line))) {
+      throw new Error('PUSH_SECRET_DETECTED: possible credential in outgoing history; remove it and rotate exposed credentials before pushing.');
+    }
+  };
+  try {
+    let pending = '';
+    for await (const chunk of child.stdout) {
+      const lines = (pending + chunk).split('\n');
+      pending = lines.pop();
+      for (const line of lines) scanLine(line);
+    }
+    scanLine(pending);
+    const failure = await completed;
+    if (failure) throw failure;
+  } finally {
+    child.kill();
+    await completed;
   }
 }
 

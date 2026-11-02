@@ -677,6 +677,16 @@ test('普通同步合并放行，高风险合并要求用户确认', () => {
   assert.equal(evaluateExecutionSafety(input('git merge feat/other')).reasonCode, 'HIGH_RISK_MERGE_CONFIRMATION_REQUIRED');
   assert.equal(evaluateExecutionSafety(input('git merge main')).reasonCode, 'HIGH_RISK_MERGE_CONFIRMATION_REQUIRED');
   assert.equal(evaluateExecutionSafety(input('git merge --no-ff origin/develop')).reasonCode, 'HIGH_RISK_MERGE_CONFIRMATION_REQUIRED');
+  for (const command of [
+    'git -C . merge main',
+    'git -C. merge --no-ff origin/develop',
+    'git status --short && git merge feat/other',
+    '"C:/Program Files/Git/bin/git.exe" merge --squash origin/develop',
+    'pwsh -Command "git merge --no-ff origin/develop"',
+    'bash -c "git merge main"',
+  ]) {
+    assert.equal(evaluateExecutionSafety(input(command)).reasonCode, 'HIGH_RISK_MERGE_CONFIRMATION_REQUIRED', command);
+  }
   assert.equal(evaluateExecutionSafety(input('git merge feat/other', { highRiskMergeConfirmed: true })).action, 'allow');
 });
 
@@ -720,4 +730,20 @@ test('PowerShell 环境赋值、命令执行与伪装只读写入仍不放行', 
   } });
   assert.equal(classifyExecutionEffects(indirectWrite).unknown, true);
   assert.equal(evaluateExecutionSafety(indirectWrite).action, 'allow');
+});
+
+test('搜索和输出中的合并文字不触发高风险确认', async () => {
+  await withProject(async (target) => {
+    for (const command of [
+      'rg "git merge --no-ff" docs',
+      'rg "git merge main" docs',
+      'echo "git merge --squash main"',
+      'Get-Content README.md | Select-String "git merge feat/other"',
+      'pwsh -Command \'Write-Output "git merge --no-ff main"\'',
+      'git merge -m "main" origin/develop',
+      'git merge --message "use --no-ff for git merge main" origin/develop',
+    ]) {
+      assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: { command } })), {}, command);
+    }
+  });
 });

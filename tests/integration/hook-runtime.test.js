@@ -1257,3 +1257,88 @@ function initializeGitProject(target) {
   execFileSync('git', ['add', 'vibe-harness.config.json'], { cwd: target, stdio: 'ignore', windowsHide: true });
   execFileSync('git', ['commit', '-m', 'test: initialize'], { cwd: target, stdio: 'ignore', windowsHide: true });
 }
+
+test('损坏的冻结记录不阻塞明确只读操作但仍阻止写入和未知操作', async () => {
+  await withProject(async (target) => {
+    initializeGitProject(target);
+    const tasks = path.join(target, '.vibe-harness', 'tasks');
+    await mkdir(tasks, { recursive: true });
+    await writeFile(path.join(tasks, 'unrelated.json'), '{invalid', 'utf8');
+    for (const command of [
+      'git status --short',
+      'git diff -- tests/frozen.test.js',
+      'rg "testFreeze" docs',
+      'Get-Content README.md',
+      'node --version',
+    ]) {
+      assert.deepEqual(await evaluateCodexHook(input(target, { tool_input: { command } })), {}, command);
+    }
+    for (const tool_input of [
+      { command: 'Set-Content src/app.js changed' },
+      { command: 'custom-operation' },
+      { command: 'git pull --ff-only' },
+      { command: 'git status --short && node scripts/custom-operation.mjs' },
+      { file_path: 'src/app.js', content: 'changed' },
+    ]) {
+      const result = await evaluateCodexHook(input(target, {
+        tool_input,
+        tool_name: tool_input.command ? 'Bash' : 'Write',
+      }));
+      assert.match(result.hookSpecificOutput.permissionDecisionReason, /FROZEN_TEST_STATE_UNAVAILABLE/u, JSON.stringify(tool_input));
+    }
+  });
+});
+
+test('推送流式扫描允许超大历史并拒绝已删除的历史凭据', async () => {
+  await withProject(async (target) => {
+    initializeGitProject(target);
+    const git = (args) => execFileSync('git', args, {
+      cwd: target, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    git(['checkout', '-b', 'feature/stream-scan']);
+    const remote = path.join(target, 'remote.git').replaceAll('\\', '/');
+    git(['remote', 'add', 'origin', remote]);
+    const content = `${'ordinary content '.repeat(64)}\n`.repeat(9000);
+    assert.ok(Buffer.byteLength(content) > 8 * 1024 * 1024);
+    await writeFile(path.join(target, 'large.txt'), content, 'utf8');
+    git(['add', 'large.txt']);
+    git(['commit', '-m', 'test: large clean history']);
+    const runPrePush = async () => {
+      const head = git(['rev-parse', 'HEAD']);
+      const child = spawn(process.execPath, [path.resolve('runtime/hooks/git-hook.mjs'), 'pre-push', 'origin', remote], {
+        cwd: target, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, VIBE_HARNESS_MANAGED_PUSH: '', VIBE_HARNESS_PUSH_PROOF: '' },
+      });
+      let stderr = '';
+      child.stdout.resume();
+      child.stderr.on('data', (chunk) => { stderr += chunk; });
+      child.stdin.end(`refs/heads/feature/stream-scan ${head} refs/heads/feature/stream-scan ${'0'.repeat(40)}\n`);
+      const code = await new Promise((resolve, reject) => {
+        child.once('error', reject);
+        child.once('close', resolve);
+      });
+      return { code, stderr };
+    };
+    const clean = await runPrePush();
+    assert.equal(clean.code, 0, clean.stderr);
+    git(['config', 'diff.algorithm', 'invalid']);
+    const incomplete = await runPrePush();
+    assert.equal(incomplete.code, 1);
+    assert.match(incomplete.stderr, /PUSH_SCAN_INCOMPLETE/u);
+    git(['config', '--unset', 'diff.algorithm']);
+    const credential = ['sk', 'x'.repeat(24)].join('-');
+    await writeFile(path.join(target, 'credential.txt'), `${'界'.repeat(70000)}\r${credential}\n`, 'utf8');
+    git(['add', 'credential.txt']);
+    git(['commit', '-m', 'test: historical fixture']);
+    await writeFile(path.join(target, 'later.txt'), content, 'utf8');
+    git(['add', 'later.txt']);
+    git(['commit', '-m', 'test: later large history']);
+    await writeFile(path.join(target, 'credential.txt'), 'removed\n', 'utf8');
+    git(['add', 'credential.txt']);
+    git(['commit', '-m', 'test: remove fixture']);
+    const unsafe = await runPrePush();
+    assert.equal(unsafe.code, 1);
+    assert.match(unsafe.stderr, /PUSH_SECRET_DETECTED/u);
+    assert.ok(!unsafe.stderr.includes(credential));
+  });
+});

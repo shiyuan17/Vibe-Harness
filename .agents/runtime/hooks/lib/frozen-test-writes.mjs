@@ -1,7 +1,9 @@
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
+import { classifyExecutionEffects } from './execution-effects.mjs';
 import {
   commandTokens,
+  hasUnsafeShellConstruct,
   SHELL_WRITE_VERB_PATTERN,
   shellSegments,
 } from './read-only-commands.mjs';
@@ -252,6 +254,9 @@ function deny(reasonCode, reason) {
  * @returns {Promise<{ action: 'allow' } | { action: 'deny', reasonCode: string, reason: string }>}
  */
 export async function evaluateFrozenTestWrite(input, projectRoot) {
+  const classification = classifyExecutionEffects(input);
+  if (classification.readOnly && !classification.cleanTreeRequired
+    && !hasUnsafeShellConstruct(collectShellText(input))) return { action: 'allow' };
   let frozen;
   try {
     frozen = await readFrozenPaths(projectRoot);

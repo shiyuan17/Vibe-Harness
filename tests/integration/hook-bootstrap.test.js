@@ -197,36 +197,50 @@ test('Hook bootstrap passes only the allowlisted environment to the managed runt
       "  leaked: process.env.OPENAI_API_KEY === undefined && process.env.AWS_SECRET_ACCESS_KEY === undefined ? 'none' : 'present',",
       "  root: process.env.VIBE_HARNESS_GIT_ROOT ?? null,",
       "  preset: process.env.VIBE_HARNESS_PERMISSION_PRESET ?? null,",
+      "  budget: process.env.VIBE_HARNESS_HOOK_BUDGET_MS ?? null,",
+      "  telemetry: process.env.VIBE_HARNESS_HOOK_TELEMETRY ?? null,",
+      "  mergeConfirmed: process.env.VIBE_HARNESS_CONFIRM_HIGH_RISK_MERGE ?? null,",
       '}));',
       '',
     ].join('\n'));
     const command = await bootstrapCommand();
     const result = await runBootstrap(command, {
       cwd: main,
-      env: { AWS_SECRET_ACCESS_KEY: 'probe-secret', OPENAI_API_KEY: 'probe-key', VIBE_HARNESS_PERMISSION_PRESET: 'read-only' },
+      env: {
+        AWS_SECRET_ACCESS_KEY: 'probe-secret',
+        OPENAI_API_KEY: 'probe-key',
+        VIBE_HARNESS_PERMISSION_PRESET: 'read-only',
+        VIBE_HARNESS_HOOK_BUDGET_MS: '150',
+        VIBE_HARNESS_HOOK_TELEMETRY: '0',
+        VIBE_HARNESS_CONFIRM_HIGH_RISK_MERGE: '1',
+      },
     });
     const report = JSON.parse(result.stdout);
     assert.equal(report.leaked, 'none');
     assert.equal(report.preset, 'read-only');
+    assert.equal(report.budget, '150');
+    assert.equal(report.telemetry, '0');
+    assert.equal(report.mergeConfirmed, '1');
     assert.equal(await realpath(report.root), await realpath(main));
     await cp(path.join(rootDir, 'runtime/hooks'), path.join(main, '.agents/runtime/hooks'), { recursive: true });
     await cp(path.join(rootDir, 'runtime/lib'), path.join(main, '.agents/runtime/lib'), { recursive: true });
     const event = JSON.stringify({
+      session_id: 'fixture-session',
       cwd: main,
       hook_event_name: 'PreToolUse',
       tool_name: 'Write',
       tool_input: { file_path: path.join(main, 'normal.txt'), content: 'probe' },
     });
-    const invoke = async (args) => {
+    const invoke = async (args, stdin = event, environment = { VIBE_HARNESS_PERMISSION_PRESET: 'analysis' }) => {
       const child = spawn(process.execPath, args, {
         cwd: main,
-        env: { ...process.env, VIBE_HARNESS_PERMISSION_PRESET: 'analysis' },
+        env: { ...process.env, ...environment },
         windowsHide: true,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
       const stdout = [];
       child.stdout.on('data', (chunk) => stdout.push(chunk));
-      child.stdin.end(event);
+      child.stdin.end(stdin);
       await new Promise((resolve, reject) => {
         child.once('error', reject);
         child.once('close', resolve);
@@ -237,6 +251,23 @@ test('Hook bootstrap passes only the allowlisted environment to the managed runt
     const wrapped = await invoke(['-e', (await readFile(bootstrapSourcePath, 'utf8')).trim(), '--', '--host', 'codex', '--expected-event', 'PreToolUse']);
     assert.equal(direct.hookSpecificOutput.permissionDecision, 'deny');
     assert.equal(wrapped.hookSpecificOutput.permissionDecision, direct.hookSpecificOutput.permissionDecision);
+    const mergeEvent = JSON.stringify({
+      session_id: 'fixture-session',
+      cwd: main,
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Bash',
+      tool_input: { command: 'git merge --no-ff origin/develop' },
+    });
+    const wrappedArgs = ['-e', (await readFile(bootstrapSourcePath, 'utf8')).trim(), '--', '--host', 'codex', '--expected-event', 'PreToolUse'];
+    const telemetryFile = path.join(main, '.git', 'vibe-harness', 'hooks', 'telemetry.jsonl');
+    const telemetryBefore = await readFile(telemetryFile, 'utf8').catch(() => '');
+    const confirmed = await invoke(wrappedArgs, mergeEvent, {
+      VIBE_HARNESS_PERMISSION_PRESET: '',
+      VIBE_HARNESS_CONFIRM_HIGH_RISK_MERGE: '1',
+      VIBE_HARNESS_HOOK_TELEMETRY: '0',
+    });
+    assert.deepEqual(confirmed, {});
+    assert.equal(await readFile(telemetryFile, 'utf8').catch(() => ''), telemetryBefore);
   } finally {
     await rm(base, { force: true, recursive: true });
   }

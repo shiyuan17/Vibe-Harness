@@ -1,12 +1,32 @@
-import { classifyExecutionEffects, ordinaryGitDelivery } from './execution-effects.mjs';
+import { classifyExecutionEffects, gitInvocation, ordinaryGitDelivery } from './execution-effects.mjs';
+import { shellInvocation, shellSegments } from './read-only-commands.mjs';
 import { presetDeniesClassification, presetDeniesToolWrite } from './role-permissions.mjs';
 
 function highRiskMerge(input) {
   const command = String(input.toolInput?.command ?? input.toolInput?.cmd ?? '');
-  if (!/\bgit(?:\.exe)?\s+(?:-[^\s]+\s+)*merge\b/iu.test(command)) return false;
-  const targets = command.match(/\bgit(?:\.exe)?\s+(?:-[^\s]+\s+)*merge\s+(.+)$/iu)?.[1] ?? '';
-  return /(?:^|\s)(?:main|master|release(?:[/-]|$)|hotfix[/-]|feat[/-]|fix[/-]|refs\/heads\/(?:main|master|release)|[^/\s]+\/(?:feat|fix|hotfix)[/-])/iu.test(targets)
-    || /--(?:no-ff|no-commit|squash)\b/iu.test(targets);
+  return shellSegments(command).some((segment) => {
+    const shell = shellInvocation(segment);
+    if (shell && ['pwsh', 'powershell', 'bash', 'sh', 'cmd'].includes(shell.name)) {
+      const commandIndex = shell.args.findIndex((argument) => /^(?:-c|-command|\/c)$/iu.test(argument));
+      if (commandIndex >= 0) return highRiskMerge({
+        ...input, toolInput: { command: shell.args.slice(commandIndex + 1).join(' ') },
+      });
+    }
+    const invocation = gitInvocation(segment);
+    if (invocation?.command !== 'merge') return false;
+    const { args } = invocation;
+    for (let index = 0; index < args.length; index += 1) {
+      const argument = args[index];
+      if (['-m', '--message', '-s', '--strategy', '-X', '--strategy-option', '--into-name'].includes(argument)) {
+        index += 1;
+        continue;
+      }
+      if (/^--(?:no-ff|no-commit|squash)$/u.test(argument)) return true;
+      if (argument.startsWith('-')) continue;
+      if (/^(?:main|master|release(?:[/-]|$)|hotfix[/-]|feat[/-]|fix[/-]|refs\/heads\/(?:main|master|release)|[^/\s]+\/(?:feat|fix|hotfix)[/-])/iu.test(argument)) return true;
+    }
+    return false;
+  });
 }
 
 export function evaluateExecutionSafety(input, { permissionPreset = null } = {}) {

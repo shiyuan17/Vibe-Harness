@@ -5469,6 +5469,19 @@
       "addedAt": "2026-10-29"
     },
     {
+      "id": "C-hook-read-only-classification-026",
+      "layer": "component",
+      "file": "tests/component/hook-read-only-classification.test.js",
+      "ordinal": 26,
+      "name": "搜索和输出中的合并文字不触发高风险确认",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-11-02"
+    },
+    {
       "id": "C-install-preset-001",
       "layer": "component",
       "file": "tests/component/install-preset.test.js",
@@ -10823,6 +10836,32 @@
       "source": "declared",
       "status": "active",
       "addedAt": "2026-10-30"
+    },
+    {
+      "id": "I-hook-runtime-043",
+      "layer": "integration",
+      "file": "tests/integration/hook-runtime.test.js",
+      "ordinal": 43,
+      "name": "损坏的冻结记录不阻塞明确只读操作但仍阻止写入和未知操作",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-11-02"
+    },
+    {
+      "id": "I-hook-runtime-044",
+      "layer": "integration",
+      "file": "tests/integration/hook-runtime.test.js",
+      "ordinal": 44,
+      "name": "推送流式扫描允许超大历史并拒绝已删除的历史凭据",
+      "legacy": false,
+      "risk": "standard",
+      "owner": "maintainers",
+      "source": "declared",
+      "status": "active",
+      "addedAt": "2026-11-02"
     },
     {
       "id": "I-install-dry-run-001",
